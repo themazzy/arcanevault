@@ -107,6 +107,17 @@ function getCardType(typeLine = '') {
   return 'Other'
 }
 
+// Flattens rendered groups back into the order they appear on screen, so the
+// card detail modal's Prev/Next can walk exactly what the user is looking at.
+function flattenGroups(groups, groupOrder) {
+  const out = []
+  for (const group of groupOrder) {
+    const cards = groups[group]
+    if (cards) out.push(...cards)
+  }
+  return out.map(getDisplayKey)
+}
+
 function buildGroups(cards, sfMap, groupBy, groupResolver, groupOrderOverride) {
   if (groupBy === 'none') return { groups: { All: cards }, groupOrder: ['All'] }
   const groups = {}
@@ -384,7 +395,7 @@ function getTableColClass(col) {
   return TABLE_COL_FOLD_CLASS[col] ? styles[TABLE_COL_FOLD_CLASS[col]] : ''
 }
 
-function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, onHover, onHoverEnd, collapsedGroups, onToggleGroup }) {
+function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onSelect, selectMode, selectedCards, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, onHover, onHoverEnd, collapsedGroups, onToggleGroup, onVisibleOrder }) {
   const [sortCol, setSortCol] = useState('name')
   const [sortDir, setSortDir] = useState(1)
   const [visibleCols, setVisibleCols] = useState(loadVisibleCols)
@@ -449,6 +460,15 @@ function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onS
       return sortDir * (va - vb)
     })
   }, [cards, priceSource, sfMap, sortCol, sortDir, isGrouped])
+
+  // Ungrouped, the table sorts by its own column header rather than the page's
+  // sort — so the table, not CardBrowserContent, is the authority on what order
+  // its rows are actually in.
+  const visibleOrder = useMemo(
+    () => (isGrouped ? flattenGroups(groups, groupOrder) : sorted.map(getDisplayKey)),
+    [isGrouped, groups, groupOrder, sorted]
+  )
+  useEffect(() => { onVisibleOrder?.(visibleOrder) }, [visibleOrder, onVisibleOrder])
 
   const arrow = col => (!isGrouped && sortCol === col) ? (sortDir > 0 ? '↑' : '↓') : ''
 
@@ -1116,6 +1136,7 @@ export function CardBrowserContent({
   onEnterSelectMode,
   onHover,
   onHoverEnd,
+  onVisibleOrder,
 }) {
   const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
   const { groups, groupOrder: resolvedGroupOrder } = useMemo(
@@ -1123,6 +1144,18 @@ export function CardBrowserContent({
     [cards, groupBy, groupOrder, groupResolver, sfMap]
   )
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+
+  // Report the on-screen card order so the detail modal's Prev/Next follows the
+  // grid instead of the pre-grouping filter order. TableView reports its own
+  // (it re-sorts when ungrouped), so skip it here to avoid two writers.
+  const visibleOrder = useMemo(
+    () => flattenGroups(groups, resolvedGroupOrder),
+    [groups, resolvedGroupOrder]
+  )
+  const tableOwnsOrder = effectiveViewMode === 'table'
+  useEffect(() => {
+    if (!tableOwnsOrder) onVisibleOrder?.(visibleOrder)
+  }, [tableOwnsOrder, visibleOrder, onVisibleOrder])
 
   const toggleGroup = group => {
     setCollapsedGroups(prev => {
@@ -1194,6 +1227,7 @@ export function CardBrowserContent({
         onHoverEnd={onHoverEnd}
         collapsedGroups={collapsedGroups}
         onToggleGroup={toggleGroup}
+        onVisibleOrder={onVisibleOrder}
       />
     )
   }

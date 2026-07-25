@@ -20,6 +20,7 @@ import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
 import { buildPairSnapshot, buildSyncDiff, getSyncState, isUniqueNameConflict, linkDeckPair, markLinkedPairUnsynced, reconcileCleanPair, resolveBuilderNameConflict, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
+import { useVisibleOrder, useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import { lastInputWasTouch } from '../lib/inputType'
 import { parseFolderBgUrl } from '../lib/folderBackground'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
@@ -1235,6 +1236,13 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
 
   const selectedCard = detailCardId ? (cardById.get(detailCardId) ?? null) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
+  // Detail-modal Prev/Next steps through the deck browser's on-screen order.
+  const [browseOrder, reportBrowseOrder] = useVisibleOrder()
+  const getDetailPeek = useCallback(key => {
+    const c = key == null ? null : cardById.get(key)
+    return cardPeek(c, c ? sfMap[getScryfallKey(c)] : null)
+  }, [cardById, sfMap])
+  const detailNav = useCardDetailNav(browseOrder, detailCardId, setDetailCardId, getDetailPeek)
   const handleCardSave = useCallback((updatedCard) => {
     setCards(prev => prev.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c))
     void markCurrentLinkedDeckUnsynced()
@@ -1510,12 +1518,13 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
             onEnterSelectMode={() => setSelectMode(true)}
             onHover={handleHover}
             onHoverEnd={handleHoverEnd}
+            onVisibleOrder={reportBrowseOrder}
           />
         </div>
       )}
 
       {selectedCard && (
-        <CardDetail card={selectedCard} sfCard={selectedSf}
+        <CardDetail {...detailNav} card={selectedCard} sfCard={selectedSf}
           priceSource={price_source}
           folders={[folder]}
           allFolders={allFolders}

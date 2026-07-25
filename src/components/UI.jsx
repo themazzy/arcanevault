@@ -494,6 +494,7 @@ export function Modal({
   closeOnEscape = true,
   className = '',
   contentClassName = '',
+  sideRails = null,
 }) {
   const modalRef = useRef(null)
   const modalContentRef = useRef(null)
@@ -543,24 +544,38 @@ export function Modal({
     }
   }, [])
 
+  const dialog = (
+    <div
+      ref={modalRef}
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
+      className={`${styles.modal} ${allowOverflow ? styles.modalAllowOverflow : ''} ${className}`}
+      style={modalHeight ? { height: `${modalHeight}px` } : undefined}
+      onClick={e => e.stopPropagation()}
+    >
+      {showClose && (
+        <button className={styles.closeBtn} onClick={e => { e.stopPropagation(); onClose?.() }}><CloseIcon size={13} /></button>
+      )}
+      <div ref={modalContentRef} className={`${styles.modalContent} ${allowOverflow ? styles.modalContentAllowOverflow : ''} ${contentClassName}`}>
+        {children}
+      </div>
+    </div>
+  )
+
   return (
     <div className={styles.overlay} onClick={handleOverlayClick}>
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        tabIndex={-1}
-        className={`${styles.modal} ${allowOverflow ? styles.modalAllowOverflow : ''} ${className}`}
-        style={modalHeight ? { height: `${modalHeight}px` } : undefined}
-        onClick={e => e.stopPropagation()}
-      >
-        {showClose && (
-          <button className={styles.closeBtn} onClick={e => { e.stopPropagation(); onClose?.() }}><CloseIcon size={13} /></button>
-        )}
-        <div ref={modalContentRef} className={`${styles.modalContent} ${allowOverflow ? styles.modalContentAllowOverflow : ''} ${contentClassName}`}>
-          {children}
+      {/* `sideRails` puts controls in the gutter beside the dialog rather than
+          inside it — the dialog clips its own overflow, so anything hung off
+          its edge would be cut. The stage is what centres the group; clicking
+          its empty space still closes, same as the overlay. */}
+      {sideRails ? (
+        <div className={styles.modalStage} onClick={handleOverlayClick}>
+          {sideRails.before}
+          {dialog}
+          {sideRails.after}
         </div>
-      </div>
+      ) : dialog}
     </div>
   )
 }

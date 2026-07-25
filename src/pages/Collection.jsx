@@ -28,6 +28,7 @@ import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { getSelectedDisplayQuantity } from '../lib/collectionDisplay'
 import { shouldOfferCardScanner } from '../lib/scannerAvailability'
 import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
+import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 
 const DEBOUNCE_MS = 300
 const FOLDER_CARDS_STALE_MS = 10 * 60 * 1000
@@ -1208,6 +1209,16 @@ export default function CollectionPage() {
   const selectedCard = detailCardKey ? displayCards.find(c => (c._displayKey || c.id) === detailCardKey) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
 
+  // Prev/Next in the detail modal. Both the grid and the table render
+  // `displayCards` verbatim, so it already is the on-screen order.
+  const browseOrder = useMemo(() => displayCards.map(c => c._displayKey || c.id), [displayCards])
+  const getDetailPeek = useCallback(key => {
+    if (key == null) return null
+    const c = displayCards.find(x => (x._displayKey || x.id) === key)
+    return cardPeek(c, c ? sfMap[getScryfallKey(c)] : null)
+  }, [displayCards, sfMap])
+  const detailNav = useCardDetailNav(browseOrder, detailCardKey, setDetailCardKey, getDetailPeek)
+
   const queryHasCardsPendingState = Array.isArray(cardsQuery.data) && cardsQuery.data.length > 0
   const collectionInitialLoading = !cards.length && (
     loading ||
@@ -1479,6 +1490,7 @@ export default function CollectionPage() {
 
       {selectedCard && (
         <CardDetail
+          {...detailNav}
           card={selectedCard} sfCard={selectedSf}
           folders={selectedCard._displayFolder ? [selectedCard._displayFolder] : (cardFolderMap[selectedCard.id] || [])}
           priceSource={price_source}

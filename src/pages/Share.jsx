@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { CardGrid, CardDetail, FilterBar, applyFilterSort } from '../components/CardComponents'
 import { EmptyState, ProgressBar } from '../components/UI'
+import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Share.module.css'
 
@@ -133,6 +134,14 @@ function BinderView({ cards, sfMap, enriching, search, setSearch, sort, setSort,
   const filtered = applyFilterSort(cards, sfMap, search, sort, foil)
   const selectedCard = selected ? cards.find(c => c.id === selected) : null
   const selectedSf = selectedCard ? sfMap[`${selectedCard.set_code}-${selectedCard.collector_number}`] : null
+  // CardGrid renders `filtered` in order, so it is the browse order for the
+  // detail modal's Prev/Next.
+  const browseOrder = useMemo(() => filtered.map(c => c.id), [filtered])
+  const getDetailPeek = useCallback(key => {
+    const c = key == null ? null : cards.find(x => x.id === key)
+    return cardPeek(c, c ? sfMap[`${c.set_code}-${c.collector_number}`] : null)
+  }, [cards, sfMap])
+  const detailNav = useCardDetailNav(browseOrder, selected, setSelected, getDetailPeek)
   return (
     <>
       <FilterBar search={search} setSearch={setSearch} sort={sort} setSort={setSort} foil={foil} setFoil={setFoil} />
@@ -140,7 +149,7 @@ function BinderView({ cards, sfMap, enriching, search, setSearch, sort, setSort,
       <div className={styles.count}>{filtered.length} cards</div>
       <CardGrid cards={filtered} sfMap={sfMap} loading={enriching} onSelect={c => setSelected(c.id)} />
       {filtered.length === 0 && !enriching && <EmptyState>No cards found.</EmptyState>}
-      {selectedCard && <CardDetail card={selectedCard} sfCard={selectedSf} readOnly onClose={() => setSelected(null)} />}
+      {selectedCard && <CardDetail {...detailNav} card={selectedCard} sfCard={selectedSf} readOnly onClose={() => setSelected(null)} />}
     </>
   )
 }

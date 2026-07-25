@@ -1188,12 +1188,20 @@
 }
 
 /* Shared Card Detail v2 */
+/* The dialog is sized from this element, so capping it here is what keeps a
+   long card (lots of oracle text, a full rulings list) inside the viewport
+   instead of running off the bottom of the screen. Content scrolls in place;
+   the close button and the gutter asides stay put. */
 .detailShell {
   display: flex;
   flex-direction: column;
   gap: 18px;
   position: relative;
-  overflow: hidden;
+  max-height: calc(100vh - 96px);
+  max-height: calc(100dvh - 96px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   isolation: isolate;
 }
 
@@ -1285,6 +1293,136 @@
   gap: 3px;
   font-size: 0.72rem;
   color: var(--text-dim);
+}
+
+/* Prev / position / Next stepper under the card image. Below 900px this is the
+   whole navigation control; from 900px up the side rails take the arrows and
+   only the position counter is left here. */
+.detailNavRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detailNavCount {
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+/* ── Gutter asides ─────────────────────────────────────────────────────────
+   The neighbouring card, desaturated, with its button underneath. These are
+   rendered outside the dialog (Modal's `sideRails`) so nothing is taken from
+   the card's own space, and they only appear where the gutter can hold them. */
+/* The column itself is the button: thumbnail and pill are one hit target, so
+   the hover state on the art is a promise the click keeps. No chrome of its
+   own — the pill inside wears the Button primitive's classes. */
+.detailNavAside {
+  display: none;               /* enabled from 1000px up */
+  flex-direction: column;
+  gap: 8px;
+  width: 104px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+/* At the ends of the list the aside keeps its width but disappears, so the
+   dialog stays put instead of sliding sideways on the first/last card. */
+.detailNavAsideEmpty {
+  visibility: hidden;
+}
+
+.detailNavThumb {
+  position: relative;
+  aspect-ratio: 63 / 88;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--s-border);
+  background: var(--s2);
+  box-shadow: 0 10px 26px rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Greyed back so it reads as "next up", not as a second card competing with
+   the one being viewed. Colour returns on hover. */
+.detailNavThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  filter: grayscale(1) brightness(0.62);
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.detailNavAside:hover .detailNavThumbImg,
+.detailNavAside:focus-within .detailNavThumbImg {
+  filter: grayscale(0.1) brightness(0.95);
+  transform: scale(1.03);
+}
+
+.detailNavThumbFallback {
+  padding: 6px;
+  font-size: 0.62rem;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--text-faint);
+}
+
+/* Parent-scoped so it beats the Button primitive on specificity rather than on
+   stylesheet order — the two live in separate CSS module chunks. */
+.detailNavAside .detailNavAsideBtn {
+  width: 100%;
+  justify-content: center;
+  gap: 4px;
+}
+
+/* Hovering the artwork has to light the pill too, or the column looks like two
+   separate things. Reuses the primitive's own hover custom properties, which
+   are defined on this element by its .btn/.secondary classes. */
+.detailNavAside:hover:not(:disabled) .detailNavAsideBtn,
+.detailNavAside:focus-visible .detailNavAsideBtn {
+  background: var(--btn-hover-bg);
+  border-color: var(--btn-hover-border);
+  color: var(--btn-hover-color);
+}
+
+@media (min-width: 1000px) {
+  .detailNavAside { display: flex; }
+  /* The asides carry the arrows here; the in-modal stepper keeps its counter.
+     Parent-scoped so it outranks the Button primitive's own `display`. */
+  .detailNavRow .detailNavStepBtn { display: none; }
+  .detailNavRow { justify-content: center; }
+}
+
+/* ── Step transition ───────────────────────────────────────────────────────
+   Only the artwork and card text move; the dialog frame stays where it is. */
+.detailHeroStepNext { animation: detailStepNext 0.24s cubic-bezier(0.2, 0, 0, 1) both; }
+.detailHeroStepPrev { animation: detailStepPrev 0.24s cubic-bezier(0.2, 0, 0, 1) both; }
+
+@keyframes detailStepNext {
+  from { opacity: 0; transform: translateX(22px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes detailStepPrev {
+  from { opacity: 0; transform: translateX(-22px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detailNavThumbImg { transition: none; }
+  .detailHeroStepNext,
+  .detailHeroStepPrev { animation: none; }
 }
 
 .detailHeader {

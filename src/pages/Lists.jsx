@@ -23,6 +23,7 @@ import styles from './Folders.module.css'
 import { CloseIcon, CheckIcon, AddIcon, BinderIcon, ChevronLeftIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SearchIcon, SettingsIcon, SortIcon, StacksViewIcon, WishlistsIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
+import { useVisibleOrder, useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import { fetchPrintingsByName } from '../lib/cardSearch'
 import { parseFolderBgUrl, withFolderBgUrl } from '../lib/folderBackground'
 import { ensureCardPrints, getCardPrint } from '../lib/cardPrints'
@@ -384,6 +385,18 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
   }, [items, sfMap])
   const selectedItem = selectedItemId ? (itemById.get(selectedItemId) ?? null) : null
   const selectedSf = selectedItem ? sfMap[`${selectedItem.set_code}-${selectedItem.collector_number}`] : null
+  // Detail-modal Prev/Next follows the wishlist grid's on-screen order.
+  const [browseOrder, reportBrowseOrder] = useVisibleOrder()
+  const getDetailPeek = useCallback(key => {
+    const item = key == null ? null : itemById.get(key)
+    return cardPeek(item, item ? sfMap[`${item.set_code}-${item.collector_number}`] : null)
+  }, [itemById, sfMap])
+  const detailNav = useCardDetailNav(browseOrder, selectedItemId, setSelectedItemId, getDetailPeek)
+  // Memoised: the browser regroups whenever this array's identity changes.
+  const browserCards = useMemo(() => filtered.map(item => ({
+    ...item,
+    _folderName: isAllView ? folderNameById[item.folder_id] || '' : '',
+  })), [filtered, isAllView, folderNameById])
   const selectableItemQty = useMemo(() =>
     filtered.reduce((sum, item) => sum + (item.qty || 1), 0)
   , [filtered])
@@ -737,10 +750,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
       {filtered.length > 0 && (
         <div className={styles.browserViewport} ref={viewportRefCb} style={{ '--sbw': `${viewportSbw}px` }}>
           <CardBrowserContent
-            cards={filtered.map(item => ({
-              ...item,
-              _folderName: isAllView ? folderNameById[item.folder_id] || '' : '',
-            }))}
+            cards={browserCards}
             sfMap={sfMap}
             priceSource={price_source}
             viewMode={viewMode}
@@ -755,12 +765,14 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
             onEnterSelectMode={enterSelectMode}
             onHover={handleHover}
             onHoverEnd={handleHoverEnd}
+            onVisibleOrder={reportBrowseOrder}
           />
         </div>
       )}
 
       {selectedItem && (
         <CardDetail
+          {...detailNav}
           card={selectedItem}
           sfCard={selectedSf}
           priceSource={price_source}

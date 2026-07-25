@@ -125,6 +125,151 @@ describe('CardDetail', () => {
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeTruthy()
   })
 
+  describe('prev/next stepper', () => {
+    const navProps = { navIndex: 1, navTotal: 4, onNavigate: vi.fn() }
+
+    it('shows the position and steps in both directions', async () => {
+      const onNavigate = vi.fn()
+      render(<Detail card={CARD} {...navProps} onNavigate={onNavigate} />)
+
+      expect(screen.getByText('2 / 4')).toBeTruthy()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Next card' }))
+      expect(onNavigate).toHaveBeenCalledWith(1)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Previous card' }))
+      expect(onNavigate).toHaveBeenLastCalledWith(-1)
+    })
+
+    it('disables the button at each end of the list instead of wrapping', () => {
+      const { rerender } = render(<Detail card={CARD} {...navProps} navIndex={0} />)
+      expect(screen.getByRole('button', { name: 'Previous card (←)' }).disabled).toBe(true)
+      expect(screen.getByRole('button', { name: 'Next card (→)' }).disabled).toBe(false)
+      // The gutter aside for a card that isn't there drops out of the
+      // accessibility tree entirely rather than announcing a dead control.
+      expect(screen.queryByRole('button', { name: 'Previous card' })).toBe(null)
+
+      rerender(<Detail card={CARD} {...navProps} navIndex={3} />)
+      expect(screen.getByRole('button', { name: 'Previous card (←)' }).disabled).toBe(false)
+      expect(screen.getByRole('button', { name: 'Next card (→)' }).disabled).toBe(true)
+      expect(screen.queryByRole('button', { name: 'Next card' })).toBe(null)
+    })
+
+    it('hides the stepper without onNavigate, for a lone card, or off-list', () => {
+      const { rerender } = render(<Detail card={CARD} navIndex={1} navTotal={4} />)
+      expect(screen.queryByRole('button', { name: 'Next card' })).toBe(null)
+
+      rerender(<Detail card={CARD} {...navProps} navIndex={0} navTotal={1} />)
+      expect(screen.queryByRole('button', { name: 'Next card' })).toBe(null)
+
+      rerender(<Detail card={CARD} {...navProps} navIndex={-1} />)
+      expect(screen.queryByRole('button', { name: 'Next card' })).toBe(null)
+    })
+
+    it('renders the gutter asides with the neighbouring cards art', async () => {
+      const onNavigate = vi.fn()
+      render(
+        <Detail
+          card={CARD}
+          navIndex={1}
+          navTotal={4}
+          onNavigate={onNavigate}
+          navPrev={{ name: 'Before Card', image: 'https://img/before.jpg' }}
+          navNext={{ name: 'After Card', image: 'https://img/after.jpg' }}
+        />
+      )
+
+      const nextAside = screen.getByRole('button', { name: 'Next card: After Card' })
+      expect(screen.getByRole('button', { name: 'Previous card: Before Card' })).toBeTruthy()
+      expect(document.querySelector('img[src="https://img/after.jpg"]')).toBeTruthy()
+
+      await userEvent.click(nextAside)
+      expect(onNavigate).toHaveBeenCalledWith(1)
+    })
+
+    it('navigates from the thumbnail, not just the pill under it', async () => {
+      // The thumbnail changes on hover, so it has to be part of the control —
+      // a preview that reacts to the pointer but ignores clicks reads as broken.
+      const onNavigate = vi.fn()
+      render(
+        <Detail
+          card={CARD}
+          navIndex={1}
+          navTotal={4}
+          onNavigate={onNavigate}
+          navNext={{ name: 'After Card', image: 'https://img/after.jpg' }}
+        />
+      )
+
+      await userEvent.click(document.querySelector('img[src="https://img/after.jpg"]'))
+      expect(onNavigate).toHaveBeenCalledWith(1)
+    })
+
+    it('keeps the asides usable when a neighbour has no preview image', () => {
+      render(<Detail card={CARD} {...navProps} />)
+      // No navPrev/navNext supplied — no thumbnail, buttons still work.
+      expect(screen.getByRole('button', { name: 'Previous card' }).disabled).toBe(false)
+      expect(screen.getByRole('button', { name: 'Next card' }).disabled).toBe(false)
+    })
+
+    it('marks the direction of travel so the incoming card slides in from it', async () => {
+      const { container } = render(<Detail card={CARD} {...navProps} />)
+      const heroClass = () => container.querySelector('[class*="detailHero"]').className
+
+      expect(heroClass()).not.toMatch(/detailHeroStep/)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Next card' }))
+      expect(heroClass()).toMatch(/detailHeroStepNext/)
+
+      await userEvent.click(screen.getByRole('button', { name: 'Previous card' }))
+      expect(heroClass()).toMatch(/detailHeroStepPrev/)
+    })
+
+    it('steps with the arrow keys, but not while a field has focus', async () => {
+      const onNavigate = vi.fn()
+      render(
+        <MemoryRouter>
+          <CardDetail card={CARD} sfCard={SF_CARD} onClose={vi.fn()} onSave={vi.fn()}
+            navIndex={1} navTotal={4} onNavigate={onNavigate} />
+        </MemoryRouter>
+      )
+
+      await userEvent.keyboard('{ArrowRight}')
+      expect(onNavigate).toHaveBeenCalledWith(1)
+      await userEvent.keyboard('{ArrowLeft}')
+      expect(onNavigate).toHaveBeenLastCalledWith(-1)
+
+      // Editable surface: the arrow keys belong to the quantity field once it
+      // has focus.
+      onNavigate.mockClear()
+      await userEvent.click(document.querySelector('[name="card-detail-quantity"]'))
+      await userEvent.keyboard('{ArrowRight}')
+      expect(onNavigate).not.toHaveBeenCalled()
+    })
+
+    it('re-derives the edit form when the card is swapped in place', async () => {
+      const OTHER = { ...CARD, id: 'card-2', name: 'Second Card', qty: 7, condition: 'damaged' }
+      const { rerender } = render(
+        <MemoryRouter>
+          <CardDetail card={CARD} sfCard={SF_CARD} onClose={vi.fn()} onSave={vi.fn()}
+            navIndex={0} navTotal={2} onNavigate={vi.fn()} />
+        </MemoryRouter>
+      )
+      expect(document.querySelector('[name="card-detail-quantity"]').value).toBe('1')
+
+      // Stepping does not remount (the active tab survives), so the per-card
+      // form state has to follow the new card.
+      rerender(
+        <MemoryRouter>
+          <CardDetail card={OTHER} sfCard={SF_CARD} onClose={vi.fn()} onSave={vi.fn()}
+            navIndex={1} navTotal={2} onNavigate={vi.fn()} />
+        </MemoryRouter>
+      )
+      await waitFor(() => expect(document.querySelector('[name="card-detail-quantity"]').value).toBe('7'))
+      expect(screen.getByRole('button', { name: 'Damaged' })).toBeTruthy()
+    })
+  })
+
   // Each editable test uses its own set/collector number: fetchFullCard and
   // fetchPrintingLanguages both memoize on that key at module scope.
   function Editable({ card, ...rest }) {

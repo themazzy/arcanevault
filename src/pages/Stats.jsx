@@ -11,6 +11,7 @@ import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
+import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import { EmptyState, SectionHeader, ProgressBar, Select } from '../components/UI'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
@@ -32,6 +33,8 @@ const RARITY_COLORS = {
   common: '#6a6a7a', uncommon: '#8ab0c8', rare: '#c9a84c', mythic: '#c46030', special: '#8a6fc4',
 }
 const PIE_COLORS = ['#c9a84c', '#8a6fc4', '#8ab87a', '#c46060', '#5a9ab0', '#c47060', '#7a8ac0']
+const EMPTY_CARDS = []
+const EMPTY_SF_MAP = {}
 const FORMAT_COLORS = {
   Commander: '#c9a84c', Modern: '#5a9ab0', Pioneer: '#8ab87a',
   Standard: '#c46030', Legacy: '#8a6fc4', Vintage: '#6a6a7a',
@@ -1224,7 +1227,9 @@ export default function StatsPage() {
     staleTime: STATS_FRESH_MS,
     enabled: !!user?.id,
   })
-  const cards = cardsQuery.data ?? []
+  // Shared empty fallbacks: a fresh `[]`/`{}` per render would give every memo
+  // and callback that depends on them a new identity on every render.
+  const cards = cardsQuery.data ?? EMPTY_CARDS
 
   const sfMapQuery = useQuery({
     queryKey: ['sfMap', user.id],
@@ -1235,7 +1240,7 @@ export default function StatsPage() {
     staleTime: SCRYFALL_CACHE_TTL_MS,
     enabled: !!user?.id && cards.length > 0,
   })
-  const sfMap = sfMapQuery.data ?? {}
+  const sfMap = sfMapQuery.data ?? EMPTY_SF_MAP
 
   const publicDeckCountQuery = useQuery({
     queryKey: ['publicDeckCount', user.id],
@@ -1570,6 +1575,14 @@ export default function StatsPage() {
   const tt = (p) => <CustomTooltip {...p} fmt={fmt} />
   const selectedCard = detailCardId ? cards.find(c => c.id === detailCardId) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
+  // The detail modal is only opened from the Top 20 showcase, so that ranking
+  // is the list Prev/Next walks.
+  const topCardOrder = useMemo(() => (stats?.topCards || []).map(c => c.id), [stats])
+  const getDetailPeek = useCallback(key => {
+    const c = key == null ? null : cards.find(x => x.id === key)
+    return cardPeek(c, c ? sfMap[getScryfallKey(c)] : null)
+  }, [cards, sfMap])
+  const detailNav = useCardDetailNav(topCardOrder, detailCardId, setDetailCardId, getDetailPeek)
 
   if (loading) return (
     <>
@@ -1865,6 +1878,7 @@ export default function StatsPage() {
 
         {selectedCard && (
           <CardDetail
+            {...detailNav}
             card={selectedCard}
             sfCard={selectedSf}
             priceSource={price_source}

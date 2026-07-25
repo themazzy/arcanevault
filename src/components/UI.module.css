@@ -637,6 +637,24 @@
   overflow: visible;
 }
 
+/* Row that holds the dialog plus any gutter rails, centred as one group. The
+   dialog keeps its own max-width but is allowed to shrink so the rails always
+   fit on screen. */
+.modalStage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  margin: auto;
+}
+
+.modalStage > .modal {
+  margin: 0;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
 .modalContent {
   width: 100%;
 }

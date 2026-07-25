@@ -295,6 +295,8 @@ const DECK_FILTER_COLOR_LABELS = {
 }
 
 const DECK_FILTER_SEARCH_DELAY_MS = 160
+// Stable empty order for cards opened without a browsable list behind them.
+const EMPTY_NAV_ORDER = []
 
 /**
  * Keep raw keystrokes out of DeckBuilder's state. Updating the page-level
@@ -629,6 +631,7 @@ import GuidedBuildOverlay from '../components/deckBuilder/GuidedBuildOverlay'
 import { useCommanderSearch } from '../hooks/useCommanderSearch'
 import { useCardSearch } from '../hooks/useCardSearch'
 import { useCombosFetch } from '../hooks/useCombosFetch'
+import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 
 // ── Main DeckBuilder component ────────────────────────────────────────────────
 export default function DeckBuilderPage() {
@@ -1650,14 +1653,17 @@ export default function DeckBuilderPage() {
     colorIdentity,
   })
 
-  // Open card detail modal from a deck_card or Scryfall card object
+  // Open card detail modal from a deck_card or Scryfall card object.
+  // `nav` records which list the card was opened from so the modal's Prev/Next
+  // steps through that list — the deck itself, or the search results.
   const openDeckCardDetail = useCallback((dc) => {
-    setDetailCard({ card: dc, sfCard: null })
+    setDetailCard({ card: dc, sfCard: null, nav: { kind: 'deck', key: dc.id } })
   }, [])
 
   // Open card detail modal for a Scryfall search result (id = scryfall_id, set = set_code)
   const openSearchCardDetail = useCallback((c) => {
     setDetailCard({
+      nav: { kind: 'search', key: c.id },
       card: {
         scryfall_id: c.id,
         set_code: c.set,
@@ -2248,6 +2254,68 @@ export default function DeckBuilderPage() {
     if (groupBy === 'color')    return ['Commander', ...COLOR_GROUP_ORDER].filter(g => cards.some(dc => getDeckCardGroup(dc) === g))
     return TYPE_GROUPS
   }, [groupBy, getCategoryOrder, getDeckCardGroup])
+
+  // Flat on-screen order of the deck list — boards top to bottom, groups in the
+  // order they render, cards within each group. Mirrors renderCardSet below;
+  // keep the two in step or Prev/Next will disagree with the visible list.
+  const deckBrowseOrder = useMemo(() => {
+    const keys = []
+    for (const board of BOARD_ORDER) {
+      const boardCards = sortedDeckCards.filter(dc => normalizeBoard(dc.board) === board)
+      if (!boardCards.length) continue
+      if (groupBy === 'none') {
+        for (const dc of boardCards) keys.push(dc.id)
+        continue
+      }
+      const groupMap = new Map(getGroupOrder(boardCards).map(g => [g, []]))
+      for (const dc of boardCards) {
+        const g = getDeckCardGroup(dc)
+        if (!groupMap.has(g)) groupMap.set(g, [])
+        groupMap.get(g).push(dc)
+      }
+      for (const groupCards of groupMap.values()) {
+        for (const dc of groupCards) keys.push(dc.id)
+      }
+    }
+    return keys
+  }, [sortedDeckCards, groupBy, getGroupOrder, getDeckCardGroup])
+
+  // Prev/Next for the detail modal, over whichever list the card was opened
+  // from. Cards opened by name (combo / recommendation panels) carry no nav
+  // context, so they get no stepper.
+  const deckCardById = useMemo(() => new Map(deckCards.map(dc => [dc.id, dc])), [deckCards])
+  const searchResultById = useMemo(() => new Map(searchResults.map(c => [c.id, c])), [searchResults])
+  const detailNavKind = detailCard?.nav?.kind || null
+  const detailNavOrder = useMemo(() => {
+    if (detailNavKind === 'deck') return deckBrowseOrder
+    if (detailNavKind === 'search') return searchResults.map(c => c.id)
+    return EMPTY_NAV_ORDER
+  }, [detailNavKind, deckBrowseOrder, searchResults])
+  const openDetailByNavKey = useCallback((key) => {
+    if (detailNavKind === 'deck') {
+      const dc = deckCardById.get(key)
+      if (dc) openDeckCardDetail(dc)
+      return
+    }
+    if (detailNavKind === 'search') {
+      const c = searchResultById.get(key)
+      if (c) openSearchCardDetail(c)
+    }
+  }, [detailNavKind, deckCardById, searchResultById, openDeckCardDetail, openSearchCardDetail])
+  const getDetailPeek = useCallback((key) => {
+    if (key == null) return null
+    if (detailNavKind === 'deck') {
+      const dc = deckCardById.get(key)
+      return cardPeek(dc, dc ? builderSfMap[getScryfallKey(dc)] : null)
+    }
+    if (detailNavKind === 'search') {
+      // Search rows are Scryfall-shaped already — the card is its own sfCard.
+      const c = searchResultById.get(key)
+      return cardPeek(c, c)
+    }
+    return null
+  }, [detailNavKind, deckCardById, searchResultById, builderSfMap])
+  const detailNav = useCardDetailNav(detailNavOrder, detailCard?.nav?.key ?? null, openDetailByNavKey, getDetailPeek)
 
   const revealWarningCard = useCallback((cardId) => {
     const plan = getDeckWarningRevealPlan({
@@ -6751,6 +6819,7 @@ export default function DeckBuilderPage() {
       {/* Read-only card detail modal */}
       {detailCard && (
         <CardDetail
+          {...detailNav}
           card={detailCard.card}
           sfCard={detailCard.sfCard}
           priceSource={price_source}

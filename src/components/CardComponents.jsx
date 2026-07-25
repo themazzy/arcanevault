@@ -1,11 +1,11 @@
-﻿import { useState, useEffect, useRef, useMemo } from 'react'
+﻿import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { formatAttractionLights } from '../lib/attractions'
 import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { Modal, Badge, Button, Input, ResponsiveMenu, Select, SearchInput } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
-import { AddIcon, BinderIcon, CheckIcon, ChevronRightIcon, CloseIcon, DeckIcon, FilterIcon, FolderTypeIcon, SearchIcon, SortIcon, WishlistsIcon } from '../icons'
+import { AddIcon, BinderIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DeckIcon, FilterIcon, FolderTypeIcon, SearchIcon, SortIcon, WishlistsIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
@@ -488,7 +488,48 @@ export function CardDetail(props) {
   return <CardDetailContent {...props} />
 }
 
-function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false, readOnlyDefaultTab = 'prices', actions = null }) {
+// Gutter aside: the neighbouring card's art, desaturated, with its button
+// beneath. Rendered outside the dialog (see Modal's `sideRails`) and only from
+// 1000px up — below that the stepper under the artwork takes over. At the ends
+// of the list the aside keeps its space but goes invisible, so reaching the
+// last card doesn't shift the dialog sideways.
+function CardDetailNavAside({ side, peek, disabled, onClick }) {
+  const isPrev = side === 'prev'
+  const label = `${isPrev ? 'Previous' : 'Next'} card${peek?.name ? `: ${peek.name}` : ''}`
+  // The whole column is the control — the thumbnail lights up on hover, so it
+  // has to be clickable too. The pill below is a span wearing the Button
+  // primitive's classes (a real button can't nest inside a button), and the
+  // outer element carries no chrome of its own.
+  return (
+    <button
+      type="button"
+      className={`${styles.detailNavAside}${disabled ? ' ' + styles.detailNavAsideEmpty : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+      aria-hidden={disabled || undefined}
+      aria-label={label}
+      title={label}
+    >
+      <span className={styles.detailNavThumb}>
+        {peek?.image
+          ? <img className={styles.detailNavThumbImg} src={peek.image} alt="" loading="lazy" />
+          : <span className={styles.detailNavThumbFallback}>{peek?.name || ''}</span>}
+      </span>
+      <span className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.secondary} ${styles.detailNavAsideBtn}`}>
+        {isPrev
+          ? <><ChevronLeftIcon size={13} /> Prev</>
+          : <>Next <ChevronRightIcon size={13} /></>}
+      </span>
+    </button>
+  )
+}
+
+// `navIndex` / `navTotal` / `onNavigate` drive the Prev/Next stepper: the caller
+// owns the browse order (whatever its grid is actually showing) and swaps the
+// `card` prop, so the modal never remounts and never has to know how the list
+// was built. Omitting `onNavigate` hides the stepper entirely. `navPrev` /
+// `navNext` are optional `{ name, image }` previews for the desktop rails.
+function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, folders, priceSource = 'cardmarket_trend', onSave, currentFolderId = null, currentFolderType = null, readOnly = false, readOnlyDefaultTab = 'prices', actions = null, navIndex = -1, navTotal = 0, onNavigate = null, navPrev = null, navNext = null }) {
   const navigate = useNavigate()
   // Editable surfaces open on Edit; read-only surfaces open on a caller-chosen
   // tab (Legality in the deck builder, Prices elsewhere). The Card tab is gone —
@@ -544,6 +585,63 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
   }, [cachedImg, fullImg])
 
   useEffect(() => () => { flipTimers.current.forEach(clearTimeout) }, [])
+
+  // Prev/Next swaps the `card` prop in place instead of remounting (so the
+  // active tab survives the step), which means every piece of per-card state
+  // has to be re-derived here. Keyed on the card's identity rather than the
+  // object: a save replaces the object with the same card and must not reset
+  // the form under the user.
+  const cardIdentity = card._displayKey || card.id ||
+    `${card.scryfall_id || ''}|${card.set_code || ''}|${card.collector_number || ''}|${card.foil ? 1 : 0}`
+  const isFirstCard = useRef(true)
+  useEffect(() => {
+    if (isFirstCard.current) { isFirstCard.current = false; return }
+    flipTimers.current.forEach(clearTimeout)
+    flipTimers.current = []
+    setFlipPhase('idle')
+    setEditQty(currentFolderId && card._folder_qty != null ? card._folder_qty : card.qty)
+    setEditFoil(card.foil)
+    setEditCondition(card.condition || 'near_mint')
+    setEditLanguage(card.language || 'en')
+    setEditBuyPrice(parseFloat(card.purchase_price) || 0)
+    setBuyPriceInput(parseFloat(card.purchase_price) > 0 ? String(parseFloat(card.purchase_price)) : '')
+    setPrintings(null)
+    setLoadingPrintings(false)
+    setSaved(false)
+    setSaveError('')
+  }, [cardIdentity])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const canPrev = !!onNavigate && navIndex > 0
+  const canNext = !!onNavigate && navIndex >= 0 && navIndex < navTotal - 1
+  const showNav = !!onNavigate && navIndex >= 0 && navTotal > 1
+
+  // Direction of travel, recorded when the step is requested so the incoming
+  // card can slide in from the side it came from. The dialog itself never
+  // moves — only the artwork and card text cross-fade across.
+  const [stepDir, setStepDir] = useState(0)
+  const step = useCallback(delta => {
+    // Guarded for the keyboard path — the buttons are already disabled at the
+    // ends, and animating a step that can't happen reads as a glitch.
+    if (delta < 0 ? !canPrev : !canNext) return
+    setStepDir(delta)
+    onNavigate?.(delta)
+  }, [onNavigate, canPrev, canNext])
+
+  // ← / → step through the list. Ignored while a field has focus so the arrow
+  // keys keep working inside the Edit tab's number inputs and the printing menu.
+  useEffect(() => {
+    if (!onNavigate) return
+    const onKeyDown = e => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+      if (e.altKey || e.ctrlKey || e.metaKey) return
+      const el = document.activeElement
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+      e.preventDefault()
+      step(e.key === 'ArrowLeft' ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onNavigate, step])
 
   useEffect(() => {
     setFace(0)
@@ -778,9 +876,23 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
   ]
 
   return (
-    <Modal onClose={onClose} allowOverflow={false} className={styles.detailModal}>
+    <Modal
+      onClose={onClose}
+      allowOverflow={false}
+      className={styles.detailModal}
+      sideRails={showNav ? {
+        before: <CardDetailNavAside side="prev" peek={navPrev} disabled={!canPrev} onClick={() => step(-1)} />,
+        after:  <CardDetailNavAside side="next" peek={navNext} disabled={!canNext} onClick={() => step(1)} />,
+      } : null}
+    >
       <div className={styles.detailShell}>
-        <div className={styles.detailHero}>
+        {/* Keyed on the card so a step remounts the hero and replays the
+            slide-in; `both` fill keeps the finished state until the class goes. */}
+        <div
+          key={cardIdentity}
+          className={`${styles.detailHero}${stepDir === 1 ? ' ' + styles.detailHeroStepNext : stepDir === -1 ? ' ' + styles.detailHeroStepPrev : ''}`}
+          onAnimationEnd={e => { if (e.target === e.currentTarget) setStepDir(0) }}
+        >
           <div className={styles.detailArtCol}>
             <div className={styles.detailArtWrap}>
               {img
@@ -792,6 +904,35 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                   />
                 : <div className={styles.imgPlaceholder}>{card.name}</div>}
             </div>
+            {showNav && (
+              <div className={styles.detailNavRow}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  className={styles.detailNavStepBtn}
+                  onClick={() => step(-1)}
+                  disabled={!canPrev}
+                  aria-label="Previous card (←)"
+                  title="Previous card (←)"
+                >
+                  <ChevronLeftIcon size={14} />
+                </Button>
+                <span className={styles.detailNavCount}>{navIndex + 1} / {navTotal}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  className={styles.detailNavStepBtn}
+                  onClick={() => step(1)}
+                  disabled={!canNext}
+                  aria-label="Next card (→)"
+                  title="Next card (→)"
+                >
+                  <ChevronRightIcon size={14} />
+                </Button>
+              </div>
+            )}
             {hasFaces && (
               <button
                 className={`${uiStyles.btn} ${uiStyles.sm} ${uiStyles.ghost}`}

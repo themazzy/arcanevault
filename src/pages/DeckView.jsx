@@ -21,6 +21,7 @@ import { DeckLikeButton, DeckComments } from '../components/community/DeckSocial
 import { deckBracketBadge } from '../lib/commanderBracket'
 import { scryfallCardDetailUrls } from '../lib/cardDetailUrls'
 import { useComboCardImage } from '../hooks/useComboCardImage'
+import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
@@ -85,7 +86,7 @@ function getSfCard(sfMap, card) {
 //   • a deck-card row  — has set_code/collector_number, sfCard comes from sfMap
 //   • a bare card name — combo suggestions; we resolve it to a printing first so
 //     it gets the same tabbed detail as deck cards.
-function CardDetailModal({ card, sfMap, priceSource, onClose }) {
+function CardDetailModal({ card, sfMap, priceSource, onClose, navIndex, navTotal, onNavigate, navPrev, navNext }) {
   const isName = typeof card === 'string'
   const [combo, setCombo] = useState(null)   // { card, sf } once a name resolves
   const [failed, setFailed] = useState(false)
@@ -131,6 +132,11 @@ function CardDetailModal({ card, sfMap, priceSource, onClose }) {
       readOnly
       readOnlyDefaultTab="prices"
       onClose={onClose}
+      navIndex={navIndex}
+      navTotal={navTotal}
+      onNavigate={onNavigate}
+      navPrev={navPrev}
+      navNext={navNext}
     />
   )
 
@@ -546,6 +552,38 @@ export default function DeckViewPage() {
   }, [sortedFlat])
   const effectiveViewMode = viewMode === 'list' ? 'table' : viewMode
 
+  // Detail-modal Prev/Next. Each board section renders its own browser, so the
+  // page order is the sections' reported orders concatenated in render order.
+  // A combo suggestion (opened by name, not part of the deck) reports no index
+  // and gets no stepper.
+  const [boardOrders, setBoardOrders] = useState({})
+  const reportBoardOrder = useCallback((board, keys) => {
+    setBoardOrders(prev => {
+      const cur = prev[board]
+      if (cur && cur.length === keys.length && cur.every((k, i) => k === keys[i])) return prev
+      return { ...prev, [board]: keys }
+    })
+  }, [])
+  const browseOrder = useMemo(
+    () => boardSections.flatMap(section => boardOrders[section.board] || []),
+    [boardSections, boardOrders]
+  )
+  const cardById = useMemo(() => new Map(cards.map(c => [c.id, c])), [cards])
+  const openDetailByKey = useCallback(key => {
+    const next = cardById.get(key)
+    if (next) setDetailCard(next)
+  }, [cardById])
+  const getDetailPeek = useCallback(key => {
+    const c = key == null ? null : cardById.get(key)
+    return cardPeek(c, c ? getSfCard(sfMap, c) : null)
+  }, [cardById, sfMap])
+  const detailNav = useCardDetailNav(
+    browseOrder,
+    typeof detailCard === 'string' ? null : (detailCard?.id ?? null),
+    openDetailByKey,
+    getDetailPeek
+  )
+
   // Total deck value
   const totalValueFmt = useMemo(() => {
     const v = cards.reduce((sum, c) => {
@@ -630,7 +668,7 @@ export default function DeckViewPage() {
     <div className={styles.page}>
 
       {/* Card detail modal */}
-      {detailCard && <CardDetailModal card={detailCard} sfMap={sfMap} priceSource={price_source} onClose={() => setDetailCard(null)} />}
+      {detailCard && <CardDetailModal {...detailNav} card={detailCard} sfMap={sfMap} priceSource={price_source} onClose={() => setDetailCard(null)} />}
 
       {/* ── Top bar ── */}
       <div className={styles.topBar}>
@@ -952,6 +990,7 @@ export default function DeckViewPage() {
                   onSelect={card => setDetailCard(card)}
                   onHover={effectiveViewMode !== 'grid' ? img => setHoverImg(img) : undefined}
                   onHoverEnd={effectiveViewMode !== 'grid' ? () => setHoverImg(null) : undefined}
+                  onVisibleOrder={keys => reportBoardOrder(section.board, keys)}
                 />
               </div>
             ))}

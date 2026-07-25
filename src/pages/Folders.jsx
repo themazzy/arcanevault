@@ -23,6 +23,7 @@ import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import { useAllFolders } from '../hooks/useAllFolders'
+import { useVisibleOrder, useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import { getPlacedQtyByCardIds, pruneUnplacedCards, removeFolderCardPlacements } from '../lib/collectionOwnership'
 import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFolders, getCardsByIds, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
 import { queryClient } from '../lib/queryClient'
@@ -732,6 +733,15 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
 
   const selectedCard = !isAllView && selected ? (cardByKey.get(selected) ?? null) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null
+  // Prev/Next in the detail modal walks the browser's on-screen order, which
+  // CardBrowserContent reports (grouping and the table's own column sort both
+  // reorder the cards away from `filtered`).
+  const [browseOrder, reportBrowseOrder] = useVisibleOrder()
+  const getDetailPeek = useCallback(key => {
+    const c = key == null ? null : cardByKey.get(key)
+    return cardPeek(c, c ? sfMap[getScryfallKey(c)] : null)
+  }, [cardByKey, sfMap])
+  const detailNav = useCardDetailNav(browseOrder, selected, setSelected, getDetailPeek)
   const invalidatePlacementCaches = useCallback((options = {}) => (
     invalidateOwnedCollectionQueries(queryClient, user?.id, options).catch(() => {})
   ), [user?.id])
@@ -1127,11 +1137,13 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
             onEnterSelectMode={() => setSelectMode(true)}
             onHover={handleHover}
             onHoverEnd={handleHoverEnd}
+            onVisibleOrder={reportBrowseOrder}
           />
         </div>
       )}
       {selectedCard && (
         <CardDetail
+          {...detailNav}
           card={selectedCard}
           sfCard={selectedSf}
           folders={folder ? [folder] : []}

@@ -16,6 +16,7 @@ import { useAuth } from '../components/Auth'
 import { fetchDeckCards } from '../lib/deckData'
 import { FORMATS, fetchCardsByScryfallIds, getCardImageUri, parseDeckMeta } from '../lib/deckBuilderApi'
 import { CardDetail } from '../components/CardComponents'
+import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import { fetchDeckTokenCard, getDeckTokenItems } from '../lib/deckTokens'
 import { isNativeApp } from '../lib/nativeAuth'
 import {
@@ -449,7 +450,7 @@ function CardActionMenu({ menu, onMove, onInspect, onToggleTapped, onFlip, onRem
       <button className={styles.menuBackdrop} aria-label="Close card menu" onClick={onClose} />
       <div className={styles.cardMenu} style={{ left: menu.x, top: menu.y }}>
         <div className={styles.cardMenuTitle}>{menu.card.name}</div>
-        {!menu.card.isCustomToken && <button onClick={() => { onInspect(menu.card); onClose() }}>View Card</button>}
+        {!menu.card.isCustomToken && <button onClick={() => { onInspect(menu.card, menu.zone); onClose() }}>View Card</button>}
         {menu.zone === 'battlefield' && (
           <button onClick={() => { onToggleTapped(menu.card.instanceId); onClose() }}>
             {menu.card.tapped ? 'Untap' : 'Tap'}
@@ -762,6 +763,31 @@ export default function DeckGoldfishPage() {
   const hoverPreviewTimer = useRef(null)
   const battlefieldBodyRef = useRef(null)
   const pendingScrollRef = useRef(null)
+
+  // Detail-modal Prev/Next steps through the zone the inspected card came from
+  // (hand, battlefield, graveyard…). Custom tokens are skipped — they have no
+  // card data to show, which is why the menu hides "View Card" for them.
+  const detailZone = detailCard?.zone || null
+  const detailZoneCards = useMemo(
+    () => (detailZone && state ? (state[detailZone] || []).filter(c => !c.isCustomToken) : []),
+    [detailZone, state]
+  )
+  const detailZoneOrder = useMemo(() => detailZoneCards.map(c => c.instanceId), [detailZoneCards])
+  const openDetailByInstance = useCallback(instanceId => {
+    const next = detailZoneCards.find(c => c.instanceId === instanceId)
+    if (next) setDetailCard({ card: next, zone: detailZone })
+  }, [detailZoneCards, detailZone])
+  const getDetailPeek = useCallback(instanceId => {
+    // Playtest cards carry their own Scryfall payload — card and sfCard are one.
+    const c = instanceId == null ? null : detailZoneCards.find(x => x.instanceId === instanceId)
+    return cardPeek(c, c)
+  }, [detailZoneCards])
+  const detailNav = useCardDetailNav(
+    detailZoneOrder,
+    detailCard?.card?.instanceId ?? null,
+    openDetailByInstance,
+    getDetailPeek
+  )
 
   // Zoom keeps the point under the focal position (cursor for wheel, body centre
   // for buttons) fixed on screen. We record the scroll offset that achieves this,
@@ -1348,7 +1374,7 @@ export default function DeckGoldfishPage() {
       <CardActionMenu
         menu={cardMenu}
         onMove={moveCard}
-        onInspect={setDetailCard}
+        onInspect={(card, zone) => setDetailCard({ card, zone })}
         onToggleTapped={toggleTapped}
         onFlip={flipCard}
         onRemove={removeCard}
@@ -1367,10 +1393,11 @@ export default function DeckGoldfishPage() {
         }}
       />
 
-      {detailCard && (
+      {detailCard?.card && (
         <CardDetail
-          card={detailCard}
-          sfCard={detailCard}
+          {...detailNav}
+          card={detailCard.card}
+          sfCard={detailCard.card}
           readOnly
           onClose={() => setDetailCard(null)}
         />
