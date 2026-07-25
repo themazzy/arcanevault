@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, startTransition } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
@@ -23,6 +23,7 @@ import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap } from '../lib/collectionFetchers'
 import { isNetworkLikeError } from '../lib/networkUtils'
 import { fetchAllByKeyset } from '../lib/keysetPager'
+import { perfSpan } from '../lib/perf'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { getSelectedDisplayQuantity } from '../lib/collectionDisplay'
 import { shouldOfferCardScanner } from '../lib/scannerAvailability'
@@ -504,8 +505,13 @@ export default function CollectionPage() {
       await putCards(allCards)
       await setMeta(`cards_synced_${user.id}`, Date.now())
       if (!isCurrentLoad()) return
-      setCards(allCards)
-      if (canSeedFilteredRef.current) setFiltered(allCards)
+      // The sync lands while the user is already looking at (and scrolling) the
+      // IDB-seeded list, so swapping the whole collection in is non-urgent —
+      // let React interrupt it for input. The first paint above stays urgent.
+      startTransition(() => {
+        setCards(allCards)
+        if (canSeedFilteredRef.current) setFiltered(allCards)
+      })
       if (!hydratedFromIdb) {
         startEnrichment(allCards)
       } else {
@@ -534,6 +540,7 @@ export default function CollectionPage() {
   // unrelated card-row changes (e.g., updated_at edits don't trigger a resend).
   const workerSnapshot = useMemo(() => {
     if (!cards.length) return { leanCards: [], leanSfMap: {} }
+    const endSnapshot = perfSpan('collection-worker-snapshot')
     const leanCards = new Array(cards.length)
     const leanSfMap = {}
     for (let i = 0; i < cards.length; i++) {
@@ -570,6 +577,7 @@ export default function CollectionPage() {
         }
       }
     }
+    endSnapshot()
     return { leanCards, leanSfMap }
   }, [cards, sfMap])
 
@@ -603,18 +611,27 @@ export default function CollectionPage() {
   useEffect(() => {
     const handler = (e) => {
       if (e.data.id !== workerReqId.current) return
-      // Backwards-compatible: if worker returns `result` use it, else reconstruct from `ids`.
-      if (e.data.ids) {
-        const m = cardsByIdRef.current
-        const out = []
-        for (const id of e.data.ids) {
-          const c = m.get(id)
-          if (c) out.push(c)
+      // Committing a filter result rebuilds every derived list over the whole
+      // collection (displayCards spreads a row per card, totals re-price every
+      // card). At ~12k cards that's one long task — a 'message' handler taking
+      // 300ms+ — that blocks typing and scrolling while it runs. As a
+      // transition React chunks it and keeps the previous list interactive
+      // until the new one is ready.
+      const apply = () => {
+        // Backwards-compatible: if worker returns `result` use it, else reconstruct from `ids`.
+        if (e.data.ids) {
+          const m = cardsByIdRef.current
+          const out = []
+          for (const id of e.data.ids) {
+            const c = m.get(id)
+            if (c) out.push(c)
+          }
+          setFiltered(out)
+        } else {
+          setFiltered(e.data.result)
         }
-        setFiltered(out)
-      } else {
-        setFiltered(e.data.result)
       }
+      startTransition(apply)
     }
     worker.addEventListener('message', handler)
     return () => worker.removeEventListener('message', handler)
@@ -1125,6 +1142,7 @@ export default function CollectionPage() {
 
   // Expand cards that are in multiple folders into separate display entries
   const displayCards = useMemo(() => {
+    const endDisplay = perfSpan('collection-display-cards')
     const usingPlacementView = filters.location !== 'all' || filters.folderName?.trim()
     const matchesLocationFilter = (folder) => {
       if (!folder) return filters.location === 'all' && !filters.folderName?.trim()
@@ -1174,6 +1192,7 @@ export default function CollectionPage() {
         })
       }
     }
+    endDisplay()
     return result
   }, [filtered, cardFolderMap, filters])
 
