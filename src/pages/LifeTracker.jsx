@@ -21,6 +21,7 @@ import {
 import {
   buildDeckStatsMap, buildGameResultRows, buildPlacements, buildTrackedGamePayload,
 } from '../lib/lifeResults'
+import { buildDeckOptions } from '../lib/deckOptions'
 import {
   cancelLobby, claimSlot, createLobby, endLobby, fetchLobbySlots,
   mergeSlotAttribution, seedsFromSlots, startLobby, subscribeLobby,
@@ -131,12 +132,14 @@ export default function LifeTrackerPage() {
   useEffect(() => {
     if (!user) return
     let active = true
+    // description is needed to spot linked builder/collection pairs and group
+    // containers — see buildDeckOptions.
     sb.from('folders')
-      .select('id,name,type')
+      .select('id,name,type,description')
       .eq('user_id', user.id)
       .in('type', ['deck', 'builder_deck'])
       .order('name')
-      .then(({ data }) => { if (active) setDecks(data || []) })
+      .then(({ data }) => { if (active) setDecks(buildDeckOptions(data)) })
     return () => { active = false }
   }, [user])
 
@@ -718,7 +721,9 @@ export default function LifeTrackerPage() {
               <Select value={mine.deck_id || NO_DECK} onChange={e => handleHostDeck(e.target.value)}
                 searchable title="Select your deck">
                 <option value={NO_DECK}>— No deck —</option>
-                {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+                {decks.map(deck => (
+                  <option key={deck.id} value={deck.id}>{deck.label || deck.name}</option>
+                ))}
               </Select>
             </div>
           )}

@@ -5,6 +5,7 @@ import { useAuth } from '../components/Auth'
 import { CheckIcon, PlayerIcon, SyncIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { LIFE_FORMATS, PLAYER_COLORS } from '../lib/lifeGame'
+import { buildDeckOptions } from '../lib/deckOptions'
 import ArtPicker from '../components/lifeTracker/ArtPicker'
 import styles from './JoinGame.module.css'
 
@@ -75,11 +76,11 @@ export default function JoinGamePage() {
   useEffect(() => {
     if (!user) return
     let active = true
-    sb.from('folders').select('id,name,type')
+    sb.from('folders').select('id,name,type,description')
       .eq('user_id', user.id)
       .in('type', ['deck', 'builder_deck'])
       .order('name')
-      .then(({ data }) => { if (active) setDecks(data || []) })
+      .then(({ data }) => { if (active) setDecks(buildDeckOptions(data)) })
     return () => { active = false }
   }, [user])
 
@@ -230,7 +231,7 @@ export default function JoinGamePage() {
             <Select value={draftDeck} onChange={e => setDraftDeck(e.target.value)} searchable
               title="Select your deck">
               <option value={NO_DECK}>— No deck —</option>
-              {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+              {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.label || deck.name}</option>)}
             </Select>
             <p className={styles.hint}>The win or loss saves to this deck. You can change it later.</p>
           </div>
@@ -277,7 +278,7 @@ export default function JoinGamePage() {
           <Select value={mine.deck_id || NO_DECK} onChange={e => changeDeck(e.target.value)}
             searchable title="Select your deck">
             <option value={NO_DECK}>— No deck —</option>
-            {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+            {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.label || deck.name}</option>)}
           </Select>
         </div>
       ) : (

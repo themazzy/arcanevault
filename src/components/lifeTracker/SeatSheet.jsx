@@ -155,7 +155,9 @@ export default function SeatSheet({
             {decks.map(deck => {
               const stat = deckStats?.[deck.id]
               const suffix = stat ? `  ·  ${stat.wins}W ${stat.losses}L` : ''
-              return <option key={deck.id} value={deck.id}>{deck.name}{suffix}</option>
+              // label disambiguates two decks that happen to share a name; name is
+              // what gets stored as deck_name.
+              return <option key={deck.id} value={deck.id}>{deck.label || deck.name}{suffix}</option>
             })}
           </Select>
           <p className={c.hint}>
