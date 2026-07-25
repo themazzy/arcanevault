@@ -761,6 +761,7 @@ export default function AdminPage() {
   const [impactLoading, setImpactLoading] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmText, setConfirmText] = useState('')
+  const [executeError, setExecuteError] = useState('')
   const [premiumBusy, setPremiumBusy] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
 
@@ -939,6 +940,7 @@ export default function AdminPage() {
     setNoteDraft(selectedRequest?.admin_notes || '')
     setConfirmText('')
     setConfirmOpen(false)
+    setExecuteError('')
   }, [selectedRequest?.id])
 
   useEffect(() => {
@@ -1026,6 +1028,7 @@ export default function AdminPage() {
     if (!selectedRequest?.id) return
     setExecuting(true)
     setError('')
+    setExecuteError('')
     const headers = await getFunctionAuthHeaders()
     const { data, error: invokeError } = await sb.functions.invoke('admin-delete-account', {
       body: { request_id: selectedRequest.id },
@@ -1033,7 +1036,19 @@ export default function AdminPage() {
     })
 
     if (invokeError || data?.error) {
-      setError(data?.error || 'Deletion execution failed.')
+      // A non-2xx response puts the body on invokeError.context, not data, so the
+      // function's `details` (the underlying Postgres/GoTrue message) is otherwise
+      // lost — and without it the modal just sits there looking like a no-op.
+      let detail = ''
+      if (invokeError?.context && typeof invokeError.context.json === 'function') {
+        const body = await invokeError.context.json().catch(() => null)
+        detail = body?.details || body?.error || ''
+      }
+      const message = [data?.error || 'Deletion execution failed.', detail]
+        .filter(Boolean)
+        .join(' — ')
+      setError(message)
+      setExecuteError(message)
       setExecuting(false)
       await loadRequests()
       await loadEvents(selectedRequest.id)
@@ -1042,6 +1057,7 @@ export default function AdminPage() {
 
     setConfirmOpen(false)
     setConfirmText('')
+    setExecuteError('')
     await loadRequests()
     await loadEvents(selectedRequest.id)
     setExecuting(false)
@@ -1750,7 +1766,7 @@ export default function AdminPage() {
       ) : null}
 
       {confirmOpen && selectedRequest ? (
-        <Modal onClose={() => { if (!executing) setConfirmOpen(false) }}>
+        <Modal onClose={() => { if (!executing) { setConfirmOpen(false); setExecuteError('') } }}>
           <div className={styles.confirmBox}>
             <h3 className={styles.confirmTitle}>Confirm destructive deletion</h3>
             <p className={styles.confirmBody}>
@@ -1763,8 +1779,9 @@ export default function AdminPage() {
               placeholder="Type DELETE"
               className={styles.confirmInput}
             />
+            {executeError ? <div className={styles.errorBox}>{executeError}</div> : null}
             <div className={styles.actionRow}>
-              <Button variant="secondary" onClick={() => setConfirmOpen(false)} disabled={executing}>Cancel</Button>
+              <Button variant="secondary" onClick={() => { setConfirmOpen(false); setExecuteError('') }} disabled={executing}>Cancel</Button>
               <Button
                 variant="danger"
                 onClick={executeDeletion}
