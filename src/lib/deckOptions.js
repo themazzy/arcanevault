@@ -1,85 +1,122 @@
 // Deck choices for the life tracker's "which deck are you playing?" pickers.
 //
-// A folder row is not the same thing as a deck. Two cases have to be handled or
-// the list misrepresents what the user owns:
+// The list comes from the same source as the /builder tab — the get_my_decks() RPC
+// — so the tracker offers exactly the decks the user already sees there, in the same
+// order (most recently modified first, which is also the most useful order when
+// picking a deck at the table). That RPC already:
+//   - excludes group folders (isGroup) and anything flagged hideFromBuilder
+//   - collapses a linked builder/collection pair to a single row
 //
-//   1. Linked pairs. A builder deck and a collection deck can be linked as one
-//      physical deck (linked_deck_id / linked_builder_id in the folder's
-//      description blob). Both rows have the same name, so the deck appeared
-//      twice. Of DeckLoom's 124 deck folders, 13 are linked pairs.
+// Two things still have to happen client-side.
 //
-//   2. Group folders. A folder whose description carries isGroup: true is an
-//      organisational container, not a deck, and must never be selectable.
+// 1. ATTRIBUTION. get_my_decks keeps the COLLECTION half of a linked pair, but the
+//    id a game must be recorded against is the BUILDER half: /builder/:id reads win
+//    rates by querying game_results.deck_id against the builder folder id, and a
+//    linked collection deck navigates there via linked_builder_id (see
+//    DeckBuilder.jsx loadDeckGameResults). Recording against the collection half
+//    would appear in Stats but leave the deck builder's win rate empty. So a linked
+//    collection row is displayed, and attributed to its builder id.
 //
-// For a linked pair the BUILDER half wins, because that is the id win rates are
-// read by: /builder/:id queries game_results.deck_id against the builder deck's
-// folder id (DeckBuilder.jsx loadDeckGameResults). Attributing a game to the
-// collection half would record it correctly in Stats but leave the deck builder's
-// win rate showing nothing.
+// 2. DISAMBIGUATION. Two decks can share a name without being linked — a builder
+//    deck and a collection deck that were never paired. Both are real choices, so
+//    both are listed, with a qualifier so they can be told apart.
 //
-// Deliberately dependency-free: the equivalent helpers live in collectionFetchers
-// (isGroupFolder) and deckSync (getLinkedDeckIds), but those modules pull in
-// supabase, IndexedDB and price loading, and this one is used on the public
-// /join/:code route. The description blob is parsed once here instead of three
-// times across three modules. Field names are kept identical so the meaning
-// cannot drift.
+// The dedup and group filtering below duplicate the RPC on purpose: they make this
+// function safe over a raw `folders` query too, which is the fallback when the RPC
+// is unavailable. On already-deduped RPC rows they are no-ops.
+//
+// Dependency-free by design — the equivalent helpers in collectionFetchers
+// (isGroupFolder) and deckSync (getLinkedDeckIds) pull in supabase, IndexedDB and
+// price loading, and this runs on the public /join/:code route too.
+
+import { sb } from './supabase'
 
 export const DECK_TYPE_LABEL = {
   builder_deck: 'Builder',
   deck: 'Collection',
 }
 
-function readMeta(folder) {
-  try { return JSON.parse(folder?.description || '{}') } catch { return {} }
+/**
+ * Load the user's decks exactly as the /builder tab lists them.
+ *
+ * Falls back to a direct folders query if the RPC is unavailable — an empty deck
+ * list would silently cost the user their win/loss record for the game, which is
+ * worse than a slightly different order.
+ *
+ * @param {string} userId
+ * @returns {Promise<Array<object>>} buildDeckOptions output
+ */
+export async function loadDeckOptions(userId) {
+  try {
+    const { data, error } = await sb.rpc('get_my_decks')
+    if (error) throw error
+    const rows = typeof data === 'string' ? JSON.parse(data) : data
+    if (Array.isArray(rows)) return buildDeckOptions(rows)
+  } catch (err) {
+    console.warn('[decks] get_my_decks failed, falling back to folders', err?.message || err)
+  }
+
+  const { data } = await sb.from('folders')
+    .select('id,name,type,description')
+    .eq('user_id', userId)
+    .in('type', ['deck', 'builder_deck'])
+    .order('name')
+  return buildDeckOptions(data)
+}
+
+function readMeta(row) {
+  try { return JSON.parse(row?.description || '{}') } catch { return {} }
 }
 
 /**
- * @param {Array<{id:string,name:string,type:string,description?:string}>} folders
- * @returns {Array<{id:string,name:string,type:string,label:string}>}
+ * @param {Array<{id:string,name:string,type:string,description?:string,card_count?:number}>} rows
+ *   get_my_decks() output, or a raw folders query as a fallback.
+ * @returns {Array<{id:string,folderId:string,name:string,type:string,label:string,cardCount:number|null}>}
+ *   `id` is what to store in game_results.deck_id; `folderId` is the row itself.
  */
-export function buildDeckOptions(folders) {
-  const rows = (folders || []).filter(f => f?.id && (f.type === 'deck' || f.type === 'builder_deck'))
+export function buildDeckOptions(rows) {
+  const decks = (rows || []).filter(r => r?.id && (r.type === 'deck' || r.type === 'builder_deck'))
 
-  const meta = new Map(rows.map(f => [f.id, readMeta(f)]))
-  const present = new Set(rows.map(f => f.id))
+  const meta = new Map(decks.map(r => [r.id, readMeta(r)]))
+  const present = new Set(decks.map(r => r.id))
 
-  // Collection decks that a *present* builder deck claims as its other half. The
-  // "present" check matters: if only the collection half was loaded, dropping it
-  // would lose the deck from the list entirely.
+  // Only fires on the raw-folders fallback, where both halves of a pair are present.
+  // The "present" check matters: a dangling link must not delete a deck from the list.
   const supersededByBuilder = new Set()
-  for (const folder of rows) {
-    if (folder.type !== 'builder_deck') continue
-    const linkedDeckId = meta.get(folder.id)?.linked_deck_id
+  for (const row of decks) {
+    if (row.type !== 'builder_deck') continue
+    const linkedDeckId = meta.get(row.id)?.linked_deck_id
     if (linkedDeckId && present.has(linkedDeckId)) supersededByBuilder.add(linkedDeckId)
   }
 
-  const kept = rows.filter(folder => {
-    if (meta.get(folder.id)?.isGroup === true) return false
-    if (folder.type === 'deck' && supersededByBuilder.has(folder.id)) return false
+  const kept = decks.filter(row => {
+    const rowMeta = meta.get(row.id)
+    if (rowMeta?.isGroup === true) return false
+    if (rowMeta?.hideFromBuilder === true) return false
+    if (row.type === 'deck' && supersededByBuilder.has(row.id)) return false
     return true
   })
 
-  // Two unlinked decks can still share a name by coincidence. Qualify only those,
-  // so the common case stays clean.
-  const nameCounts = kept.reduce((counts, folder) => {
-    const key = folder.name?.trim().toLowerCase() || ''
+  const nameCounts = kept.reduce((counts, row) => {
+    const key = row.name?.trim().toLowerCase() || ''
     counts.set(key, (counts.get(key) || 0) + 1)
     return counts
   }, new Map())
 
-  return kept
-    .map(folder => {
-      const ambiguous = (nameCounts.get(folder.name?.trim().toLowerCase() || '') || 0) > 1
-      const qualifier = DECK_TYPE_LABEL[folder.type]
-      return {
-        id: folder.id,
-        name: folder.name,
-        type: folder.type,
-        label: ambiguous && qualifier ? `${folder.name} · ${qualifier}` : folder.name,
-      }
-    })
-    .sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-      // Builder first for a coincidental name clash, matching the linked-pair rule.
-      || (a.type === b.type ? 0 : a.type === 'builder_deck' ? -1 : 1))
+  // Input order is preserved: get_my_decks sorts by deck_modified_at desc, so the
+  // deck you last touched comes first.
+  return kept.map(row => {
+    const rowMeta = meta.get(row.id) || {}
+    const linkedBuilderId = row.type === 'deck' ? rowMeta.linked_builder_id : null
+    const ambiguous = (nameCounts.get(row.name?.trim().toLowerCase() || '') || 0) > 1
+    const qualifier = DECK_TYPE_LABEL[row.type]
+    return {
+      id: linkedBuilderId || row.id,
+      folderId: row.id,
+      name: row.name,
+      type: row.type,
+      label: ambiguous && qualifier ? `${row.name} · ${qualifier}` : row.name,
+      cardCount: Number.isFinite(row.card_count) ? row.card_count : null,
+    }
+  })
 }

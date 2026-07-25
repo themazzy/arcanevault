@@ -11,23 +11,70 @@ const linkedPair = (name, builderId, deckId) => [
   folder(deckId, name, 'deck', { linked_builder_id: builderId }),
 ]
 
-describe('linked pairs', () => {
-  it('collapses a pair to one entry', () => {
-    const options = buildDeckOptions(linkedPair('Yuriko', 'b1', 'd1'))
+// What get_my_decks() returns for a linked pair: the builder half is filtered out
+// server-side, so only the collection row arrives.
+const rpcLinkedPair = (name, builderId, deckId) => [
+  folder(deckId, name, 'deck', { linked_builder_id: builderId }),
+]
+
+describe('linked pairs from get_my_decks (the real source)', () => {
+  it('shows the single row the RPC returns', () => {
+    const options = buildDeckOptions(rpcLinkedPair('Yuriko', 'b1', 'd1'))
     expect(options).toHaveLength(1)
     expect(options[0].name).toBe('Yuriko')
   })
 
-  it('keeps the builder half, because that is the id win rates are read by', () => {
-    // /builder/:id queries game_results.deck_id against the builder folder id, so
-    // recording against the collection half leaves the builder's win rate empty.
-    expect(buildDeckOptions(linkedPair('Yuriko', 'b1', 'd1'))[0]).toMatchObject({
-      id: 'b1', type: 'builder_deck',
-    })
+  it('attributes the game to the builder half, which is what win rates read', () => {
+    // get_my_decks keeps the collection row, but /builder/:id queries
+    // game_results.deck_id against the builder folder id — a linked collection deck
+    // navigates there via linked_builder_id. Recording against the collection id
+    // would show in Stats and leave the deck builder's win rate empty.
+    const [option] = buildDeckOptions(rpcLinkedPair('Yuriko', 'b1', 'd1'))
+    expect(option.id).toBe('b1')        // stored in game_results.deck_id
+    expect(option.folderId).toBe('d1')  // the row that was displayed
   })
 
-  it('does not qualify the name once the duplicate is gone', () => {
-    expect(buildDeckOptions(linkedPair('Yuriko', 'b1', 'd1'))[0].label).toBe('Yuriko')
+  it('does not qualify the name — there is only one entry', () => {
+    expect(buildDeckOptions(rpcLinkedPair('Yuriko', 'b1', 'd1'))[0].label).toBe('Yuriko')
+  })
+
+  it('respects hideFromBuilder, as the RPC does', () => {
+    const options = buildDeckOptions([
+      folder('d1', 'Retired brew', 'deck', { hideFromBuilder: true }),
+      folder('b1', 'Yuriko', 'builder_deck'),
+    ])
+    expect(options.map(o => o.id)).toEqual(['b1'])
+  })
+
+  it('preserves the RPC ordering instead of re-sorting', () => {
+    // get_my_decks orders by deck_modified_at desc, so the deck you last touched is
+    // first — the useful default when picking one at the table.
+    const options = buildDeckOptions([
+      folder('1', 'zombies', 'builder_deck'),
+      folder('2', 'Angels', 'builder_deck'),
+      folder('3', 'myr', 'builder_deck'),
+    ])
+    expect(options.map(o => o.name)).toEqual(['zombies', 'Angels', 'myr'])
+  })
+
+  it('carries the card count through when the RPC supplies one', () => {
+    const [option] = buildDeckOptions([{ ...folder('b1', 'Yuriko', 'builder_deck'), card_count: 99 }])
+    expect(option.cardCount).toBe(99)
+    expect(buildDeckOptions([folder('b2', 'No count', 'deck')])[0].cardCount).toBeNull()
+  })
+})
+
+describe('raw folders fallback', () => {
+  it('collapses a pair when both halves are present', () => {
+    const options = buildDeckOptions(linkedPair('Yuriko', 'b1', 'd1'))
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('b1')
+  })
+
+  it('reaches the same attribution id by either route', () => {
+    const viaRpc = buildDeckOptions(rpcLinkedPair('Yuriko', 'b1', 'd1'))[0].id
+    const viaFolders = buildDeckOptions(linkedPair('Yuriko', 'b1', 'd1'))[0].id
+    expect(viaRpc).toBe(viaFolders)
   })
 
   it('keeps the collection half when its builder partner was not loaded', () => {
@@ -36,7 +83,9 @@ describe('linked pairs', () => {
       folder('d1', 'Yuriko', 'deck', { linked_builder_id: 'b-missing' }),
     ])
     expect(options).toHaveLength(1)
-    expect(options[0].id).toBe('d1')
+    expect(options[0].folderId).toBe('d1')
+    // Still attributed to the builder it names, so a later repair lines up.
+    expect(options[0].id).toBe('b-missing')
   })
 
   it('handles several pairs alongside unpaired decks', () => {
@@ -46,8 +95,8 @@ describe('linked pairs', () => {
       folder('b3', 'Slivers', 'builder_deck'),
       folder('d3', 'Precon', 'deck'),
     ])
-    expect(options.map(o => o.name)).toEqual(['Precon', 'Shrines', 'Slivers', 'Vampires'])
-    expect(options.map(o => o.id)).toEqual(['d3', 'b1', 'b3', 'b2'])
+    expect(options.map(o => o.name)).toEqual(['Shrines', 'Vampires', 'Slivers', 'Precon'])
+    expect(options.map(o => o.id)).toEqual(['b1', 'b2', 'b3', 'd3'])
   })
 })
 
@@ -85,7 +134,7 @@ describe('coincidental name clashes', () => {
       folder('b1', 'Yuriko', 'builder_deck'),
       folder('d1', 'Shrines', 'deck'),
     ])
-    expect(options.map(o => o.label)).toEqual(['Shrines', 'Yuriko'])
+    expect(options.map(o => o.label)).toEqual(['Yuriko', 'Shrines'])
   })
 
   it('compares names case- and whitespace-insensitively', () => {
@@ -97,19 +146,18 @@ describe('coincidental name clashes', () => {
   })
 })
 
-describe('sorting and shape', () => {
-  it('sorts by name, ignoring case', () => {
-    const options = buildDeckOptions([
-      folder('1', 'zombies', 'deck'),
-      folder('2', 'Angels', 'deck'),
-      folder('3', 'myr', 'deck'),
-    ])
-    expect(options.map(o => o.name)).toEqual(['Angels', 'myr', 'zombies'])
+describe('shape', () => {
+  it('returns the fields the pickers need', () => {
+    const [option] = buildDeckOptions([folder('b1', 'Yuriko', 'builder_deck')])
+    expect(Object.keys(option).sort())
+      .toEqual(['cardCount', 'folderId', 'id', 'label', 'name', 'type'])
   })
 
-  it('returns id, name, type and label for each entry', () => {
-    const [option] = buildDeckOptions([folder('b1', 'Yuriko', 'builder_deck')])
-    expect(Object.keys(option).sort()).toEqual(['id', 'label', 'name', 'type'])
+  it('attributes an unlinked deck to its own folder id', () => {
+    expect(buildDeckOptions([folder('b1', 'Yuriko', 'builder_deck')])[0])
+      .toMatchObject({ id: 'b1', folderId: 'b1' })
+    expect(buildDeckOptions([folder('d1', 'Precon', 'deck')])[0])
+      .toMatchObject({ id: 'd1', folderId: 'd1' })
   })
 })
 
@@ -128,7 +176,7 @@ describe('robustness', () => {
       { id: 'd1', name: 'Broken', type: 'deck', description: '{not json' },
       { id: 'd2', name: 'Absent', type: 'deck' },
     ])
-    expect(options.map(o => o.name)).toEqual(['Absent', 'Broken'])
+    expect(options.map(o => o.name)).toEqual(['Broken', 'Absent'])
   })
 
   it('tolerates junk input', () => {

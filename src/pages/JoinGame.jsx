@@ -5,7 +5,7 @@ import { useAuth } from '../components/Auth'
 import { CheckIcon, PlayerIcon, SyncIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { LIFE_FORMATS, PLAYER_COLORS } from '../lib/lifeGame'
-import { buildDeckOptions } from '../lib/deckOptions'
+import { loadDeckOptions } from '../lib/deckOptions'
 import ArtPicker from '../components/lifeTracker/ArtPicker'
 import styles from './JoinGame.module.css'
 
@@ -76,11 +76,7 @@ export default function JoinGamePage() {
   useEffect(() => {
     if (!user) return
     let active = true
-    sb.from('folders').select('id,name,type,description')
-      .eq('user_id', user.id)
-      .in('type', ['deck', 'builder_deck'])
-      .order('name')
-      .then(({ data }) => { if (active) setDecks(buildDeckOptions(data)) })
+    loadDeckOptions(user.id).then(options => { if (active) setDecks(options) })
     return () => { active = false }
   }, [user])
 

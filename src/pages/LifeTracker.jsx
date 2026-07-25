@@ -21,7 +21,7 @@ import {
 import {
   buildDeckStatsMap, buildGameResultRows, buildPlacements, buildTrackedGamePayload,
 } from '../lib/lifeResults'
-import { buildDeckOptions } from '../lib/deckOptions'
+import { loadDeckOptions } from '../lib/deckOptions'
 import {
   cancelLobby, claimSlot, createLobby, endLobby, fetchLobbySlots,
   mergeSlotAttribution, seedsFromSlots, startLobby, subscribeLobby,
@@ -132,14 +132,9 @@ export default function LifeTrackerPage() {
   useEffect(() => {
     if (!user) return
     let active = true
-    // description is needed to spot linked builder/collection pairs and group
-    // containers — see buildDeckOptions.
-    sb.from('folders')
-      .select('id,name,type,description')
-      .eq('user_id', user.id)
-      .in('type', ['deck', 'builder_deck'])
-      .order('name')
-      .then(({ data }) => { if (active) setDecks(buildDeckOptions(data)) })
+    // Same source as the /builder tab, so the tracker offers exactly the decks the
+    // user already sees there, most recently modified first.
+    loadDeckOptions(user.id).then(options => { if (active) setDecks(options) })
     return () => { active = false }
   }, [user])
 
