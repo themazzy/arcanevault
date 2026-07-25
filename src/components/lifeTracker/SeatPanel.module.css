@@ -273,7 +273,9 @@
   justify-content: center;
   gap: 3px;
   min-width: 0;
+  min-height: 0;
   max-width: 100%;
+  overflow: hidden;
 }
 
 .lifeWrap {
@@ -285,21 +287,38 @@
 }
 
 /* Death flavour. Sits under the total rather than over it, so "what did you go out
- * on?" is still answerable. Clamped to two lines: on a six-up phone panel there is
- * not room for more, and the total keeps priority. */
+ * on?" is still answerable.
+ *
+ * Sized in cqi — the seat's inline size — not cqmin. Text scales with the width it
+ * has to wrap into, and cqmin is the *smaller* dimension: on a six-up portrait
+ * phone a cell is roughly 124×343, so cqmin tracked the 124px width and ignored
+ * the height entirely, while the old 0.72rem cap flattened every large panel to
+ * the same 11.5px. */
 .deathText {
-  max-width: 94%;
+  max-width: 96%;
   font-family: var(--font-serif);
   font-style: italic;
-  font-size: clamp(0.44rem, 4.6cqmin, 0.72rem);
-  line-height: 1.25;
+  font-size: clamp(0.62rem, 7cqi, 1.4rem);
+  line-height: 1.3;
   text-align: center;
   text-wrap: balance;
   color: var(--seat-ink-dim);
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
+}
+
+/* Line budget follows the height actually available, so the tall narrow cells of a
+ * six-up portrait table get all three lines while a short landscape panel gives
+ * them up instead of pushing the total off centre. */
+@container (max-height: 150px) {
+  .deathText { -webkit-line-clamp: 2; line-clamp: 2; }
+}
+
+@container (max-height: 104px) {
+  .deathText { -webkit-line-clamp: 1; line-clamp: 1; }
 }
 
 /* The one place the app's display face steps aside. Cinzel is the chrome; the
