@@ -1,0 +1,108 @@
+.title {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+  margin: 0 0 16px;
+  text-transform: uppercase;
+}
+
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.searchWrap { flex: 1; }
+
+.input {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.88rem;
+  padding: 8px 12px;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--border-hi);
+}
+
+.loading {
+  color: var(--text-faint);
+  font-size: 0.9rem;
+}
+
+.hint {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  max-height: 440px;
+  overflow-y: auto;
+  margin-top: 12px;
+}
+
+.item {
+  background: none;
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.item:hover {
+  border-color: var(--border-hi);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.img {
+  width: 100%;
+  display: block;
+  /* Scryfall art crops are 626×457; the tile shows them uncropped. */
+  aspect-ratio: 626 / 457;
+  object-fit: cover;
+  background: var(--bg3);
+}
+
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  background: var(--bg2);
+  min-width: 0;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Marks the reverse side of a double-faced print, whose art is otherwise
+   indistinguishable from a separate card sharing the front's name. */
+.faceBadge {
+  flex: none;
+  font-size: var(--label-size-sm);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--gold);
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+}

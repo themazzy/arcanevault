@@ -8,8 +8,9 @@ import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, LibraryEmptyState, Badge, Button, ConfirmModal, ResponsiveMenu } from '../components/UI'
-import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, EditIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, SettingsIcon, DeleteIcon } from '../icons'
+import { CheckIcon, StarIcon, ChevronUpIcon, ChevronDownIcon, ChevronLeftIcon, EditIcon, ImageIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, RemoveIcon, SettingsIcon, DeleteIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
+import CardArtPicker from '../components/CardArtPicker'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
@@ -20,15 +21,17 @@ import { buildPairSnapshot, buildSyncDiff, getSyncState, isUniqueNameConflict, l
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import { lastInputWasTouch } from '../lib/inputType'
+import { parseFolderBgUrl } from '../lib/folderBackground'
 import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwnership'
 import { fetchDeckAllocations, fetchDeckCards } from '../lib/deckData'
-import { getDeckAllocations, getCardsByIds, getLocalFolders, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards } from '../lib/db'
+import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards } from '../lib/db'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
 import { boardForCard } from '../lib/attractions'
 import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
+import { useAllFolders } from '../hooks/useAllFolders'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
 
@@ -634,7 +637,7 @@ function _DeckCardGrid({ cards, sfMap, priceSource, onSelect, onHover, onHoverEn
 
 // ── Main DeckBrowser ──────────────────────────────────────────────────────────
 
-export default function DeckBrowser({ folder, onBack, onDelete }) {
+export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground }) {
   const navigate = useNavigate()
   const { price_source, grid_density } = useSettings()
   const { user } = useAuth()
@@ -643,9 +646,14 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
   const [sfMap, setSfMap]           = useState({})
   const [loading, setLoading]       = useState(true)
   const [detailCardId, setDetailCardId] = useState(null)
-  const [allFolders, setAllFolders] = useState([])
+  // Destination folders for "Move to" / CardDetail. Group folders are containers,
+  // never placement targets.
+  const [ownedFolders, setOwnedFolders] = useAllFolders(user?.id)
+  const allFolders = useMemo(() => ownedFolders.filter(f => !isGroupFolder(f)), [ownedFolders])
+  const setAllFolders = setOwnedFolders
   const [linkedDirty, setLinkedDirty] = useState(false)
   const [folderDescription, setFolderDescription] = useState(folder?.description || '{}')
+  const [showArtPicker, setShowArtPicker] = useState(false)
   const [creatingBuilderLink, setCreatingBuilderLink] = useState(false)
   // Existing same-name builder deck offered for pairing after a 409.
   const [adoptCandidate, setAdoptCandidate] = useState(null)
@@ -1020,30 +1028,6 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
     return () => { cancelled = true }
   }, [folder.id, folderDescription, invalidatePlacementCaches])
 
-  // "Move to" dropdown — read from IDB first; fall back to Supabase if IDB is
-  // empty (e.g. user landed on a deck page without visiting Collection first).
-  useEffect(() => {
-    if (!user?.id) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const local = await getLocalFolders(user.id)
-        const filtered = (local || []).filter(f => !isGroupFolder(f))
-        if (filtered.length > 0) {
-          if (!cancelled) setAllFolders(filtered)
-          return
-        }
-        const { data: remote } = await sb
-          .from('folders')
-          .select('id,name,type,description,updated_at')
-          .eq('user_id', user.id)
-          .order('name')
-        if (!cancelled) setAllFolders((remote || []).filter(f => !isGroupFolder(f)))
-      } catch {}
-    })()
-    return () => { cancelled = true }
-  }, [user?.id])
-
   const clearSelect = () => { setSelectedCards(new Set()); setSplitState(new Map()); setSelectMode(false) }
   const toggleSelectMode = () => { setSelectMode(v => { if (v) clearSelect(); return !v }) }
 
@@ -1319,7 +1303,15 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
   // Use only the explicitly-set bg_url for the header background.
   // coverArtUri is the builder-deck commander art — it is not a user-chosen
   // background for the collection deck view and should not bleed through here.
-  const folderBgUrl = (() => { try { return JSON.parse(folder.description || '{}').bg_url || null } catch { return null } })()
+  const folderBgUrl = parseFolderBgUrl(folder.description)
+
+  // Writing the background rewrites the whole description blob, which is also
+  // where this component's deck meta lives — take the result so a later link
+  // write doesn't serialize a copy that predates the background.
+  const applyBackground = async (url) => {
+    const next = await onSetBackground?.(url)
+    if (next !== undefined) setFolderDescription(next || '{}')
+  }
 
   return (
     <div className={styles.deckBrowser} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
@@ -1378,6 +1370,12 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
                 {({ close }) => (
                   <div className={uiStyles.responsiveMenuList}>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { startRenameDeck(); close() }}><span><EditIcon size={13} /> Rename</span></button>
+                    {onSetBackground && (
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowArtPicker(true); close() }}><span><ImageIcon size={13} /> Set background art</span></button>
+                    )}
+                    {onSetBackground && folderBgUrl && (
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { applyBackground(null); close() }}><span><RemoveIcon size={13} /> Clear background</span></button>
+                    )}
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}><span><ImportIcon size={13} /> Import</span></button>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}><span><ExportIcon size={13} /> Export</span></button>
                     {onDelete && (
@@ -1584,6 +1582,13 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
           busy={creatingBuilderLink}
           onConfirm={adoptExistingBuilderDeck}
           onClose={() => setAdoptCandidate(null)}
+        />
+      )}
+
+      {showArtPicker && (
+        <CardArtPicker
+          onSelect={url => { applyBackground(url); setShowArtPicker(false) }}
+          onClose={() => setShowArtPicker(false)}
         />
       )}
     </div>

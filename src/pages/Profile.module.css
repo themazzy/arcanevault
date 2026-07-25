@@ -252,68 +252,8 @@
   text-transform: uppercase;
 }
 
-.artPickerSearch {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-.artPickerInput {
-  flex: 1;
-  background: var(--bg3);
-  border: 1px solid var(--s-border2);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 0.88rem;
-  padding: 8px 12px;
-}
-.artPickerInput:focus {
-  outline: none;
-  border-color: var(--border-hi);
-}
-
-.artPickerLoading { color: var(--text-faint); font-size: 0.9rem; }
-
-.artPickerGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
-  max-height: 440px;
-  overflow-y: auto;
-}
-
-.artPickerItem {
-  background: none;
-  border: 1px solid var(--s-border2);
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: pointer;
-  padding: 0;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.artPickerItem:hover {
-  border-color: rgba(201,168,76,0.55);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
-}
-
-.artPickerImg {
-  width: 100%;
-  display: block;
-  aspect-ratio: 424 / 248;
-  object-fit: cover;
-}
-
-.artPickerName {
-  font-size: 0.68rem;
-  color: var(--text-dim);
-  padding: 4px 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  background: var(--bg2);
-}
-
+/* The header-art picker itself moved to the shared components/CardArtPicker;
+   these two are still the modal title + empty line of the standout-card picker. */
 .artPickerEmpty {
   color: var(--text-faint);
   font-size: 0.85rem;
@@ -1105,14 +1045,6 @@
   border-radius: 3px;
 }
 .standoutSelectedRemove:hover { color: #e05c5c; background: rgba(224,92,92,0.1); }
-
-/* Art picker — selected state */
-.artPickerItemSelected {
-  border-color: rgba(201,168,76,0.55) !important;
-  opacity: 0.7;
-  cursor: default;
-}
-.artPickerItemSelected .artPickerName { color: var(--gold); }
 
 /* Standout card picker — deck grid */
 .standoutPickerLoading {

@@ -2,10 +2,10 @@
 import { useNavigate } from 'react-router-dom'
 import { formatAttractionLights } from '../lib/attractions'
 import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
-import { Modal, Badge, ResponsiveMenu, Select, SearchInput } from './UI'
+import { Modal, Badge, Button, Input, ResponsiveMenu, Select, SearchInput } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
-import { CloseIcon, CheckIcon, FilterIcon, FolderTypeIcon, SearchIcon, SortIcon } from '../icons'
+import { AddIcon, BinderIcon, CheckIcon, ChevronRightIcon, CloseIcon, DeckIcon, FilterIcon, FolderTypeIcon, SearchIcon, SortIcon, WishlistsIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
 import { useLongPress } from '../hooks/useLongPress'
@@ -145,6 +145,12 @@ export function CardGrid({ cards, sfMap, loading, onSelect, selectMode, selected
 }
 
 // ── MoveToDialog ──────────────────────────────────────────────────────────────
+const TYPE_TABS = [
+  { id: 'binder', noun: 'Binder',   plural: 'Binders',   Icon: BinderIcon },
+  { id: 'deck',   noun: 'Deck',     plural: 'Decks',     Icon: DeckIcon },
+  { id: 'list',   noun: 'Wishlist', plural: 'Wishlists', Icon: WishlistsIcon },
+]
+
 function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowedFolderTypes = ['binder', 'deck'] }) {
   const [destType, setDestType] = useState(allowedFolderTypes[0] || 'binder')
   const [search, setSearch] = useState('')
@@ -177,64 +183,69 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
     }
   }
 
+  const tabs = TYPE_TABS.filter(tab => allowedFolderTypes.includes(tab.id))
+  const activeTab = tabs.find(tab => tab.id === destType) || tabs[0]
+  const nounSingular = activeTab?.noun || 'folder'
+  const nounPlural = activeTab?.plural || 'folders'
+  const DestIcon = activeTab?.Icon || BinderIcon
+
   return (
-    <Modal onClose={onClose}>
-      <div style={{ maxWidth: 440, width: '100%', margin: '0 auto' }}>
+    <Modal onClose={onClose} className={styles.moveDialog}>
       <h2 className={styles.moveDialogTitle}>Move to</h2>
 
-      {allowedFolderTypes.length > 1 && (
-        <div className={styles.moveDialogTypeRow}>
-          {allowedFolderTypes.includes('binder') && (
+      {tabs.length > 1 && (
+        <div
+          className={styles.detailTabs}
+          style={{ '--tab-count': tabs.length, '--tab-index': Math.max(0, tabs.findIndex(t => t.id === destType)) }}
+        >
+          {tabs.map(tab => (
             <button
-              className={`${styles.moveDialogTypeBtn} ${destType === 'binder' ? styles.moveDialogTypeActive : ''}`}
-              onClick={() => switchType('binder')}
-            >Binders</button>
-          )}
-          {allowedFolderTypes.includes('deck') && (
-            <button
-              className={`${styles.moveDialogTypeBtn} ${destType === 'deck' ? styles.moveDialogTypeActive : ''}`}
-              onClick={() => switchType('deck')}
-            >Decks</button>
-          )}
-          {allowedFolderTypes.includes('list') && (
-            <button
-              className={`${styles.moveDialogTypeBtn} ${destType === 'list' ? styles.moveDialogTypeActive : ''}`}
-              onClick={() => switchType('list')}
-            >Wishlists</button>
-          )}
+              key={tab.id}
+              className={`${styles.detailTab}${destType === tab.id ? ' ' + styles.detailTabActive : ''}`}
+              onClick={() => switchType(tab.id)}
+            >
+              {tab.plural}
+            </button>
+          ))}
         </div>
       )}
 
-      <input
+      <SearchInput
         ref={searchRef}
         name="move-destination-search"
         className={styles.moveDialogSearch}
+        wrapClassName={styles.moveDialogSearchWrap}
+        leadingIcon={<SearchIcon size={13} />}
         value={search}
         onChange={e => setSearch(e.target.value)}
-        placeholder={`Search ${destType}s…`}
+        onClear={() => setSearch('')}
+        placeholder={`Search ${nounPlural.toLowerCase()}…`}
+        aria-label={`Search ${nounPlural.toLowerCase()}`}
       />
 
       <div className={styles.moveDialogList}>
         {visible.map(f => (
           <button key={f.id} className={styles.moveDialogItem} onClick={() => handleMove(f)}>
-            {f.name}
+            <span className={styles.moveDialogItemIcon} aria-hidden="true"><DestIcon size={14} /></span>
+            <span className={styles.moveDialogItemName}>{f.name}</span>
+            <span className={styles.moveDialogItemGo} aria-hidden="true"><ChevronRightIcon size={12} /></span>
           </button>
         ))}
         {!visible.length && (
           <div className={styles.moveDialogEmpty}>
-            {search.trim() ? `No ${destType}s match "${search.trim()}"` : `No ${destType}s yet`}
+            {search.trim() ? `No ${nounPlural.toLowerCase()} match “${search.trim()}”` : `No ${nounPlural.toLowerCase()} yet`}
           </div>
         )}
       </div>
 
       <div className={styles.moveDialogCreate}>
         {!creating ? (
-          <button className={styles.moveDialogCreateBtn} onClick={() => setCreating(true)}>
-            ＋ Create new {destType}
-          </button>
+          <Button variant="secondary" size="sm" block onClick={() => setCreating(true)}>
+            <AddIcon size={12} /> Create new {nounSingular.toLowerCase()}
+          </Button>
         ) : (
           <div className={styles.moveDialogCreateForm}>
-            <input
+            <Input
               ref={createRef}
               name="move-destination-name"
               className={styles.moveDialogCreateInput}
@@ -244,21 +255,23 @@ function MoveToDialog({ folders, onMoveToFolder, onCreateFolder, onClose, allowe
                 if (e.key === 'Enter') handleCreate()
                 if (e.key === 'Escape') { setCreating(false); setCreateName('') }
               }}
-              placeholder={`New ${destType} name…`}
+              placeholder={`New ${nounSingular.toLowerCase()} name…`}
               maxLength={100}
+              aria-label={`New ${nounSingular.toLowerCase()} name`}
             />
-            <button
-              className={styles.moveDialogCreateSave}
-              onClick={handleCreate}
-              disabled={saving || !createName.trim()}
-            >{saving ? '…' : 'Create & Move'}</button>
-            <button
-              className={styles.moveDialogCreateCancel}
+            <Button size="sm" onClick={handleCreate} disabled={saving || !createName.trim()}>
+              {saving ? 'Creating…' : 'Create & Move'}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => { setCreating(false); setCreateName('') }}
-            ><CloseIcon size={13} /></button>
+              aria-label="Cancel creating a folder"
+            >
+              <CloseIcon size={13} />
+            </Button>
           </div>
         )}
-      </div>
       </div>
     </Modal>
   )
@@ -301,24 +314,23 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
         />
       )}
       {showDeleteDialog && (
-        <Modal onClose={() => setShowDeleteDialog(false)}>
-          <div style={{ maxWidth: 420, width: '100%', margin: '0 auto' }}>
+        <Modal onClose={() => setShowDeleteDialog(false)} className={styles.moveDialog}>
+          <div>
             <h2 className={styles.moveDialogTitle}>Delete {count} {count === 1 ? 'card' : 'cards'}?</h2>
-            <p style={{ color: 'var(--text-dim)', fontSize: '0.88rem', margin: '10px 0 18px' }}>
-              This cannot be undone.
-            </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button className={styles.moveDialogCreateCancel} onClick={() => setShowDeleteDialog(false)}>
+            <p className={styles.moveDialogBody}>This cannot be undone.</p>
+            <div className={styles.moveDialogActions}>
+              <Button variant="secondary" size="sm" onClick={() => setShowDeleteDialog(false)}>
                 Cancel
-              </button>
-              <button
-                className={`${styles.bulkBtn} ${styles.bulkDelete}`}
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
                 onClick={async () => {
                   setShowDeleteDialog(false)
                   await onDelete?.()
                 }}>
                 Delete {count}
-              </button>
+              </Button>
             </div>
           </div>
         </Modal>

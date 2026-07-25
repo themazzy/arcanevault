@@ -240,6 +240,54 @@ async function searchCardNamesScryfall(q, limit) {
   }
 }
 
+// ── Art search (background-art pickers) ──────────────────────────────────────
+
+/**
+ * The `search_card_art` RPC needs three characters before the trigram index on
+ * card_prints.name can produce candidates; a shorter term degrades into a seq
+ * scan over ~113k rows. Callers gate their input on this so the round trip is
+ * never made for a term the server would reject anyway.
+ */
+export const MIN_ART_SEARCH_LENGTH = 3
+
+/** One selectable artwork. `url` is a Scryfall `art_crop` (424×248-ish). */
+export function artRowToOption(row) {
+  if (!row?.art_crop_uri) return null
+  const isBack = row.face_index === 1
+  return {
+    key: `${row.scryfall_id || row.art_crop_uri}:${row.face_index || 0}`,
+    url: row.art_crop_uri,
+    cardName: row.card_name || '',
+    faceName: row.face_name || row.card_name || '',
+    isBack,
+    setCode: row.set_code || null,
+    setName: row.set_name || null,
+    collectorNumber: row.collector_number || null,
+    artist: row.artist || null,
+  }
+}
+
+/**
+ * Distinct artworks matching a card name, served entirely from `card_prints`.
+ * Deliberately has no Scryfall fallback: `cards/search` answers 404 for a name
+ * with no matches, which the browser logs as a failed request on every
+ * keystroke of a typo, and it hides double-faced cards behind per-face
+ * `image_uris`. Both are the reasons this moved to Supabase — see the RPC.
+ *
+ * Genuine two-sided prints contribute a second option for the back-face art.
+ * Throws on a Supabase error so callers can show a real message.
+ */
+export async function searchCardArt(term, { limit = 24 } = {}) {
+  const q = (term || '').trim()
+  if (q.length < MIN_ART_SEARCH_LENGTH) return []
+  const { data, error } = await sb.rpc('search_card_art', {
+    search_term: q,
+    max_results: limit,
+  })
+  if (error) throw error
+  return (data || []).map(artRowToOption).filter(Boolean)
+}
+
 // ── Printings ────────────────────────────────────────────────────────────────
 
 function printRowsQuery(language) {

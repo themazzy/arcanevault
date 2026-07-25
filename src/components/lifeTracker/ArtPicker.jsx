@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ErrorBox, SearchInput } from '../UI'
 import { SearchIcon } from '../../icons'
-import { sfGet } from '../../lib/scryfall'
+import { MIN_ART_SEARCH_LENGTH, searchCardArt } from '../../lib/cardSearch'
 import c from './controls.module.css'
 
 // Card-art search for seat backgrounds.
@@ -12,60 +12,58 @@ import c from './controls.module.css'
 // raw fetch — no shared cache, no rate limiting, and no guard against a slow
 // response for an old query landing after a newer one.
 //
-// Per CLAUDE.md, name search is served from our own tables, but `unique=art` is
-// explicitly one of the queries that stays on Scryfall. It goes through sfGet so it
-// inherits the shared 100ms throttle, retry/backoff and Accept header.
+// Results come from the `search_card_art` RPC over card_prints — the same source
+// as the binder/wishlist/profile background pickers. Scryfall's `unique=art`
+// search answered 404 for a name that matched nothing, which the browser logged
+// as a failed request on every keystroke of a typo, and its per-face image_uris
+// meant each caller had to unpack double-faced cards itself. The RPC returns the
+// back face of a two-sided print as its own selectable artwork.
 
 const DEBOUNCE_MS = 350
 const MAX_RESULTS = 24
-
-function artCropOf(card) {
-  return card?.image_uris?.art_crop
-    // Double-faced cards carry images per face, not at the top level.
-    || card?.card_faces?.[0]?.image_uris?.art_crop
-    || null
-}
 
 export default function ArtPicker({ value, onSelect, autoFocus = false }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Scryfall retires printings and card_prints keeps the row until the next sync
+  // notices; drop a tile whose art 404s instead of rendering a broken image.
+  const [deadArt, setDeadArt] = useState(() => new Set())
 
   const timer = useRef(null)
-  // sfGet has no abort support, so requests are versioned instead: a response is
-  // only applied if no newer search has started since it was issued.
+  // Requests are versioned: a response is only applied if no newer search has
+  // started since it was issued.
   const requestId = useRef(0)
 
   useEffect(() => () => clearTimeout(timer.current), [])
 
   const run = async (term) => {
     const trimmed = term.trim()
-    if (trimmed.length < 2) { setResults([]); setLoading(false); return }
+    if (trimmed.length < MIN_ART_SEARCH_LENGTH) { setResults([]); setLoading(false); return }
 
     const id = ++requestId.current
     setLoading(true)
     setError('')
 
-    const data = await sfGet(
-      `/cards/search?q=${encodeURIComponent(trimmed)}&unique=art&order=name`,
-    )
-    if (id !== requestId.current) return
-
-    setLoading(false)
-    if (!data) { setError('Could not reach Scryfall. Try again.'); setResults([]); return }
-
-    const found = (data.data || [])
-      .filter(card => artCropOf(card))
-      .slice(0, MAX_RESULTS)
-    setResults(found)
-    if (found.length === 0) setError(`No card art matches "${trimmed}".`)
+    try {
+      const found = await searchCardArt(trimmed, { limit: MAX_RESULTS })
+      if (id !== requestId.current) return
+      setLoading(false)
+      setResults(found)
+      if (found.length === 0) setError(`No card art matches "${trimmed}".`)
+    } catch {
+      if (id !== requestId.current) return
+      setLoading(false)
+      setResults([])
+      setError('Could not load card art. Try again.')
+    }
   }
 
   const handleChange = (next) => {
     setQuery(next)
     clearTimeout(timer.current)
-    if (next.trim().length < 2) {
+    if (next.trim().length < MIN_ART_SEARCH_LENGTH) {
       requestId.current++
       setResults([])
       setError('')
@@ -74,6 +72,9 @@ export default function ArtPicker({ value, onSelect, autoFocus = false }) {
     }
     timer.current = setTimeout(() => run(next), DEBOUNCE_MS)
   }
+
+  const tooShort = query.trim().length > 0 && query.trim().length < MIN_ART_SEARCH_LENGTH
+  const visible = results.filter(art => !deadArt.has(art.url))
 
   return (
     <div className={c.field}>
@@ -94,27 +95,30 @@ export default function ArtPicker({ value, onSelect, autoFocus = false }) {
         autoFocus={autoFocus}
       />
 
-      {loading && <p className={c.hint}>Searching…</p>}
-      {!loading && error && <ErrorBox>{error}</ErrorBox>}
+      {tooShort && <p className={c.hint}>Type at least {MIN_ART_SEARCH_LENGTH} characters.</p>}
+      {loading && !tooShort && <p className={c.hint}>Searching…</p>}
+      {!loading && !tooShort && error && <ErrorBox>{error}</ErrorBox>}
 
-      {results.length > 0 && (
+      {visible.length > 0 && (
         <div className={c.artGrid}>
-          {results.map(card => {
-            const url = artCropOf(card)
-            return (
-              <button
-                key={card.id}
-                type="button"
-                className={c.artOption}
-                data-active={value === url ? 'true' : undefined}
-                onClick={() => onSelect(url, card)}
-                aria-label={`Use art from ${card.name}`}
-              >
-                <img src={url} alt="" loading="lazy" />
-                <span className={c.artName}>{card.name}</span>
-              </button>
-            )
-          })}
+          {visible.map(art => (
+            <button
+              key={art.key}
+              type="button"
+              className={c.artOption}
+              data-active={value === art.url ? 'true' : undefined}
+              onClick={() => onSelect(art.url, art)}
+              aria-label={`Use art from ${art.faceName}`}
+            >
+              <img
+                src={art.url}
+                alt=""
+                loading="lazy"
+                onError={() => setDeadArt(prev => new Set(prev).add(art.url))}
+              />
+              <span className={c.artName}>{art.faceName}</span>
+            </button>
+          ))}
         </div>
       )}
     </div>

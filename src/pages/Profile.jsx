@@ -4,8 +4,8 @@ import { useParams, Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings, DEFAULT_BENTO_CONFIG } from '../components/SettingsContext'
-import { sfGet } from '../lib/scryfall'
-import { Modal, SearchInput } from '../components/UI'
+import { Modal } from '../components/UI'
+import CardArtPicker from '../components/CardArtPicker'
 import { CheckIcon, CloseIcon, ImageIcon } from '../icons'
 import { Select } from '../components/UI'
 import { MILESTONES } from '../lib/milestones'
@@ -133,64 +133,6 @@ function spanClass(id) {
 }
 
 const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
-
-// ── Card art picker (header background) ──────────────────────────────────────
-function CardArtPicker({ onSelect, onClose }) {
-  const [query, setQuery]     = useState('')
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const inputRef = useRef(null)
-  const timerRef = useRef(null)
-
-  useEffect(() => { inputRef.current?.focus() }, [])
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  const search = async (q) => {
-    const term = (q ?? query).trim()
-    if (!term) return
-    setLoading(true)
-    try {
-      const data = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
-      setResults((data?.data || []).filter(c => c.image_uris?.art_crop).slice(0, 24))
-    } catch { setResults([]) }
-    setLoading(false)
-  }
-
-  const handleChange = v => {
-    setQuery(v)
-    clearTimeout(timerRef.current)
-    if (v.trim().length < 2) { setResults([]); return }
-    timerRef.current = setTimeout(() => search(v), 350)
-  }
-
-  return (
-    <Modal onClose={onClose}>
-      <h2 className={styles.artPickerTitle}>Choose Header Background Art</h2>
-      <div className={styles.artPickerSearch}>
-        <SearchInput ref={inputRef} className={styles.artPickerInput} value={query}
-          onChange={e => handleChange(e.target.value)}
-          onClear={() => handleChange('')}
-          onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
-          placeholder="Search card name…" />
-        {loading && <span className={styles.artPickerLoading}>…</span>}
-      </div>
-      {results.length > 0 && (
-        <div className={styles.artPickerGrid}>
-          {results.map(card => (
-            <button key={card.id} className={styles.artPickerItem}
-              onClick={() => onSelect(card.image_uris.art_crop)} title={card.name}>
-              <img src={card.image_uris.art_crop} alt={card.name} className={styles.artPickerImg} />
-              <div className={styles.artPickerName}>{card.name}</div>
-            </button>
-          ))}
-        </div>
-      )}
-      {!loading && results.length === 0 && query.trim().length >= 2 && (
-        <p className={styles.artPickerEmpty}>No results. Try a different card name.</p>
-      )}
-    </Modal>
-  )
-}
 
 // ── Standout card picker (featured deck) ─────────────────────────────────────
 function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
@@ -1332,6 +1274,7 @@ export default function ProfilePage() {
 
       {showArtPicker && (
         <CardArtPicker
+          title="Choose Header Background Art"
           onSelect={url => { setDraftHeaderArt(url); setShowArtPicker(false) }}
           onClose={() => setShowArtPicker(false)}
         />

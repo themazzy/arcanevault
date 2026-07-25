@@ -50,12 +50,18 @@ export function Button({
   )
 }
 
-export function Input({ value, onChange, placeholder, type = 'text', className = '', clearable = false, onClear, ...props }) {
+// forwardRef so callers can focus the field (the Move dialog autofocuses its
+// "new folder name" input the moment the create form opens).
+export const Input = forwardRef(function Input(
+  { value, onChange, placeholder, type = 'text', className = '', clearable = false, onClear, ...props },
+  ref,
+) {
   const hasValue = value != null && String(value).length > 0
   const clear = () => { if (onClear) onClear(); else onChange?.({ target: { value: '' } }) }
   if (!clearable) {
     return (
       <input
+        ref={ref}
         type={type}
         className={`${styles.input} ${className}`}
         value={value}
@@ -68,6 +74,7 @@ export function Input({ value, onChange, placeholder, type = 'text', className =
   return (
     <span className={styles.searchWrap}>
       <input
+        ref={ref}
         type={type}
         className={`${styles.input} ${className}`}
         style={{ paddingRight: 32 }}
@@ -89,7 +96,7 @@ export function Input({ value, onChange, placeholder, type = 'text', className =
       )}
     </span>
   )
-}
+})
 
 /**
  * Search/filter input with a built-in clear (✕) button. A drop-in for a raw

@@ -338,7 +338,8 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/commanderBracket.js` | Commander Bracket estimator: `analyzeBracket()` (Game Changers / MLD / extra turns / 2-card combos), `fetchGameChangerNames()` (Scryfall `is:gamechanger`, 7-day localStorage cache). UI: `components/BracketBadge.jsx` — clickable pill in the DeckStats pills row (popover with reasons, flagged cards, combo check, manual 1–5 override). `DeckStats` accepts `showBracket` + `combos` props; DeckBuilder passes `showBracket={isEDH}` |
 | `src/lib/importFlow.js` | Import pipeline: `parseImportText()`, `resolveImportEntries()`, `summarizeImportRows()`, `aggregateResolvedRows()`, `fetchPaperPrintings()` |
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
-| `src/lib/cardSearch.js` | Name-based card search from our own tables: `searchCardNames()` (ranked `search_card_names` RPC over `oracle_cards`), `fetchPrintingsByName()`/`fetchPrintingsForNames()` (`card_prints`, newest first, shared prices attached). Every entry point falls back to the equivalent Scryfall query on error/empty. Used by AddCardModal, scanner manual search + printing picker, Trading want-list, Home autocomplete |
+| `src/lib/cardSearch.js` | Name-based card search from our own tables: `searchCardNames()` (ranked `search_card_names` RPC over `oracle_cards`), `fetchPrintingsByName()`/`fetchPrintingsForNames()` (`card_prints`, newest first, shared prices attached), `searchCardArt()` (distinct artworks via the `search_card_art` RPC — **no** Scryfall fallback). Every other entry point falls back to the equivalent Scryfall query on error/empty. Used by AddCardModal, scanner manual search + printing picker, Trading want-list, Home autocomplete, CardArtPicker |
+| `src/components/CardArtPicker.jsx` | Shared background-art picker modal (binders, wishlists, profile header) — searches `card_prints` for distinct artworks, incl. both faces of double-faced prints |
 | `scripts/lib/print-sync-core.mjs` | Pure helpers for the daily card_prints sync (`shouldInsertPrint`, `buildPrintRow`); tested in `src/lib/printSyncCore.test.js` |
 | `src/components/CardComponents.jsx` | `FilterBar`, `CardDetail`, `CardGrid`, `EMPTY_FILTERS`, `applyFilterSort`, `BulkActionBar` |
 | `src/components/VirtualCardGrid.jsx` | Virtualised card grid (@tanstack/react-virtual) |
@@ -586,7 +587,20 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 
 | Service | Usage | Notes |
 |---|---|---|
-| Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay. Name-based search surfaces (AddCardModal, scanner manual add, Trading, Home autocomplete) are served from our own `oracle_cards`/`card_prints` tables via `src/lib/cardSearch.js` with Scryfall as fallback only; syntax search, rulings, catalogs, sets, `unique=art`, and images stay on Scryfall |
+| Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay. Name-based search surfaces (AddCardModal, scanner manual add, Trading, Home autocomplete) are served from our own `oracle_cards`/`card_prints` tables via `src/lib/cardSearch.js` with Scryfall as fallback only; syntax search, rulings, catalogs, sets, and images stay on Scryfall |
+
+### Card-art search (`search_card_art` RPC)
+
+Every card-art picker in the app runs on `card_prints`, **not** Scryfall's `unique=art` search: binder tiles + collection-deck tiles (`Folders.jsx`), wishlist tiles (`Lists.jsx`), the profile header (`Profile.jsx`) — all via the shared `components/CardArtPicker.jsx` modal — plus life-tracker seat backgrounds (`components/lifeTracker/ArtPicker.jsx`, used by the seat sheet and the public `/join/:code` page). Two reasons the old direct-to-Scryfall version was wrong:
+
+- **Double-faced cards were invisible.** Scryfall puts `image_uris` on each entry in `card_faces` for DFCs, never at the top level, and every picker filtered on `card.image_uris?.art_crop` — so transform/MDFC cards silently vanished from results.
+- **A typo logged a console error per keystroke.** `cards/search` answers **404** when nothing matches; the browser logs that as a failed request regardless of how the app handles it.
+
+`search_card_art(search_term, max_results)` returns one row per distinct artwork (`illustration_id`), and a genuine two-sided print contributes a second row for its back-face art — derived by swapping `/normal/` → `/art_crop/` in `card_faces[1].image_uris.normal`. Split cards ("Fire // Ice") also have two faces but no per-face image, which is what gates that extra row. **Terms shorter than 3 characters return nothing**: the trigram index on `card_prints.name` can't produce candidates below that and `ilike` degrades to a 3.4 s seq scan over ~113k rows. `MIN_ART_SEARCH_LENGTH` in `cardSearch.js` mirrors the limit client-side.
+
+`EXECUTE` is granted to **`anon`** as well as `authenticated` — `/join/:code` is a public route and its seat picker must work for a signed-out guest.
+
+Builder decks have no art picker: their tile art is derived from the commander via `useDeckArts`/`coverArtUri` (`src/lib/deckArt.js`), not a name search.
 | Supabase | Auth, cloud sync | RLS enforced; never bypass with service key |
 | frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
 | EDHRec | Commander recommendations | Direct fetch — `json.edhrec.com/pages/` sends CORS `*` |

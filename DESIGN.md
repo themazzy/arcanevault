@@ -239,6 +239,18 @@ The DeckBuilder "More" menu is the canonical look, and it is entirely built from
 
 All of these carry the sheet (≤640px) and light-theme variants — a locally-styled row silently loses both.
 
+### SearchInput
+
+`SearchInput` styles its **wrapper** (positioning, leading icon, clear button) — the `className` you pass lands on the inner `<input>`, and nothing else does.
+
+A zero-specificity baseline in `UI.module.css` now guarantees the field is never a bare white browser input:
+
+```css
+:where(.searchWrap) :where(input) { /* background, border, padding, colour */ }
+```
+
+Both selector parts are inside `:where()`, so the rule is specificity `0,0,0` and **any** caller class (`0,1,0`) overrides it — no dependence on which CSS-module chunk loads first (§11). Pass a `className` when you need different geometry or colour; pass nothing and you still get a proper field. Guarded by `searchInputBaseline.test.js` — it shipped unstyled three times before the baseline existed.
+
 ### Modal
 
 Use `<Modal>` from `UI.jsx`. It handles overlay, Escape, focus trap + restore, scroll lock, and animated height.

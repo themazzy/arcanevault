@@ -17,12 +17,14 @@ import { useFilterWorker } from '../hooks/useFilterWorker'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
+import CardArtPicker from '../components/CardArtPicker'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import styles from './Folders.module.css'
 import { CloseIcon, CheckIcon, AddIcon, BinderIcon, ChevronLeftIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SearchIcon, SettingsIcon, SortIcon, StacksViewIcon, WishlistsIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
 import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
 import { fetchPrintingsByName } from '../lib/cardSearch'
+import { parseFolderBgUrl, withFolderBgUrl } from '../lib/folderBackground'
 import { ensureCardPrints, getCardPrint } from '../lib/cardPrints'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -39,10 +41,6 @@ function setFolderDescKey(description, key, value) {
 function isGroupFolder(f) {
   return parseFolderDesc(f.description).isGroup === true
 }
-function parseBgUrl(description) {
-  try { return JSON.parse(description || '{}').bg_url || null } catch { return null }
-}
-
 const SORT_OPTIONS = [
   ['name',       'Name A→Z'],
   ['name_desc',  'Name Z→A'],
@@ -101,63 +99,6 @@ function SortDropdown({ value, onChange, options, compact = false }) {
         </div>
       )}
     </ResponsiveMenu>
-  )
-}
-
-// ── Art picker ────────────────────────────────────────────────────────────────
-function CardArtPicker({ onSelect, onClose }) {
-  const [query, setQuery]     = useState('')
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const inputRef = useRef(null)
-  const timerRef = useRef(null)
-  useEffect(() => { inputRef.current?.focus() }, [])
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  const search = async (q) => {
-    const term = q ?? query
-    if (!term.trim()) return
-    setLoading(true)
-    try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
-      const data = await r.json()
-      setResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
-    } catch { setResults([]) }
-    setLoading(false)
-  }
-
-  const handleQueryChange = (v) => {
-    setQuery(v)
-    clearTimeout(timerRef.current)
-    if (v.trim().length < 2) { setResults([]); return }
-    timerRef.current = setTimeout(() => search(v), 350)
-  }
-
-  return (
-    <Modal onClose={onClose}>
-      <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
-        Choose Card Art Background
-      </h2>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <SearchInput ref={inputRef} value={query} onChange={e => handleQueryChange(e.target.value)}
-          onClear={() => handleQueryChange('')}
-          onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
-          placeholder="Search card name…"
-          style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid var(--s-border2)',
-            borderRadius: 4, padding: '8px 12px', color: 'var(--text)', fontSize: '0.9rem', outline: 'none' }} />
-        {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.85rem' }}>…</span>}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px,1fr))', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
-        {results.map(c => (
-          <img key={c.id} src={c.image_uris.art_crop} alt={c.name} title={c.name}
-            onClick={() => onSelect(c.image_uris.art_crop)}
-            style={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: 4,
-              cursor: 'pointer', border: '2px solid transparent', transition: 'border-color 0.15s' }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--gold)'}
-            onMouseLeave={e => e.currentTarget.style.borderColor = 'transparent'} />
-        ))}
-      </div>
-    </Modal>
   )
 }
 
@@ -261,7 +202,7 @@ function WishlistItemEditModal({ item, onClose, onSaved }) {
   )
 }
 
-function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete }) {
+function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete, onSetBackground }) {
   const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
   const toast = useToast()
@@ -288,7 +229,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
   const [selectedItemId, setSelectedItemId] = useState(null)
   const [hoverImg, setHoverImg]           = useState(null)
   const [hoverPos, setHoverPos]           = useState({ x: 0, y: 0 })
+  const [showArtPicker, setShowArtPicker] = useState(false)
   const isAllView = !folder
+  const folderBgUrl = parseFolderBgUrl(folder?.description)
   const browserTitle = title || folder?.name || 'All Wishlist Cards'
   const openImport = () => { setImportText(''); setShowImport(true) }
 
@@ -619,6 +562,9 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
       {/* ── Header + search: one dock (deck-browser parity) ── */}
       <div className={styles.browserDock}>
       <div className={styles.binderHeader}>
+        {folderBgUrl && (
+          <div className={styles.binderHeaderBg} style={{ backgroundImage: `url(${folderBgUrl})` }} aria-hidden="true" />
+        )}
         <div className={styles.binderTitleRow}>
           <div className={styles.binderTitleBlock}>
           {renamingFolder ? (
@@ -667,6 +613,12 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
                 {({ close }) => (
                   <div className={uiStyles.responsiveMenuList}>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { startRenameFolder(); close() }}><span><EditIcon size={13} /> Rename</span></button>
+                    {onSetBackground && (
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowArtPicker(true); close() }}><span><ImageIcon size={13} /> Set background art</span></button>
+                    )}
+                    {onSetBackground && folderBgUrl && (
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetBackground(null); close() }}><span><RemoveIcon size={13} /> Clear background</span></button>
+                    )}
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}><span><ImportIcon size={13} /> Import</span></button>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}><span><ExportIcon size={13} /> Export</span></button>
                     {onDelete && (
@@ -884,6 +836,12 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
           onClose={() => setShowExport(false)}
         />
       )}
+      {showArtPicker && (
+        <CardArtPicker
+          onSelect={url => { onSetBackground?.(url); setShowArtPicker(false) }}
+          onClose={() => setShowArtPicker(false)}
+        />
+      )}
     </div>
   )
 }
@@ -893,7 +851,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
   selectMode, selected, onToggleSelect, onEnterSelectMode, onMoveToGroup, onEditBg, onClearBg }) {
   const value  = meta?.value
   const qty    = meta?.totalQty ?? 0
-  const bgUrl  = useMemo(() => parseBgUrl(folder.description), [folder.description])
+  const bgUrl  = useMemo(() => parseFolderBgUrl(folder.description), [folder.description])
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming]   = useState(false)
   const [renameVal, setRenameVal] = useState('')
@@ -1178,15 +1136,18 @@ export default function ListsPage() {
     }
   }, [folders])
 
+  // Merge base is re-read rather than taken from the folder in hand — the
+  // description blob holds more than bg_url, and this page's copy can lag a
+  // write made from inside an opened wishlist.
   const saveFolderBg = useCallback(async (folder, url) => {
-    let desc = {}
-    try { desc = JSON.parse(folder.description || '{}') } catch {}
-    if (!url) delete desc.bg_url
-    else desc.bg_url = url
-    const descStr = Object.keys(desc).length > 0 ? JSON.stringify(desc) : null
+    const { data: current } = await sb.from('folders').select('description').eq('id', folder.id).maybeSingle()
+    const descStr = withFolderBgUrl(current?.description ?? folder.description, url)
     await sb.from('folders').update({ description: descStr }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: descStr } : f))
+    // The browser reads its header background off activeFolder.
+    setActiveFolder(prev => prev?.id === folder.id ? { ...prev, description: descStr } : prev)
     await invalidateWishlistQueries(queryClient, user?.id, { includeFolders: true, includeItems: false }).catch(() => {})
+    return descStr
   }, [user?.id])
 
   const computeListMeta = useCallback((foldersData, items, sfMap) => {
@@ -1478,6 +1439,7 @@ export default function ListsPage() {
         folder={activeFolder}
         folders={regularFolders}
         onBack={() => { setActiveFolder(null); loadFolders() }}
+        onSetBackground={url => saveFolderBg(activeFolder, url)}
         onDelete={(isEmpty) => {
           if (isEmpty) {
             deleteFolder(activeFolder).then(() => { setActiveFolder(null); loadFolders() })

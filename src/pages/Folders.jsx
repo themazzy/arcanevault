@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { sb } from '../lib/supabase'
-import { getScryfallKey, getPrice, formatPrice, sfGet } from '../lib/scryfall'
+import { getScryfallKey, getPrice, formatPrice } from '../lib/scryfall'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -9,10 +9,12 @@ import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, LibraryEmptyState, SectionHeader, Button, Input, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select, SearchInput } from '../components/UI'
 import { isTradeBinder } from '../lib/tradeBinder'
+import { parseFolderBgUrl, withFolderBgUrl } from '../lib/folderBackground'
 import { getPublicAppUrl } from '../lib/publicUrl'
 import AddCardModal from '../components/AddCardModal'
 import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
+import CardArtPicker from '../components/CardArtPicker'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
@@ -20,8 +22,9 @@ import { CloseIcon, CheckIcon, AddIcon, ChevronLeftIcon, SettingsIcon, DeleteIco
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
+import { useAllFolders } from '../hooks/useAllFolders'
 import { getPlacedQtyByCardIds, pruneUnplacedCards, removeFolderCardPlacements } from '../lib/collectionOwnership'
-import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFolders, getCardsByIds, getLocalFolders, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
+import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFolders, getCardsByIds, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
@@ -70,73 +73,6 @@ function SortDropdown({ value, onChange, options, compact = false }) {
   )
 }
 
-// ── Art picker: search Scryfall for art_crop ──────────────────────────────────
-function CardArtPicker({ onSelect, onClose }) {
-  const [query, setQuery]   = useState('')
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const inputRef = useRef(null)
-  const timerRef = useRef(null)
-
-  useEffect(() => { inputRef.current?.focus() }, [])
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  const search = async (q) => {
-    const term = q ?? query
-    if (!term.trim()) return
-    setLoading(true)
-    try {
-      const data = await sfGet(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
-      setResults((data?.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
-    } catch { setResults([]) }
-    setLoading(false)
-  }
-
-  const handleQueryChange = (v) => {
-    setQuery(v)
-    clearTimeout(timerRef.current)
-    if (v.trim().length < 2) { setResults([]); return }
-    timerRef.current = setTimeout(() => search(v), 350)
-  }
-
-  return (
-    <Modal onClose={onClose}>
-      <h2 style={{ fontFamily: 'var(--font-display)', color: 'var(--gold)', marginBottom: 14, fontSize: '1rem' }}>
-        Choose Card Art Background
-      </h2>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <SearchInput ref={inputRef}
-          value={query} onChange={e => handleQueryChange(e.target.value)}
-          onClear={() => handleQueryChange('')}
-          onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
-          placeholder="Search card name…"
-          style={{ background: 'var(--s-subtle)', border: '1px solid var(--s-border2)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
-        />
-        {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.85rem' }}>…</span>}
-      </div>
-      {results.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
-          {results.map(card => (
-            <button key={card.id}
-              onClick={() => onSelect(card.image_uris.art_crop)}
-              style={{ background: 'none', border: '1px solid var(--s-border2)', borderRadius: 4, padding: 0, cursor: 'pointer', overflow: 'hidden', transition: 'border-color 0.15s' }}
-              title={card.name}>
-              <img src={card.image_uris.art_crop} alt={card.name}
-                style={{ width: '100%', display: 'block', aspectRatio: '4/3', objectFit: 'cover' }} />
-              <div style={{ padding: '4px 6px', fontSize: '0.68rem', color: 'var(--text-dim)', background: 'rgba(0,0,0,0.6)', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {card.name}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-      {!loading && results.length === 0 && query && (
-        <p style={{ color: 'var(--text-faint)', fontSize: '0.85rem' }}>No results. Try a different name.</p>
-      )}
-    </Modal>
-  )
-}
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const SORT_OPTIONS = [
   ['name',       'Name A→Z'],
@@ -157,10 +93,6 @@ function sortFolders(folders, meta, sort) {
     if (sort === 'name_desc')  return b.name.localeCompare(a.name)
     return a.name.localeCompare(b.name)
   })
-}
-
-function parseBgUrl(description) {
-  try { return JSON.parse(description || '{}').bg_url || null } catch { return null }
 }
 
 function parseFolderDesc(description) {
@@ -376,7 +308,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   onRename, selectMode, selected, onToggleSelect, onEnterSelectMode, onMoveToGroup }) {
   const value  = meta?.value
   const qty    = meta?.totalQty ?? meta?.count ?? 0
-  const bgUrl  = useMemo(() => parseBgUrl(folder.description), [folder.description])
+  const bgUrl  = useMemo(() => parseFolderBgUrl(folder.description), [folder.description])
   const tradeBinder = isTradeBinder(folder)
   const syncState = folder.type === 'deck' ? getSyncState(folder) : null
   // Gate on an actual link, matching Builder.jsx's tile: with no counterpart there is
@@ -566,7 +498,7 @@ function _BinderListView({ cards, sfMap, priceSource }) {
 }
 
 // ── FolderBrowser ─────────────────────────────────────────────────────────────
-function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder', onBack, onCardAdded, onDelete }) {
+function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder', onBack, onCardAdded, onDelete, onSetBackground }) {
   const { price_source, default_sort, grid_density, nickname, save: saveSettings } = useSettings()
   const { user } = useAuth()
   const toast = useToast()
@@ -576,7 +508,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const [savingNickname, setSavingNickname]  = useState(false)
   const [cards, setCards]             = useState([])
   const [sfMap, setSfMap]             = useState({})
-  const [allFolders, setAllFolders]   = useState([])
+  const [allFolders]                  = useAllFolders(user?.id)
   const [loading, setLoading]         = useState(true)
   const [selected, setSelected]       = useState(null)
   const [search, setSearch]           = useState('')
@@ -594,7 +526,9 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const [hoverImg, setHoverImg]       = useState(null)
   const [hoverPos, setHoverPos]       = useState({ x: 0, y: 0 })
   const [reloadKey, setReloadKey]     = useState(0)
+  const [showArtPicker, setShowArtPicker] = useState(false)
   const isAllView = !folder
+  const folderBgUrl = parseFolderBgUrl(folder?.description)
   const browserTitle = title || folder?.name || `All ${noun} Cards`
   const openImport = () => { setImportText(''); setShowImport(true) }
 
@@ -675,40 +609,58 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const handleHoverEnd = useCallback(() => setHoverImg(null), [])
   const handleMouseMove = useCallback((e) => setHoverPos({ x: e.clientX, y: e.clientY }), [])
 
-  // Phase A: load cards from IDB immediately (fast path)
+  // Phase A: load cards from IDB immediately (fast path).
+  //
+  // Split per view so an open folder never reloads because the folder *list*
+  // changed. The index owns `folders`, and it replaces that array whenever any
+  // folder row is edited — setting a background, for one. Depending on it here
+  // meant an unrelated edit tore the open binder back down to its loading state
+  // and re-read IDB for no reason.
+  const isSingleFolderView = !isAllView && !!folder?.id
   useEffect(() => {
+    if (!isSingleFolderView) return
+    let cancelled = false
     const load = async () => {
       setLoading(true)
-      let cardList
-      if (isAllView) {
-        const folderNameById = Object.fromEntries(folders.map(f => [f.id, f.name]))
-        const allFcRows = await getAllLocalFolderCards(folderIds)
-        const uniqueIds = [...new Set(allFcRows.map(r => r.card_id).filter(Boolean))]
-        const localCards = await getCardsByIds(uniqueIds)
-        const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
-        cardList = allFcRows
-          .filter(r => cardById[r.card_id])
-          .map(r => ({
-            ...cardById[r.card_id],
-            _folder_qty: r.qty,
-            _folderName: folderNameById[r.folder_id] || '',
-            _sourceFolderId: r.folder_id,
-            _displayKey: `${r.folder_id}:${r.card_id}`,
-          }))
-      } else {
-        const fcRows = await getLocalFolderCards(folder.id)
-        const cardIds = fcRows.map(r => r.card_id).filter(Boolean)
-        const localCards = await getCardsByIds(cardIds)
-        const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
-        cardList = fcRows
-          .filter(r => cardById[r.card_id])
-          .map(r => ({ ...cardById[r.card_id], _folder_qty: r.qty }))
-      }
-      setCards(cardList)
+      const fcRows = await getLocalFolderCards(folder.id)
+      const cardIds = fcRows.map(r => r.card_id).filter(Boolean)
+      const localCards = await getCardsByIds(cardIds)
+      if (cancelled) return
+      const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+      setCards(fcRows
+        .filter(r => cardById[r.card_id])
+        .map(r => ({ ...cardById[r.card_id], _folder_qty: r.qty })))
       setLoading(false)
     }
     load()
-  }, [folder?.id, folderIds, folders, isAllView, reloadKey])
+    return () => { cancelled = true }
+  }, [folder?.id, isSingleFolderView, reloadKey])
+
+  useEffect(() => {
+    if (!isAllView) return
+    let cancelled = false
+    const load = async () => {
+      setLoading(true)
+      const folderNameById = Object.fromEntries(folders.map(f => [f.id, f.name]))
+      const allFcRows = await getAllLocalFolderCards(folderIds)
+      const uniqueIds = [...new Set(allFcRows.map(r => r.card_id).filter(Boolean))]
+      const localCards = await getCardsByIds(uniqueIds)
+      if (cancelled) return
+      const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
+      setCards(allFcRows
+        .filter(r => cardById[r.card_id])
+        .map(r => ({
+          ...cardById[r.card_id],
+          _folder_qty: r.qty,
+          _folderName: folderNameById[r.folder_id] || '',
+          _sourceFolderId: r.folder_id,
+          _displayKey: `${r.folder_id}:${r.card_id}`,
+        })))
+      setLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [folderIds, folders, isAllView, reloadKey])
 
   // Reconcile the open binder with Supabase after the fast IDB paint. This keeps
   // cross-page moves, such as DeckBuilder sync, visible without visiting Collection.
@@ -749,15 +701,6 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     })
     return () => { cancelled = true }
   }, [cards])
-
-  useEffect(() => {
-    if (!user) return
-    let cancelled = false
-    getLocalFolders(user.id)
-      .then(data => { if (!cancelled) setAllFolders(data || []) })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [user])
 
   const filtered = useFilterWorker({ cards, sfMap, search, sort, filters, priceSource: price_source })
 
@@ -1000,6 +943,9 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       {/* ── Header + search: one dock (deck-browser parity) ── */}
       <div className={styles.browserDock}>
       <div className={styles.binderHeader}>
+        {folderBgUrl && (
+          <div className={styles.binderHeaderBg} style={{ backgroundImage: `url(${folderBgUrl})` }} aria-hidden="true" />
+        )}
         <div className={styles.binderTitleRow}>
           <div className={styles.binderTitleBlock}>
           {renamingFolder ? (
@@ -1051,6 +997,12 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
                       <button className={uiStyles.responsiveMenuAction} onClick={() => { handleTradeLink(); close() }}><span><ShareIcon size={13} /> Copy trade link</span></button>
                     )}
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { startRenameFolder(); close() }}><span><EditIcon size={13} /> Rename</span></button>
+                    {onSetBackground && (
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowArtPicker(true); close() }}><span><ImageIcon size={13} /> Set background art</span></button>
+                    )}
+                    {onSetBackground && folderBgUrl && (
+                      <button className={uiStyles.responsiveMenuAction} onClick={() => { onSetBackground(null); close() }}><span><RemoveIcon size={13} /> Clear background</span></button>
+                    )}
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { openImport(); close() }}><span><ImportIcon size={13} /> Import</span></button>
                     <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowExport(true); close() }}><span><ExportIcon size={13} /> Export</span></button>
                     {onDelete && (
@@ -1268,6 +1220,12 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
             </Button>
           </div>
         </Modal>
+      )}
+      {showArtPicker && (
+        <CardArtPicker
+          onSelect={url => { onSetBackground?.(url); setShowArtPicker(false) }}
+          onClose={() => setShowArtPicker(false)}
+        />
       )}
     </div>
   )
@@ -1694,15 +1652,22 @@ export default function FoldersPage({ type }) {
     invalidateOwnedCollectionQueries(queryClient, user?.id, { includeFolders: true, ...options }).catch(() => {})
   ), [user?.id])
 
+  // Returns the new description string so an opened browser holding its own copy
+  // (DeckBrowser) can resync. The description blob is shared with deck-link meta,
+  // so the merge base is re-read rather than taken from the folder in hand: a
+  // deck opened long enough to be paired with a builder deck has a description
+  // newer than this page's copy, and merging onto the stale one would drop the
+  // link.
   const saveFolderBg = useCallback(async (folder, url) => {
-    let desc = {}
-    try { desc = JSON.parse(folder.description || '{}') } catch {}
-    if (!url) delete desc.bg_url
-    else desc.bg_url = url
-    const descStr = Object.keys(desc).length > 0 ? JSON.stringify(desc) : null
+    const { data: current } = await sb.from('folders').select('description').eq('id', folder.id).maybeSingle()
+    const descStr = withFolderBgUrl(current?.description ?? folder.description, url)
     await sb.from('folders').update({ description: descStr }).eq('id', folder.id)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, description: descStr } : f))
+    // The browser reads its header background off activeFolder, so it has to
+    // move too when the background is set from inside an opened folder.
+    setActiveFolder(prev => prev?.id === folder.id ? { ...prev, description: descStr } : prev)
     await invalidateFolderIndexCaches({ includePlacements: false })
+    return descStr
   }, [invalidateFolderIndexCaches])
 
   // Holds the IDB-joined rows + card map so the price-only effect can recompute values
@@ -1798,7 +1763,13 @@ export default function FoldersPage({ type }) {
     let cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
 
     folderJoinRef.current = { allRows, cardById, foldersData }
-    setFolderMeta(prev => computeMetaCounts(foldersData, allRows, prev))
+    // An empty IDB read is not evidence that every folder is empty — it also
+    // happens when the local cache has not been populated (or was replaced)
+    // yet. Zeroing known counts here makes every tile read "0 cards" until the
+    // Supabase reconcile below lands. Keep what we had and let A2 be the truth.
+    if (allRows.length) {
+      setFolderMeta(prev => computeMetaCounts(foldersData, allRows, prev))
+    }
     setLoading(false)
 
     // Phase A2: reconcile placement counts from Supabase. The index is otherwise
@@ -2055,6 +2026,7 @@ export default function FoldersPage({ type }) {
         <DeckBrowser
           folder={activeFolder}
           onBack={() => { setActiveFolder(null); loadFolders() }}
+          onSetBackground={url => saveFolderBg(activeFolder, url)}
           onDelete={(isEmpty) => {
             if (isEmpty) {
               deleteFolder(activeFolder.id).then(() => { setActiveFolder(null); loadFolders() })
@@ -2086,6 +2058,7 @@ export default function FoldersPage({ type }) {
           noun={noun}
           onBack={() => { setActiveFolder(null); loadFolders() }}
           onCardAdded={loadFolders}
+          onSetBackground={url => saveFolderBg(activeFolder, url)}
           onDelete={(isEmpty) => {
             if (isEmpty) {
               deleteFolder(activeFolder.id).then(() => { setActiveFolder(null); loadFolders() })
