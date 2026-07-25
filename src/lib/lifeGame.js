@@ -226,6 +226,10 @@ export function makePlayer(index, life, seed = {}) {
     deckId: seed.deckId ?? null,
     deckName: seed.deckName ?? null,
     userId: seed.userId ?? null,
+    // Which lobby seat this player came from, in a shared game. Kept because seats
+    // can be swapped mid-game, so array position is not a stable link back to the
+    // game_players row.
+    slotIndex: seed.slotIndex ?? null,
     life: Number.isFinite(seed.life) ? seed.life : life,
     hasPartner: seed.hasPartner ?? false,
     // Counts completed alive→dead transitions, so the flavour line changes if a
@@ -449,6 +453,23 @@ function applyAction(state, action) {
 
     case 'setLayout':
       return { ...state, layoutId: findLayout(state.seatCount, action.layoutId).id }
+
+    // Physically move two players around the table.
+    //
+    // This swaps POSITIONS in the array, never ids. Everything that has to follow a
+    // player — commander damage (keyed by the dealing player's id), the log, deck
+    // attribution, the lobby slot link — stays attached to the id, while the panel
+    // they appear in comes from their array index. So the panels move and nothing
+    // else does.
+    case 'swapSeats': {
+      const { a, b } = action
+      if (a === b) return state
+      if (!state.players[a] || !state.players[b]) return state
+      const players = [...state.players]
+      players[a] = state.players[b]
+      players[b] = state.players[a]
+      return { ...state, players }
+    }
 
     // Same people, same decks, fresh totals — the "another game?" case.
     case 'reset': {

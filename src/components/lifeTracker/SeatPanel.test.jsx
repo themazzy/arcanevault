@@ -252,6 +252,83 @@ describe('commander damage rail', () => {
   })
 })
 
+describe('swap mode', () => {
+  const swapSetup = (props = {}) => {
+    const onLife = vi.fn()
+    const onSwapPointerDown = vi.fn()
+    const onSwapPointerUp = vi.fn()
+    const onSwapActivate = vi.fn()
+    const onOpenSeat = vi.fn()
+    render(
+      <SeatPanel
+        player={player()} seatIndex={2} opponents={opponents} rotation={0} area="a"
+        commander dead={false} swapping
+        onLife={onLife} onOpenSeat={onOpenSeat} onOpenDamage={vi.fn()}
+        onSwapPointerDown={onSwapPointerDown}
+        onSwapPointerUp={onSwapPointerUp}
+        onSwapActivate={onSwapActivate}
+        {...props}
+      />,
+    )
+    return { onLife, onSwapPointerDown, onSwapPointerUp, onSwapActivate, onOpenSeat }
+  }
+
+  const grab = () => screen.getByRole('button', { name: /move jan to another seat/i })
+
+  it('removes the life halves, so a drag cannot change life', () => {
+    const { onLife } = swapSetup()
+    expect(screen.queryByRole('button', { name: /lose life/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /gain life/i })).toBeNull()
+    fireEvent.pointerDown(grab(), { button: 0, pointerId: 1 })
+    fireEvent.pointerUp(grab(), { pointerId: 1 })
+    expect(onLife).not.toHaveBeenCalled()
+  })
+
+  it('reports press and release with its own seat index', () => {
+    const { onSwapPointerDown, onSwapPointerUp } = swapSetup()
+    fireEvent.pointerDown(grab(), { button: 0, pointerId: 1 })
+    expect(onSwapPointerDown).toHaveBeenCalledWith(2, expect.anything())
+    fireEvent.pointerUp(grab(), { pointerId: 1 })
+    expect(onSwapPointerUp).toHaveBeenCalledWith(2, expect.anything())
+  })
+
+  it('ignores non-primary buttons', () => {
+    const { onSwapPointerDown } = swapSetup()
+    fireEvent.pointerDown(grab(), { button: 2, pointerId: 1 })
+    expect(onSwapPointerDown).not.toHaveBeenCalled()
+  })
+
+  it('is operable from the keyboard', () => {
+    const { onSwapActivate } = swapSetup()
+    fireEvent.click(grab(), { detail: 0 })
+    expect(onSwapActivate).toHaveBeenCalledWith(2)
+  })
+
+  it('covers the name row so a sheet cannot open mid-swap', () => {
+    const { onOpenSeat } = swapSetup()
+    // The name row still exists for layout, but the grab layer sits above it and
+    // is what a tap reaches.
+    fireEvent.click(grab(), { detail: 1 })
+    expect(onOpenSeat).not.toHaveBeenCalled()
+  })
+
+  it('marks a picked seat for both sighted and assistive users', () => {
+    swapSetup({ picked: true })
+    const lifted = screen.getByRole('button', { name: /picked up/i })
+    expect(lifted.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('exposes its index to the page hit test', () => {
+    swapSetup()
+    expect(document.querySelector('[data-seat-index="2"]')).toBeTruthy()
+  })
+
+  it('still shows the life total while seats are being moved', () => {
+    swapSetup()
+    expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Jan: 40 life')
+  })
+})
+
 describe('seat sheet', () => {
   it('opens from the name row, which is why the name is not edited on the panel', () => {
     const { onOpenSeat } = setup()

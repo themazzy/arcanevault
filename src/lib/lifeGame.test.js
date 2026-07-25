@@ -205,6 +205,63 @@ describe('patchPlayer', () => {
   })
 })
 
+describe('swapSeats', () => {
+  it('swaps positions in the array', () => {
+    const s = gameReducer(game(), { type: 'swapSeats', a: 0, b: 2 })
+    expect(s.players.map(p => p.id)).toEqual([2, 1, 0, 3])
+  })
+
+  it('keeps ids attached to their player, so damage and logs still resolve', () => {
+    let s = game()
+    s = gameReducer(s, { type: 'patchPlayer', id: 0, patch: { name: 'Jan', deckName: 'Atraxa' } })
+    s = gameReducer(s, { type: 'cmdDamage', id: 0, fromId: 1, slot: 0, delta: 9, ts: 1 })
+    s = gameReducer(s, { type: 'counter', id: 0, key: 'poison', delta: 3, ts: 2 })
+
+    s = gameReducer(s, { type: 'swapSeats', a: 0, b: 3 })
+
+    // Jan moved to the last position but carries everything with him.
+    const jan = s.players[3]
+    expect(jan).toMatchObject({ id: 0, name: 'Jan', deckName: 'Atraxa', life: 31 })
+    expect(jan.dmg[1]).toEqual([9, 0])
+    expect(jan.counters.poison).toBe(3)
+    // ...and damage still keys off the dealing player's id, not their position.
+    expect(seat(s, 0).dmg[1]).toEqual([9, 0])
+  })
+
+  it('leaves the log untouched — moving chairs is not a game event', () => {
+    let s = gameReducer(game(), { type: 'life', id: 0, delta: -4, ts: 1 })
+    const before = s.log
+    s = gameReducer(s, { type: 'swapSeats', a: 0, b: 1 })
+    expect(s.log).toBe(before)
+  })
+
+  it('does not invent a death when players move', () => {
+    let s = gameReducer(game(), { type: 'life', id: 0, delta: -40, ts: 1 })
+    expect(seat(s, 0).deaths).toBe(1)
+    s = gameReducer(s, { type: 'swapSeats', a: 0, b: 2 })
+    expect(seat(s, 0).deaths).toBe(1)
+  })
+
+  it('is a no-op for the same seat or an index that does not exist', () => {
+    const s = game()
+    expect(gameReducer(s, { type: 'swapSeats', a: 1, b: 1 })).toBe(s)
+    expect(gameReducer(s, { type: 'swapSeats', a: 0, b: 9 })).toBe(s)
+    expect(gameReducer(s, { type: 'swapSeats', a: -1, b: 0 })).toBe(s)
+  })
+
+  it('survives a save/load round trip in the new order', () => {
+    let s = gameReducer(game(), { type: 'swapSeats', a: 0, b: 1 })
+    const loaded = migrateGame(JSON.parse(JSON.stringify(s)))
+    expect(loaded.players.map(p => p.id)).toEqual([1, 0, 2, 3])
+  })
+
+  it('two swaps back return the original order', () => {
+    let s = gameReducer(game(), { type: 'swapSeats', a: 0, b: 3 })
+    s = gameReducer(s, { type: 'swapSeats', a: 0, b: 3 })
+    expect(s.players.map(p => p.id)).toEqual([0, 1, 2, 3])
+  })
+})
+
 describe('reset', () => {
   it('clears counters, damage and tax — the old reset left poison behind', () => {
     let s = game()

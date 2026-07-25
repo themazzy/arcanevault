@@ -333,6 +333,18 @@
   text-overflow: ellipsis;
 }
 
+/* Swap mode replaces the whole bar, so it is obvious that normal taps are
+ * suspended and there is one way out. */
+.barSwapHint {
+  composes: labelSm from '../styles/typography.module.css';
+  flex: 1;
+  min-width: 0;
+  color: var(--gold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .sharedDot {
   width: 6px;
   height: 6px;

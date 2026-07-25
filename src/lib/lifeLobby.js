@@ -151,7 +151,11 @@ export function mergeSlotAttribution(game, slots) {
   return {
     ...game,
     players: game.players.map((player, index) => {
-      const slot = bySlot.get(index)
+      // Match on the slot the player was seeded from, not their array position:
+      // seats can be swapped mid-game, and position would then point at the wrong
+      // person's account. Falls back to position for games seeded before this
+      // field existed.
+      const slot = bySlot.get(player.slotIndex ?? index)
       if (!slot?.user_id) return player
       return {
         ...player,
@@ -168,12 +172,13 @@ export function mergeSlotAttribution(game, slots) {
  * a four-seat lobby that only two people joined is still a four-player game.
  */
 export function seedsFromSlots(slots) {
-  return (slots || []).map(slot => ({
+  return (slots || []).map((slot, index) => ({
     name: slot.player_name,
     color: slot.color,
     deckId: slot.deck_id,
     deckName: slot.deck_name,
     artUrl: slot.art_crop_url,
     userId: slot.user_id,
+    slotIndex: slot.slot_index ?? index,
   }))
 }

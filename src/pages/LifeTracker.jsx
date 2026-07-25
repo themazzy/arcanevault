@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, ConfirmModal, ErrorBox, ResponsiveMenu, Select } from '../components/UI'
 import uiStyles from '../components/UI.module.css'
@@ -80,6 +80,9 @@ export default function LifeTrackerPage() {
   const [saveError, setSaveError] = useState('')
   const [confirmNew, setConfirmNew] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const [swapping, setSwapping] = useState(false)
+  const [picked, setPicked] = useState(null)   // seat index lifted for swapping
+  const dragFrom = useRef(null)
 
   const [lobby, setLobby] = useState(null)     // { session, slots }
   const [lobbyBusy, setLobbyBusy] = useState(false)
@@ -258,6 +261,9 @@ export default function LifeTrackerPage() {
 
   const handleNewGame = () => {
     closeSheets()
+    setSwapping(false)
+    setPicked(null)
+    dragFrom.current = null
     setConfirmNew(false)
     clearGame()
     setResumable(null)
@@ -330,6 +336,77 @@ export default function LifeTrackerPage() {
     setSaving(false)
   }
 
+  // ── Seat swapping ────────────────────────────────────────────────────────────
+  // Two ways in, one code path. Drag a seat onto another and release, or tap one
+  // then tap the other. Tap exists because a drag across a phone held by three
+  // people misses often, and it gives keyboard users the same feature for free.
+  const exitSwap = useCallback(() => {
+    setSwapping(false)
+    setPicked(null)
+    dragFrom.current = null
+  }, [])
+
+  useEffect(() => {
+    if (!swapping) return
+    const onKey = e => { if (e.key === 'Escape') exitSwap() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [swapping, exitSwap])
+
+  const swapWith = useCallback((from, to) => {
+    if (from == null || to == null || from === to) return
+    dispatch({ type: 'swapSeats', a: from, b: to })
+    setPicked(null)
+    dragFrom.current = null
+  }, [])
+
+  const swapHandlers = useMemo(() => {
+    // Which seat is under the pointer. Read from the DOM rather than tracked rects
+    // so it stays correct through rotated panels and layout changes.
+    const seatAt = (x, y) => {
+      const hit = document.elementFromPoint(x, y)?.closest('[data-seat-index]')
+      return hit ? Number(hit.getAttribute('data-seat-index')) : null
+    }
+
+    const handlers = {}
+    for (let index = 0; index < MAX_SEATS; index++) {
+      handlers[index] = {
+        onSwapPointerDown: (seatIndex, e) => {
+          setPicked(prev => {
+            if (prev != null && prev !== seatIndex) {
+              // Second tap of a tap-tap swap.
+              dispatch({ type: 'swapSeats', a: prev, b: seatIndex })
+              dragFrom.current = null
+              return null
+            }
+            if (prev === seatIndex) { dragFrom.current = null; return null }
+            dragFrom.current = seatIndex
+            try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* optional */ }
+            return seatIndex
+          })
+        },
+        onSwapPointerUp: (seatIndex, e) => {
+          const from = dragFrom.current
+          if (from == null) return
+          const target = seatAt(e.clientX, e.clientY)
+          // Released somewhere else — that was a drag. Released on itself — that was
+          // a tap, so the seat stays lifted for a second tap.
+          if (target != null && target !== from) swapWith(from, target)
+          else dragFrom.current = null
+        },
+        onSwapActivate: (seatIndex) => {
+          setPicked(prev => {
+            if (prev == null) return seatIndex
+            if (prev === seatIndex) return null
+            dispatch({ type: 'swapSeats', a: prev, b: seatIndex })
+            return null
+          })
+        },
+      }
+    }
+    return handlers
+  }, [swapWith])
+
   // ── Seat handlers ────────────────────────────────────────────────────────────
   // Built once and keyed by seat index so they are referentially stable, which is
   // what lets SeatPanel's memo do its job: one tap re-renders one seat instead of
@@ -366,13 +443,29 @@ export default function LifeTrackerPage() {
   const commander = game ? isCommanderFormat(game.format) : false
   const seatSheetPlayer = game?.players.find(p => p.id === seatSheet) || null
   const damageSheetPlayer = game?.players.find(p => p.id === damageSheet) || null
-  const rotationOf = (id) => layout?.seats[id]?.rotation ?? 0
+  // Rotation belongs to the position a player currently sits in, not their id —
+  // seats can be swapped, so the two are not the same thing.
+  const rotationOf = (id) => {
+    const index = game?.players.findIndex(p => p.id === id) ?? -1
+    return index < 0 ? 0 : (layout?.seats[index]?.rotation ?? 0)
+  }
 
   // ── Game table ───────────────────────────────────────────────────────────────
   if (game) {
     return (
       <div className={styles.table} data-fullscreen={fullscreen ? 'true' : undefined}>
         <div className={styles.bar}>
+          {swapping ? (
+            <>
+              <span className={styles.barSwapHint}>
+                {picked != null
+                  ? `Moving ${game.players[picked]?.name} — choose a seat`
+                  : 'Drag a seat onto another, or tap two seats'}
+              </span>
+              <Button size="sm" variant="primary" onClick={exitSwap}>Done</Button>
+            </>
+          ) : (
+          <>
           <span className={styles.barLabel}>
             {LIFE_FORMATS[game.format]?.label || game.format} · {game.players.length}
             {game.sessionId && <span className={styles.sharedDot} title="Shared game" />}
@@ -405,6 +498,10 @@ export default function LifeTrackerPage() {
                       )}
                     </button>
                   ))}
+                  <button className={uiStyles.responsiveMenuAction}
+                    onClick={() => { setSwapping(true); setPicked(null); close() }}>
+                    Swap seats…
+                  </button>
 
                   <div className={uiStyles.responsiveMenuSectionLabel}>Game</div>
                   <button className={uiStyles.responsiveMenuAction}
@@ -432,6 +529,8 @@ export default function LifeTrackerPage() {
 
             <Button size="sm" variant="primary" onClick={() => setShowEnd(true)}>End</Button>
           </div>
+          </>
+          )}
         </div>
 
         <div
@@ -442,19 +541,25 @@ export default function LifeTrackerPage() {
             gridTemplateRows: layout.rows,
           }}
         >
-          {game.players.map(player => (
+          {game.players.map((player, index) => (
             <SeatPanel
               key={player.id}
               player={player}
+              seatIndex={index}
               opponents={opponentsBySeat[player.id] || []}
-              rotation={layout.seats[player.id]?.rotation ?? 0}
-              area={layout.seats[player.id]?.area}
+              rotation={layout.seats[index]?.rotation ?? 0}
+              area={layout.seats[index]?.area}
               commander={commander}
               dead={isPlayerDead(player)}
               deathText={deathTextFor(game, player)}
+              swapping={swapping}
+              picked={picked === index}
               onLife={seatHandlers[player.id].onLife}
               onOpenSeat={seatHandlers[player.id].onOpenSeat}
               onOpenDamage={seatHandlers[player.id].onOpenDamage}
+              onSwapPointerDown={swapHandlers[index].onSwapPointerDown}
+              onSwapPointerUp={swapHandlers[index].onSwapPointerUp}
+              onSwapActivate={swapHandlers[index].onSwapActivate}
             />
           ))}
         </div>

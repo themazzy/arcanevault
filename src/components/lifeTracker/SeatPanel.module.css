@@ -161,6 +161,38 @@
   .half:hover .halfGlyph { opacity: 0.6; }
 }
 
+/* ── Swap mode ────────────────────────────────────────────────────────────── */
+/* Sits above .content (z 3) so the name row and damage rail are unreachable while
+ * seats are being rearranged — one thing at a time. */
+.swapGrab {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.swapGrab:focus-visible { outline: 2px solid var(--gold); outline-offset: -3px; }
+
+.seat[data-swapping='true'] {
+  border-style: dashed;
+  border-color: var(--seat-line-hi);
+}
+
+.seat[data-picked='true'] {
+  border-style: solid;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold), 0 10px 26px rgba(0, 0, 0, 0.45);
+}
+
+.seat[data-picked='true'] .swapGrab { cursor: grabbing; }
+
 /* ── Content ──────────────────────────────────────────────────────────────── */
 /* Transparent to pointers so the numeral itself is part of the tap halves;
  * only the name row and the damage rail opt back in. */

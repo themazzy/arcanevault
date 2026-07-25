@@ -26,15 +26,21 @@ function stepForTick(ticks) {
 
 function SeatPanel({
   player,
+  seatIndex,
   opponents,
   rotation = 0,
   area,
   commander = false,
   dead = false,
   deathText = null,
+  swapping = false,
+  picked = false,
   onLife,
   onOpenSeat,
   onOpenDamage,
+  onSwapPointerDown,
+  onSwapPointerUp,
+  onSwapActivate,
 }) {
   const [pressed, setPressed] = useState(null) // 'down' | 'up' | null
   const [delta, setDelta] = useState(0)
@@ -123,26 +129,53 @@ function SeatPanel({
       <div
         className={styles.seat}
         style={{ '--pc': player.color }}
+        // Read by the page's hit test to find the seat under a drag.
+        data-seat-index={seatIndex}
         data-dead={dead ? 'true' : undefined}
         data-art={player.artUrl ? 'true' : undefined}
+        data-picked={picked ? 'true' : undefined}
+        data-swapping={swapping ? 'true' : undefined}
       >
         {player.artUrl && (
           <img className={styles.art} src={player.artUrl} alt="" aria-hidden="true" draggable={false} />
         )}
         <div className={styles.wash} aria-hidden="true" />
 
-        <button {...halfProps(-1)}
-          className={`${styles.half} ${styles.halfDown}`}
-          data-active={pressed === 'down' ? 'true' : undefined}
-          aria-label={`Lose life — ${player.name}`}>
-          <RemoveIcon size={15} className={styles.halfGlyph} />
-        </button>
-        <button {...halfProps(1)}
-          className={`${styles.half} ${styles.halfUp}`}
-          data-active={pressed === 'up' ? 'true' : undefined}
-          aria-label={`Gain life — ${player.name}`}>
-          <AddIcon size={15} className={styles.halfGlyph} />
-        </button>
+        {/* In swap mode the split-tap is replaced outright rather than merely
+            covered: a drag starting on a life half would change life on
+            pointerdown before the drag was recognised. One full-panel button also
+            makes swapping reachable by keyboard. */}
+        {swapping ? (
+          <button
+            type="button"
+            className={styles.swapGrab}
+            onPointerDown={e => { if (e.button === 0) onSwapPointerDown?.(seatIndex, e) }}
+            onPointerUp={e => onSwapPointerUp?.(seatIndex, e)}
+            onPointerCancel={e => onSwapPointerUp?.(seatIndex, e)}
+            onLostPointerCapture={e => onSwapPointerUp?.(seatIndex, e)}
+            onClick={e => { if (e.detail === 0) onSwapActivate?.(seatIndex) }}
+            onContextMenu={e => e.preventDefault()}
+            aria-pressed={picked}
+            aria-label={picked
+              ? `${player.name} picked up. Choose a seat to swap with.`
+              : `Move ${player.name} to another seat`}
+          />
+        ) : (
+          <>
+            <button {...halfProps(-1)}
+              className={`${styles.half} ${styles.halfDown}`}
+              data-active={pressed === 'down' ? 'true' : undefined}
+              aria-label={`Lose life — ${player.name}`}>
+              <RemoveIcon size={15} className={styles.halfGlyph} />
+            </button>
+            <button {...halfProps(1)}
+              className={`${styles.half} ${styles.halfUp}`}
+              data-active={pressed === 'up' ? 'true' : undefined}
+              aria-label={`Gain life — ${player.name}`}>
+              <AddIcon size={15} className={styles.halfGlyph} />
+            </button>
+          </>
+        )}
 
         <div className={styles.content}>
           <button className={styles.nameRow} onClick={onOpenSeat}
