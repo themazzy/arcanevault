@@ -759,7 +759,7 @@ export default function BuilderPage() {
     const deck = decks.find(d => d.id === id)
     const isCollection = deck?.type === 'deck'
     if (isCollection) {
-      const ok = await confirmAsync('Hide this deck from the builder list?\n\nThis is a collection deck, so it cannot be deleted here — only hidden. Your deck and cards are kept safe and can be restored any time by clicking "Edit in Builder" from the Decks page.')
+      const ok = await confirmAsync('Hide this deck from the builder list?\n\nThis is a collection deck, so it cannot be deleted here — only hidden. Your deck and cards are kept safe and can be restored any time by opening it in the Deck Builder from the Decks page.')
       if (!ok) return
       setDecks(d => d.filter(x => x.id !== id))
       const baseMeta = parseDeckMeta(deck.description || '{}')

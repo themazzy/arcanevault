@@ -90,6 +90,24 @@
   cursor: wait;
   opacity: 0.7;
 }
+
+/* Drift shown next to the verb rather than replacing it. A chip per DESIGN.md:
+ * pill radius, no border, line-height 1 (body line-height would misalign it). */
+.unsyncedChip {
+  margin-left: 7px;
+  padding: 0 7px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--red);
+  color: #fff;
+  font-family: var(--font-serif);
+  font-size: var(--font-xs);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+}
 .headerBackRow {
   position: relative;
   z-index: 1;

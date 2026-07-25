@@ -1288,13 +1288,23 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
 
   if (loading) return <EmptyState>Loading deck…</EmptyState>
 
-  const editInBuilderLabel = creatingBuilderLink
-    ? 'Opening...'
+  // The verb stays constant once a pair exists, and drift is shown beside it rather
+  // than replacing it — a button should keep saying where it goes. The unpaired case
+  // gets a different verb because it is a different action: it creates the paired
+  // builder deck. "Edit" implied a deck list already existed to edit.
+  const isPairedWithBuilder = !!deckMeta.linked_builder_id
+  const builderActionLabel = creatingBuilderLink
+    ? 'Opening…'
     : isCheckingLinkedSync
-      ? 'Checking sync...'
-      : deckMeta.linked_builder_id
-        ? (isUnsynced ? `Unsynced${syncCheck.count ? ` (${syncCheck.count})` : ' changes'}` : 'Open in Deckbuilder')
-        : 'Edit in Builder'
+      ? 'Checking…'
+      : isPairedWithBuilder
+        ? 'Open in Deck Builder'
+        : 'Set up deck list'
+  const unsyncedChipLabel = (
+    isPairedWithBuilder && isUnsynced && !isCheckingLinkedSync && !creatingBuilderLink
+  )
+    ? (syncCheck.count ? `Unsynced · ${syncCheck.count}` : 'Unsynced')
+    : null
   // Use only the explicitly-set bg_url for the header background.
   // coverArtUri is the builder-deck commander art — it is not a user-chosen
   // background for the collection deck view and should not bleed through here.
@@ -1342,7 +1352,8 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
                 <AddIcon size={12} /> Add Cards
               </Button>
               <button className={styles.editInBuilderBtn} onClick={openInBuilder} disabled={creatingBuilderLink || isCheckingLinkedSync} aria-busy={isCheckingLinkedSync}>
-                <BuilderIcon size={12} /> {editInBuilderLabel}
+                <BuilderIcon size={12} /> {builderActionLabel}
+                {unsyncedChipLabel && <span className={styles.unsyncedChip}>{unsyncedChipLabel}</span>}
               </button>
               <ResponsiveMenu
                 title="Deck Actions"
@@ -1376,7 +1387,8 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
             disabled={creatingBuilderLink || isCheckingLinkedSync}
             aria-busy={isCheckingLinkedSync}
           >
-            <BuilderIcon size={12} /> {editInBuilderLabel}
+            <BuilderIcon size={12} /> {builderActionLabel}
+            {unsyncedChipLabel && <span className={styles.unsyncedChip}>{unsyncedChipLabel}</span>}
           </button>
         </div>
       </div>

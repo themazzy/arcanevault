@@ -14,7 +14,7 @@ import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { Modal, ResponsiveMenu, SearchInput } from '../components/UI'
 import { CardBrowserContent } from '../components/CardBrowserViews'
 import { CardDetail } from '../components/CardComponents'
-import { CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
+import { BuilderIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import Markdown, { extractHeadings } from '../lib/miniMarkdown.jsx'
 import { DeckLikeButton, DeckComments } from '../components/community/DeckSocial'
@@ -659,7 +659,9 @@ export default function DeckViewPage() {
                 <span>Back</span>
               </button>
               {isOwner && (
-                <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>⚔ Edit in Builder</Link>
+                <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>
+                  <BuilderIcon size={12} /> Open in Deck Builder
+                </Link>
               )}
             </>
           )}
