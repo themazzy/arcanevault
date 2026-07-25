@@ -19,6 +19,13 @@
   animation: swapDash 0.55s linear infinite;
 }
 
+/* Thickens the moment the arrow locks onto a seat, so the snap is felt as well as
+ * seen. Same 100ms budget as the geometry. */
+.line[data-snapped='true'] {
+  stroke-width: 4;
+  transition: stroke-width 0.1s ease-out;
+}
+
 /* Marching ants read as direction of travel, which is the one thing a static
  * line cannot say. */
 @keyframes swapDash {

@@ -27,6 +27,7 @@ import {
 } from '../lib/lifeLobby'
 import SeatPanel from '../components/lifeTracker/SeatPanel'
 import SwapArrow from '../components/lifeTracker/SwapArrow'
+import { measureSeats, seatAtPoint, seatCentre } from '../components/lifeTracker/seatGeometry'
 import SeatSheet from '../components/lifeTracker/SeatSheet'
 import CmdDamageSheet from '../components/lifeTracker/CmdDamageSheet'
 import GameLogSheet from '../components/lifeTracker/GameLogSheet'
@@ -85,7 +86,7 @@ export default function LifeTrackerPage() {
   const [picked, setPicked] = useState(null)   // seat index lifted for swapping
   const [drag, setDrag] = useState(null)       // { from, target, point } while dragging
   const dragFrom = useRef(null)
-  const seatCentres = useRef({})               // grid-relative, measured at drag start
+  const seatRects = useRef({})                 // grid-relative, measured at drag start
   const gridOrigin = useRef({ left: 0, top: 0 })
   const gridRef = useRef(null)
 
@@ -368,30 +369,21 @@ export default function LifeTrackerPage() {
   }, [])
 
   const swapHandlers = useMemo(() => {
-    // Which seat is under the pointer. Read from the DOM rather than from tracked
-    // rects so it stays correct through rotated panels and layout changes.
-    const seatAt = (x, y) => {
-      const hit = document.elementFromPoint(x, y)?.closest('[data-seat-index]')
-      return hit ? Number(hit.getAttribute('data-seat-index')) : null
+    // Seats do not move until the drag is released, so one measurement per drag is
+    // enough. Hit testing is then pure geometry against those rects rather than
+    // elementFromPoint — it forces no layout, cannot be fooled by an overlay, and
+    // gives the snap preview and the release the same answer by construction.
+    const measure = () => {
+      const { origin, rects } = measureSeats(gridRef.current)
+      gridOrigin.current = origin
+      seatRects.current = rects
     }
 
-    // Seats do not move until the drag is released, so one measurement per drag is
-    // enough — no rect tracking during the gesture.
-    const measure = () => {
-      const grid = gridRef.current
-      if (!grid) return
-      const gridRect = grid.getBoundingClientRect()
-      gridOrigin.current = { left: gridRect.left, top: gridRect.top }
-      const centres = {}
-      grid.querySelectorAll('[data-seat-index]').forEach(cell => {
-        const rect = cell.getBoundingClientRect()
-        centres[Number(cell.getAttribute('data-seat-index'))] = {
-          x: rect.left - gridRect.left + rect.width / 2,
-          y: rect.top - gridRect.top + rect.height / 2,
-        }
-      })
-      seatCentres.current = centres
-    }
+    const seatAt = (clientX, clientY) => seatAtPoint(
+      seatRects.current,
+      clientX - gridOrigin.current.left,
+      clientY - gridOrigin.current.top,
+    )
 
     const handlers = {}
     for (let index = 0; index < MAX_SEATS; index++) {
@@ -616,8 +608,11 @@ export default function LifeTrackerPage() {
               headed. */}
           {drag && (
             <SwapArrow
-              from={seatCentres.current[drag.from]}
-              to={drag.target != null ? seatCentres.current[drag.target] : drag.point}
+              from={seatCentre(seatRects.current, drag.from)}
+              to={drag.target != null
+                ? seatCentre(seatRects.current, drag.target)
+                : drag.point}
+              snapped={drag.target != null}
             />
           )}
         </div>

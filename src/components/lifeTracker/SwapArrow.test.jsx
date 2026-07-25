@@ -1,12 +1,28 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
-import SwapArrow from './SwapArrow'
+import { act, cleanup, render } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-afterEach(cleanup)
+// reduce_motion off by default; the snap-animation cases override it.
+let reduceMotion = false
+vi.mock('../SettingsContext', () => ({
+  useSettings: () => ({ reduce_motion: reduceMotion }),
+}))
 
-const draw = (from, to) => render(<SwapArrow from={from} to={to} />).container
+const { default: SwapArrow, SNAP_MS } = await import('./SwapArrow')
+
+afterEach(() => {
+  cleanup()
+  reduceMotion = false
+  vi.useRealTimers()
+  // Required, not tidiness: vi.spyOn on an already-spied method returns the same
+  // spy with its recorded calls intact, so a later "was not called" assertion
+  // would see the previous test's calls.
+  vi.restoreAllMocks()
+})
+
+const draw = (from, to, snapped = false) =>
+  render(<SwapArrow from={from} to={to} snapped={snapped} />).container
 const lineOf = (container) => container.querySelectorAll('line')[1]  // [0] is the shadow
 
 describe('SwapArrow', () => {
@@ -63,5 +79,78 @@ describe('SwapArrow', () => {
   it('survives degenerate coordinates', () => {
     expect(draw({ x: 0, y: 0 }, { x: 0, y: 0 }).querySelector('svg')).toBeNull()
     expect(draw({ x: NaN, y: 0 }, { x: 300, y: 0 }).querySelector('svg')).toBeNull()
+  })
+})
+
+describe('snapping', () => {
+  it('marks the line while locked onto a seat', () => {
+    const snapped = lineOf(draw({ x: 0, y: 0 }, { x: 300, y: 0 }, true))
+    expect(snapped.getAttribute('data-snapped')).toBe('true')
+    const free = lineOf(draw({ x: 0, y: 0 }, { x: 300, y: 0 }, false))
+    expect(free.getAttribute('data-snapped')).toBeNull()
+  })
+
+  it('follows the finger with no interpolation while unsnapped', () => {
+    const { container, rerender } = render(
+      <SwapArrow from={{ x: 0, y: 0 }} to={{ x: 200, y: 0 }} snapped={false} />,
+    )
+    rerender(<SwapArrow from={{ x: 0, y: 0 }} to={{ x: 400, y: 0 }} snapped={false} />)
+    // Lands immediately: a lagging arrow would trail the thing it is attached to.
+    expect(Number(lineOf(container).getAttribute('x2'))).toBeCloseTo(385)
+  })
+
+  it('eases into a snap and settles within the 100ms budget', () => {
+    const raf = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => {
+      raf.push(cb); return raf.length
+    })
+    let now = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const { container, rerender } = render(
+      <SwapArrow from={{ x: 0, y: 0 }} to={{ x: 200, y: 0 }} snapped={false} />,
+    )
+    // Finger crosses into a seat whose centre is further along.
+    rerender(<SwapArrow from={{ x: 0, y: 0 }} to={{ x: 400, y: 0 }} snapped />)
+
+    const drain = (at) => {
+      now = at
+      const pending = raf.splice(0, raf.length)
+      act(() => { pending.forEach(cb => cb(at)) })
+    }
+
+    drain(1000 + SNAP_MS / 2)
+    const mid = Number(lineOf(container).getAttribute('x2'))
+    // Part way there, not jumped.
+    expect(mid).toBeGreaterThan(185)
+    expect(mid).toBeLessThan(385)
+
+    drain(1000 + SNAP_MS)
+    expect(Number(lineOf(container).getAttribute('x2'))).toBeCloseTo(385)
+    expect(raf).toHaveLength(0)   // loop stopped
+  })
+
+  it('jumps straight to the target under reduce_motion', () => {
+    reduceMotion = true
+    const raf = vi.spyOn(window, 'requestAnimationFrame')
+
+    const { container, rerender } = render(
+      <SwapArrow from={{ x: 0, y: 0 }} to={{ x: 200, y: 0 }} snapped={false} />,
+    )
+    rerender(<SwapArrow from={{ x: 0, y: 0 }} to={{ x: 400, y: 0 }} snapped />)
+
+    expect(Number(lineOf(container).getAttribute('x2'))).toBeCloseTo(385)
+    expect(raf).not.toHaveBeenCalled()
+  })
+
+  it('cancels its animation frame on unmount', () => {
+    const cancel = vi.spyOn(window, 'cancelAnimationFrame')
+    vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(7)
+    const { rerender, unmount } = render(
+      <SwapArrow from={{ x: 0, y: 0 }} to={{ x: 200, y: 0 }} snapped={false} />,
+    )
+    rerender(<SwapArrow from={{ x: 0, y: 0 }} to={{ x: 400, y: 0 }} snapped />)
+    unmount()
+    expect(cancel).toHaveBeenCalled()
   })
 })
