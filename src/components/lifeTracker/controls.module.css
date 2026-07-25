@@ -1,0 +1,440 @@
+/* Shared controls for the life tracker sheets. One definition per control so the
+ * seat sheet, damage sheet, tools sheet and end-game sheet cannot drift apart.
+ * All colour and sizing from tokens (DESIGN.md). */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.label {
+  composes: labelMd from '../../styles/typography.module.css';
+  color: var(--text-dim);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-faint);
+}
+
+.textInput {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0 var(--control-padding-x);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s-subtle);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-base);
+}
+
+.textInput:focus-visible {
+  outline: none;
+  border-color: var(--border-hi);
+}
+
+.notes {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  resize: vertical;
+  padding: 8px var(--control-padding-x);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s-subtle);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--font-base);
+  line-height: 1.5;
+}
+
+.notes:focus-visible { outline: none; border-color: var(--border-hi); }
+
+/* ── Colour swatches ───────────────────────────────────────────────────────── */
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.swatch {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background: var(--sw);
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease;
+}
+
+.swatch[data-active='true'] {
+  border-color: var(--text);
+  transform: scale(1.08);
+}
+
+.swatch:focus-visible { outline: 2px solid var(--border-hi); outline-offset: 2px; }
+
+/* ── Steppers ──────────────────────────────────────────────────────────────── */
+/* Rows of −/value/+ for counters, commander tax and commander damage. Targets are
+ * deliberately larger than a normal control: these are tapped mid-game. */
+.stepRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+}
+
+.stepRow + .stepRow { border-top: 1px solid var(--s-border0); }
+
+.stepInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stepName {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--font-base);
+  color: var(--text);
+}
+
+.stepDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--sw);
+}
+
+.stepMeta {
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+}
+
+.stepMeta[data-alarm='true'] { color: var(--red-bright); }
+
+.stepper {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--s-subtle);
+}
+
+.stepBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 38px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.stepBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.stepBtn:focus-visible { outline: 2px solid var(--border-hi); outline-offset: -2px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .stepBtn:not(:disabled):hover { background: var(--s-medium); color: var(--text); }
+}
+
+.stepValue {
+  min-width: 34px;
+  text-align: center;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.stepValue[data-alarm='true'] { color: var(--red-bright); }
+
+/* ── Art picker ────────────────────────────────────────────────────────────── */
+.artRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.artThumb {
+  width: 84px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--s-border2);
+}
+
+.artEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 50px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--s-border2);
+  color: var(--text-faint);
+}
+
+.artGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.artOption {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--s-subtle);
+  cursor: pointer;
+  aspect-ratio: 626 / 457;
+  transition: border-color 0.14s ease;
+}
+
+.artOption img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artOption[data-active='true'] { border-color: var(--border-hi); }
+.artOption:focus-visible { outline: 2px solid var(--border-hi); outline-offset: 1px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .artOption:hover { border-color: var(--border-hi); }
+}
+
+.artName {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 3px 5px;
+  background: rgba(0, 0, 0, 0.66);
+  color: #f4efe6;
+  font-size: var(--font-xs);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Segmented tabs ────────────────────────────────────────────────────────── */
+.segTabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s-subtle);
+}
+
+.segTab {
+  flex: 1;
+  composes: labelMd from '../../styles/typography.module.css';
+  height: 30px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.segTab[data-active='true'] { background: var(--s3); color: var(--text); }
+.segTab:focus-visible { outline: 2px solid var(--border-hi); outline-offset: -2px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .segTab:not([data-active='true']):hover { color: var(--text); }
+}
+
+/* ── Pick list (end-game finishing order, first-player result) ─────────────── */
+.pickList {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.pickRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s-subtle);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+
+.pickRow[data-picked='true'] {
+  border-color: var(--border-hi);
+  background: var(--s-medium);
+}
+
+.pickRow:focus-visible { outline: 2px solid var(--border-hi); outline-offset: 1px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .pickRow:hover { border-color: var(--border-hi); }
+}
+
+.pickPlace {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--s3);
+  color: var(--text-faint);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pickPlace[data-win='true'] { background: var(--gold); color: #17130a; }
+
+.pickBody { flex: 1; min-width: 0; }
+
+.pickName {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--font-base);
+}
+
+.pickMeta {
+  margin-top: 2px;
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Game log ──────────────────────────────────────────────────────────────── */
+.logList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.logRow {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 7px 2px;
+}
+
+.logRow + .logRow { border-top: 1px solid var(--s-border0); }
+
+.logDot {
+  flex: 0 0 auto;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--sw);
+}
+
+.logText { flex: 1; min-width: 0; font-size: var(--font-sm); color: var(--text-dim); }
+.logWho { color: var(--text); }
+
+.logDelta {
+  flex: 0 0 auto;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-base);
+  font-weight: 600;
+}
+
+.logDelta[data-sign='down'] { color: var(--red-bright); }
+.logDelta[data-sign='up'] { color: var(--green); }
+
+.logTotal {
+  flex: 0 0 auto;
+  min-width: 32px;
+  text-align: right;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-sm);
+  color: var(--text-faint);
+}
+
+/* ── Randomiser readouts (dice / coin / first player) ──────────────────────── */
+.readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 92px;
+  padding: 14px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-md);
+  background: var(--s-subtle);
+}
+
+.readoutBig {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: var(--font-3xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.die {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 8px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s2);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: var(--font-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.die[data-high='true'] { border-color: var(--green); color: var(--green); }
+.die[data-low='true'] { border-color: var(--red-bright); color: var(--red-bright); }
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.emptyNote {
+  padding: 22px 12px;
+  text-align: center;
+  font-size: var(--font-sm);
+  color: var(--text-faint);
+}

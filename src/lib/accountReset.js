@@ -24,7 +24,11 @@ const USER_SCOPED_LS_KEYS = [
   'arcanevault_manual_prices',     // manual per-card price overrides
   'arcanevault_theme_cache',       // cached theme vars for instant first paint
   'av_tournaments_v1',             // locally-stored tournaments
-  'av_game_history',               // locally-stored game history
+  'av_game_history',               // legacy local game history (pre-rewrite)
+  // An in-progress life-tracker game holds seat user_ids and deck_ids. Left in
+  // place, the next account would resume the previous account's game and save
+  // their decks to the new account's game_results.
+  'av_life_game_v2',
 ]
 
 const USER_SCOPED_LS_PREFIXES = [

@@ -1,0 +1,404 @@
+/* SeatPanel — one player's control surface.
+ *
+ * Deliberate, documented deviation from the app's surface tokens: a seat is always
+ * a dark instrument panel, in every theme. Two reasons, both about the actual use
+ * case rather than taste — the tracker runs in dim game-store lighting where a
+ * white phone between four players is unpleasant, and a seat may carry card art,
+ * which forces light text regardless of theme. The old implementation tried to
+ * follow the theme and ended up re-overriding --s1..--s4 back to dark whenever art
+ * was present (LifeTracker.module.css:218-232), which is the same decision made
+ * twice and inconsistently.
+ *
+ * The local palette below is therefore the seat's whole colour vocabulary, defined
+ * once here. Per DESIGN.md, hardcoding these is only acceptable because they are
+ * paid for: no theme override is needed anywhere, since the surface never changes.
+ * Everything OUTSIDE the seats (setup screen, sheets, toolbars) uses normal tokens.
+ */
+
+.cell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  /* Sized container so a ±90° seat can swap the cell's own width and height. */
+  container-type: size;
+}
+
+.seat {
+  --seat-ink: #f4efe6;
+  --seat-ink-dim: rgba(244, 239, 230, 0.66);
+  --seat-ink-faint: rgba(244, 239, 230, 0.34);
+  --seat-base: #15151b;
+  --seat-line: rgba(244, 239, 230, 0.16);
+  --seat-line-hi: rgba(244, 239, 230, 0.3);
+  --seat-scrim-top: rgba(9, 9, 12, 0.56);
+  --seat-scrim-mid: rgba(9, 9, 12, 0.26);
+  --seat-scrim-bot: rgba(9, 9, 12, 0.76);
+
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--seat-line);
+  background: var(--seat-base);
+  background: color-mix(in srgb, var(--pc) 15%, var(--seat-base));
+  color: var(--seat-ink);
+  container-type: size;
+  transition: border-color 0.18s ease, filter 0.24s ease;
+}
+
+.seat[data-dead='true'] {
+  border-color: rgba(244, 239, 230, 0.08);
+  filter: saturate(0.35);
+}
+
+/* ── Rotation ────────────────────────────────────────────────────────────────
+ * Rotation describes where a person is sitting, so it is applied at every
+ * viewport size. The previous implementation gated it behind max-width: 900px,
+ * which left every seat upright on a tablet lying flat on the table.
+ *
+ * A ±90° seat must swap its box dimensions or the rotated panel overflows the
+ * cell vertically and underflows horizontally. cqh/cqw read the cell's own size,
+ * so no ResizeObserver is needed. Browsers without container query units keep
+ * inset: 0 and are merely clipped rather than broken.
+ */
+.cell[data-rot='180'] .seat { transform: rotate(180deg); }
+
+.cell[data-rot='90'] .seat,
+.cell[data-rot='-90'] .seat {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  width: 100cqh;
+  height: 100cqw;
+  transform-origin: center center;
+}
+.cell[data-rot='90'] .seat  { transform: translate(-50%, -50%) rotate(90deg); }
+.cell[data-rot='-90'] .seat { transform: translate(-50%, -50%) rotate(-90deg); }
+
+/* ── Art + scrim ─────────────────────────────────────────────────────────── */
+.art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  /* Promotes to its own layer so repainting a life total never repaints the art. */
+  transform: translateZ(0);
+}
+
+.seat[data-dead='true'] .art { filter: grayscale(1) brightness(0.45); }
+
+.wash {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    var(--seat-scrim-top) 0%,
+    var(--seat-scrim-mid) 42%,
+    var(--seat-scrim-bot) 100%
+  );
+}
+
+/* Keeps the player's colour readable through their art. */
+.seat[data-art='true'] .wash::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--pc);
+  opacity: 0.14;
+}
+
+/* ── The split-tap halves ─────────────────────────────────────────────────── */
+/* The −/+ glyphs at the outer edges are the only hint that the panel is split.
+ * There was a centre hairline as well, but it only ever lined up against a
+ * two-digit total — at 1 or 3 digits the numeral sat off it and it read as a
+ * defect rather than an affordance. */
+.half {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  border: 0;
+  padding: 0 clamp(6px, 4cqmin, 16px);
+  background: transparent;
+  color: var(--seat-ink);
+  cursor: pointer;
+  /* A hold must not scroll the page, select text, or raise a callout. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.12s ease;
+}
+
+.halfDown { left: 0;  justify-content: flex-start; }
+.halfUp   { right: 0; justify-content: flex-end; }
+
+.halfGlyph {
+  opacity: 0.3;
+  transition: opacity 0.12s ease;
+}
+
+.half[data-active='true'] {
+  background: color-mix(in srgb, var(--pc) 30%, transparent);
+}
+.half[data-active='true'] .halfGlyph { opacity: 0.95; }
+
+.half:focus-visible {
+  outline: 2px solid var(--seat-line-hi);
+  outline-offset: -3px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .half:hover { background: color-mix(in srgb, var(--pc) 14%, transparent); }
+  .half:hover .halfGlyph { opacity: 0.6; }
+}
+
+/* ── Content ──────────────────────────────────────────────────────────────── */
+/* Transparent to pointers so the numeral itself is part of the tap halves;
+ * only the name row and the damage rail opt back in. */
+.content {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  justify-items: center;
+  gap: 2px;
+  padding: clamp(4px, 3cqmin, 10px);
+}
+
+.nameRow {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  border: 0;
+  border-radius: var(--radius-pill);
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--seat-ink-dim);
+  cursor: pointer;
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+
+.nameDot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--pc);
+}
+
+.name {
+  font-family: var(--font-display);
+  font-size: clamp(0.58rem, 6.5cqmin, 0.88rem);
+  letter-spacing: 0.06em;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nameChevron { flex: 0 0 auto; opacity: 0.5; }
+
+.nameRow:focus-visible {
+  outline: 2px solid var(--seat-line-hi);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .nameRow:hover {
+    background: rgba(244, 239, 230, 0.1);
+    color: var(--seat-ink);
+  }
+}
+
+.centre {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.lifeWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+/* Death flavour. Sits under the total rather than over it, so "what did you go out
+ * on?" is still answerable. Clamped to two lines: on a six-up phone panel there is
+ * not room for more, and the total keeps priority. */
+.deathText {
+  max-width: 94%;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(0.44rem, 4.6cqmin, 0.72rem);
+  line-height: 1.25;
+  text-align: center;
+  text-wrap: balance;
+  color: var(--seat-ink-dim);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* The one place the app's display face steps aside. Cinzel is the chrome; the
+ * life total is a readout, so it uses the platform's own grotesk with tabular
+ * figures — the number must not shift width as it changes. */
+.life {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 0.9;
+  font-size: clamp(2rem, 13vmin, 5.5rem);
+  font-size: clamp(2rem, 36cqmin, 8rem);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+.seat[data-dead='true'] .life {
+  color: var(--seat-ink-faint);
+  text-shadow: none;
+}
+
+/* The running total of a burst of taps, so "−7" is legible as one action. */
+.delta {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(0.8rem, 13cqmin, 2rem);
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  animation: deltaIn 0.16s ease-out;
+}
+
+.delta[data-sign='down'] { color: #ffb0a8; background: rgba(120, 22, 22, 0.62); }
+.delta[data-sign='up']   { color: #b6ecc0; background: rgba(20, 88, 40, 0.62); }
+
+@keyframes deltaIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Status row ───────────────────────────────────────────────────────────── */
+.footRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  max-width: 100%;
+}
+
+.chip,
+.outChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  height: 17px;
+  border-radius: var(--radius-pill);
+  background: rgba(244, 239, 230, 0.13);
+  color: var(--seat-ink-dim);
+  font-size: clamp(0.5rem, 4.4cqmin, 0.64rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.outChip {
+  background: rgba(244, 239, 230, 0.2);
+  color: var(--seat-ink);
+  font-weight: 600;
+}
+
+.chip[data-alarm='true'] {
+  background: rgba(150, 32, 32, 0.7);
+  color: #ffcfc8;
+}
+
+/* Commander damage: one pip per opponent, in seat order, so a glance says who is
+ * close to lethal without opening anything. */
+.rail {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 19px;
+  padding: 0 5px;
+  border: 1px solid var(--seat-line);
+  border-radius: var(--radius-pill);
+  background: rgba(9, 9, 12, 0.4);
+  color: var(--seat-ink-dim);
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.rail[data-alarm='true'] {
+  border-color: rgba(214, 90, 78, 0.75);
+  color: #ffcfc8;
+}
+
+.rail:focus-visible {
+  outline: 2px solid var(--seat-line-hi);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rail:hover {
+    border-color: var(--seat-line-hi);
+    background: rgba(9, 9, 12, 0.62);
+  }
+}
+
+.pip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 13px;
+  padding: 0 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--opc) 22%, transparent);
+  color: var(--seat-ink-faint);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: clamp(0.48rem, 4cqmin, 0.6rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.pip[data-hit='true'] {
+  background: color-mix(in srgb, var(--opc) 70%, transparent);
+  color: #16161a;
+}
+
+.pip[data-lethal='true'] {
+  background: #c0392b;
+  color: #fff;
+}

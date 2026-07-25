@@ -992,44 +992,56 @@ export default function HelpPage() {
         <section id="life-tracker" className={styles.section}>
           <h2>Life Tracker</h2>
           <p>
-            Life Tracker is made for actual play. It supports multiplayer sessions, keeps important
-            counters available, and works well for Commander and other formats where more than plain
-            life totals matter.
+            Life Tracker is built for one phone sitting in the middle of the table. Pick a format and
+            a player count, tap Start, and adjust everything else during the game.
           </p>
+
+          <Callout kind="tip" title="Each seat is the button">
+            Tap the left half of a player's panel to lose life and the right half to gain it. Hold
+            either side to move faster. There are no small +/− buttons to aim at, which is the point
+            when your hands are full of cards.
+          </Callout>
 
           <div className={styles.cardGrid}>
             <article className={styles.infoCard}>
               <h3>Core game tools</h3>
               <ul className={styles.list}>
-                <li>Life totals</li>
-                <li>Commander damage</li>
-                <li>Poison counters</li>
-                <li>Energy, experience, and radiation counters</li>
-                <li>Dice roller and coin flip</li>
+                <li>Life totals, with a running total for each burst of taps</li>
+                <li>Commander damage, including partners and backgrounds</li>
+                <li>Poison, energy, and experience counters</li>
+                <li>Commander cast tax</li>
+                <li>Who goes first, dice, and coin flips</li>
                 <li>Game log</li>
               </ul>
             </article>
             <article className={styles.infoCard}>
-              <h3>Shared session flow</h3>
+              <h3>Shared games</h3>
               <ol className={styles.numberedList}>
-                <li>One player creates the session.</li>
-                <li>The app gives a join code.</li>
-                <li>Other players join the session.</li>
-                <li>Seats and names are set up.</li>
-                <li>The host starts the game.</li>
+                <li>Host a shared game to get a join code.</li>
+                <li>Other players open the link and take a seat.</li>
+                <li>Each of them picks the deck they are playing.</li>
+                <li>The host starts the game and tracks life on their device.</li>
+                <li>When it ends, everyone's result saves to their own deck.</li>
               </ol>
             </article>
           </div>
 
           <p>
-            If you use Decks in DeckLoom, Life Tracker becomes even more useful because you can
-            connect games to the decks you actually play. This is one of the best reasons to keep
-            owned decks properly organized in the app.
+            Joining a shared game does not put a life tracker on your phone — life is tracked on the
+            host's device. You join so the win or loss lands on your own deck record, then you can put
+            your phone away. Your deck stays changeable right up until the host saves the result.
           </p>
 
-          <Callout kind="tip" title="Best results for game history">
-            End games through the normal finish flow instead of simply abandoning the session or
-            resetting the screen in the middle of a match.
+          <p>
+            Tap a player's name to rename them, change their colour, attach a deck, or set card art as
+            the background behind their life total. Attaching decks is what feeds deck win rates in
+            Stats and in the deck builder.
+          </p>
+
+          <Callout kind="tip" title="Your game is saved as you play">
+            Every change is written to your device, so closing the tab, switching apps, or a crash will
+            not lose a game — reopening Life Tracker picks it back up. Ending the game through End is
+            what records the result to your stats.
           </Callout>
 
           <ScreenshotPlaceholder label="Life Tracker lobby and in-game layout with players, counters, and controls." />

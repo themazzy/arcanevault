@@ -1,2598 +1,715 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ConfirmModal, ResponsiveMenu, SearchInput } from '../components/UI'
+import { Button, ConfirmModal, ErrorBox, ResponsiveMenu, Select } from '../components/UI'
 import uiStyles from '../components/UI.module.css'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
+import {
+  CheckIcon, CopyIcon, DiceIcon, ListIcon, MenuIcon, PlayerIcon, SwordIcon, TrophyIcon,
+} from '../icons'
 import { sb } from '../lib/supabase'
 import { getPublicAppUrl } from '../lib/publicUrl'
-import { buildLifeChange } from '../lib/lifeChange'
+import {
+  FORMAT_ORDER, LIFE_FORMATS, MAX_SEATS, MIN_SEATS,
+  clampLife, createGame, deathTextFor, findLayout, gameReducer, isCommanderFormat,
+  isPlayerDead, layoutsFor, startingLifeFor,
+} from '../lib/lifeGame'
+import {
+  clearGame, flushGame, loadGame, loadSetup, registerFlushHooks, saveGame, saveSetup,
+} from '../lib/lifeStorage'
+import {
+  buildDeckStatsMap, buildGameResultRows, buildPlacements, buildTrackedGamePayload,
+} from '../lib/lifeResults'
+import {
+  cancelLobby, claimSlot, createLobby, endLobby, fetchLobbySlots,
+  mergeSlotAttribution, seedsFromSlots, startLobby, subscribeLobby,
+} from '../lib/lifeLobby'
+import SeatPanel from '../components/lifeTracker/SeatPanel'
+import SeatSheet from '../components/lifeTracker/SeatSheet'
+import CmdDamageSheet from '../components/lifeTracker/CmdDamageSheet'
+import GameLogSheet from '../components/lifeTracker/GameLogSheet'
+import ToolsSheet from '../components/lifeTracker/ToolsSheet'
+import EndGameSheet from '../components/lifeTracker/EndGameSheet'
 import styles from './LifeTracker.module.css'
-import { CheckIcon, CloseIcon, CopyIcon, EditIcon, SyncIcon, ChevronDownIcon, ChevronUpIcon, SettingsIcon } from '../icons'
-import { Select } from '../components/UI'
-import { useNow } from '../hooks/useNow'
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-const SESSION_KEY = 'av_life_tracker'
-const HISTORY_KEY = 'av_game_history'
-const MAX_HISTORY = 50
+const SEAT_OPTIONS = Array.from({ length: MAX_SEATS - MIN_SEATS + 1 }, (_, i) => MIN_SEATS + i)
+const NO_DECK = '__none__'
 
-const PLAYER_COLORS = ['#c46060', '#6080c4', '#60a860', '#c4a040', '#9060c4', '#60b8c4']
-const PLAYER_NAMES  = ['Player 1', 'Player 2', 'Player 3', 'Player 4', 'Player 5', 'Player 6']
-const DICE_TYPES    = [2, 4, 6, 8, 10, 12, 20, 100]
-
-const DEATH_TEXTS = [
-  'Split in half by Garruk',
-  'Burned to a crisp by Chandra',
-  'Devoured by the Eldrazi Titans',
-  'Turned to stone by a Basilisk',
-  'Banished to the Blind Eternities',
-  'Wrapped in webs by Ishkanah',
-  'Swallowed whole by a Leviathan',
-  'Crushed beneath Darksteel Colossus',
-  'Phyrexian Compleatified',
-  'Targeted by 3 Lightning Bolts',
-  'Mill\'d out of existence',
-  'Exiled by Teferi himself',
-  'Caught in a Wrath of God',
-  'Trampled by 50 angry Saprolings',
-  'Struck by Bolt… and Bolt… and Bolt',
-  'Gored by a bear with trample',
-  'Forgot to pay Echo',
-  'Misread the stack and lost',
-  'Decked themselves with cantrips',
-  'Hit for 21 commander damage',
-  'Sacrificed to a Demon by their own hand',
-  'Consumed by Emrakul\'s tentacles',
-  'Lost a mana duel to a Llanowar Elf',
-  'Ran headfirst into a Storm count of 20',
-  'Napping during the draw step',
-  'Mauled by a 0/1 Thopter token',
-  'Tapped out at exactly the wrong moment',
-  'Topdecked a land — needed gas',
-  'Detonated by Goblin Grenade',
-  'Infected by 10 poison',
-  'Torn apart by an angry Elder Dragon',
-  'Mulliganned into the shadow realm',
-  'Killed by their own Earthquake',
-  'Died waiting for a counterspell',
-  'Obliterated — the real kind, no rebuild',
-  'Annihilated by Ulamog',
-  'Never resolved that crucial spell',
-  'Mana-screwed into the void',
-  'Eaten alive by a Wurm',
-  'Executed by Teysa\'s spirit tokens',
-  'Drained dry by a Vampire',
-  'Petrified by a Gorgon\'s gaze',
-  'Dissolved by Red Sun\'s Zenith',
-  'Zombified and then killed again',
-  'Bogged down in infinite combo purgatory',
-  'Hit by a Fireball, a Fireball, and another Fireball',
-  'Stifled their own crucial trigger',
-  'Dissolved by corrupted black mana',
-  'Converted into a Food token',
-  'Claimed by The Abyss',
-  'Returned to hand — permanently',
-  'Flung as a last desperate act',
-  'Crypt Incursion\'d at instant speed',
-  'Died to their own Howling Mine draw',
-  'Exploded in a storm of instants',
-]
-
-// ── Multiplayer lobby helpers ──────────────────────────────────────────────────
-const CODE_CHARS  = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-const generateCode = () =>
-  Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('')
-
-const MODES = {
-  standard:    { label: 'Standard',    life: 20, commander: false, defaultPlayers: 2 },
-  commander:   { label: 'Commander',   life: 40, commander: true,  defaultPlayers: 4 },
-  brawl:       { label: 'Brawl',       life: 25, commander: true,  defaultPlayers: 2 },
-  oathbreaker: { label: 'Oathbreaker', life: 20, commander: true,  defaultPlayers: 2 },
-  planechase:  { label: 'Planechase',  life: 20, commander: false, defaultPlayers: 4 },
-  custom:      { label: 'Custom',      life: 20, commander: false, defaultPlayers: 4 },
+function formatElapsed(ms) {
+  const minutes = Math.round(ms / 60000)
+  if (minutes < 1) return 'moments ago'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  return `${hours} h ${minutes % 60} min ago`
 }
 
-// ── Layout definitions ─────────────────────────────────────────────────────────
-// cols = grid columns. rotations = { [playerIndex]: degrees } — applied on tablet/phone only
-const LAYOUTS = {
-  2: [
-    { id: '2-portrait',  cols: 1, label: 'Portrait',     rotations: { 0: 180 } },
-    { id: '2-landscape', cols: 2, label: 'Side by Side', rotations: {} },
-  ],
-  3: [
-    { id: '3-2+1', cols: 2, label: '2 + 1', rotations: { 0: 180, 1: 180 } },
-    { id: '3-row', cols: 3, label: 'Row',    rotations: {} },
-  ],
-  4: [
-    { id: '4-2x2', cols: 2, label: '2 × 2', rotations: { 0: 180, 1: 180 } },
-    { id: '4-row', cols: 4, label: 'Row',    rotations: {} },
-  ],
-  5: [
-    { id: '5-3+2', cols: 3, label: '3 + 2', rotations: { 0: 180, 1: 180, 2: 180 } },
-    { id: '5-2+3', cols: 3, label: '2 + 3', rotations: { 0: 180, 1: 180 } },
-  ],
-  6: [
-    { id: '6-3x2', cols: 3, label: '3 × 2', rotations: { 0: 180, 1: 180, 2: 180 } },
-    { id: '6-2x3', cols: 2, label: '2 × 3', rotations: { 0: 180, 1: 180 } },
-  ],
-}
-
-const defaultLayout = (count) => LAYOUTS[count]?.[0] ?? LAYOUTS[4][0]
-
-// ── Persistence helpers ────────────────────────────────────────────────────────
-function loadSession() {
-  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY)) } catch { return null }
-}
-function saveSession(s) {
-  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)) } catch {}
-}
-function clearSession() {
-  try { sessionStorage.removeItem(SESSION_KEY) } catch {}
-}
-function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || [] } catch { return [] }
-}
-function saveHistory(h) {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(h.slice(0, MAX_HISTORY))) } catch {}
-}
-
-function buildDeckStatsMap(rows) {
-  const map = {}
-  ;(rows || []).forEach(r => {
-    if (!r.deck_id) return
-    if (!map[r.deck_id]) map[r.deck_id] = { wins: 0, losses: 0, games: 0 }
-    map[r.deck_id].games++
-    if (r.placement === 1) map[r.deck_id].wins++
-    else map[r.deck_id].losses++
-  })
-  Object.values(map).forEach(s => {
-    s.win_pct = s.games > 0 ? Math.round(100 * s.wins / s.games) : 0
-  })
-  return map
-}
-
-function serializeGamePlayers(players, placements) {
-  return players.map(p => ({
-    playerId: p.id,
-    userId: p.userId || null,
-    name: p.name,
-    color: p.color,
-    deckId: p.deckId || null,
-    deckName: p.deckName || null,
-    placement: placements[p.id],
-    finalLife: p.life,
-  }))
-}
-
-// ── Player factory ─────────────────────────────────────────────────────────────
-function makePlayer(i, life, seed = {}) {
-  return {
-    id: i,
-    name: seed.name ?? PLAYER_NAMES[i],
-    color: seed.color ?? PLAYER_COLORS[i],
-    deckId: seed.deckId ?? null,
-    deckName: seed.deckName ?? null,
-    artCropUrl: seed.artCropUrl ?? null,
-    userId: seed.userId ?? null,
-    life,
-    hasPartner: seed.hasPartner ?? false,
-    cmdTax: seed.cmdTax ?? 0,
-    cmdTax2: seed.cmdTax2 ?? 0,
-    cmdDmg: { ...(seed.cmdDmg ?? {}) },
-    cmdDmg2: { ...(seed.cmdDmg2 ?? {}) },
-    counters: { poison: 0, energy: 0, experience: 0, ...(seed.counters ?? {}) },
-  }
-}
-
-function migratePlayer(p) {
-  return {
-    ...p,
-    hasPartner: p.hasPartner ?? false,
-    cmdTax: p.cmdTax ?? 0,
-    cmdTax2: p.cmdTax2 ?? 0,
-    cmdDmg:   p.cmdDmg   ?? {},
-    cmdDmg2:  p.cmdDmg2  ?? {},
-    counters: { poison: 0, energy: 0, experience: 0, ...(p.counters ?? {}) },
-  }
-}
-
-// Poison: 10+ is lethal (infect/toxic). Commander damage: 21+ from one source.
-export function isPlayerDead(player) {
-  if (!player) return false
-  if (player.life <= 0) return true
-  if ((player.counters?.poison ?? 0) >= 10) return true
-  if (Object.values(player.cmdDmg ?? {}).some(v => v >= 21)) return true
-  if (Object.values(player.cmdDmg2 ?? {}).some(v => v >= 21)) return true
-  return false
-}
-
-export const COUNTER_DEFS = [
-  { key: 'poison',     label: 'Poison',     short: 'PSN', color: '#7cae5e' },
-  { key: 'energy',     label: 'Energy',     short: 'NRG', color: '#5aafcc' },
-  { key: 'experience', label: 'Experience', short: 'XP',  color: '#c9a84c' },
-]
-
-// ── Layout Picker ──────────────────────────────────────────────────────────────
-function LayoutPicker({ playerCount, value, onChange }) {
-  const options = LAYOUTS[playerCount]
-  if (!options || options.length <= 1) return null
-  return (
-    <div className={styles.layoutPicker}>
-      {options.map(opt => {
-        const active = value?.id === opt.id
-        return (
-          <button key={opt.id}
-            className={`${styles.layoutOpt} ${active ? styles.layoutOptActive : ''}`}
-            onClick={() => onChange(opt)}>
-            <div className={styles.layoutGrid} style={{ '--lcols': opt.cols }}>
-              {Array.from({ length: playerCount }, (_, i) => {
-                const rot = opt.rotations?.[i] || 0
-                return (
-                  <div key={i} className={`${styles.layoutSeat} ${
-                    rot === 180 ? styles.layoutSeatFlip :
-                    rot ===  90 ? styles.layoutSeat90  :
-                    rot === -90 ? styles.layoutSeat90n : ''
-                  }`} />
-                )
-              })}
-            </div>
-            <span className={styles.layoutOptLabel}>{opt.label}</span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── Custom Deck Dropdown ───────────────────────────────────────────────────────
-function DeckDropdownMenu({ value, options, onChange, close }) {
-  const [query, setQuery] = useState('')
-  const inputRef = useRef(null)
-
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
-  const filteredOptions = options.filter(d =>
-    d.name.toLowerCase().includes(query.trim().toLowerCase())
-  )
-
-  return (
-    <div className={styles.deckDropMenuWrap}>
-      <div className={styles.deckDropSearchWrap}>
-        <SearchInput
-          ref={inputRef}
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          onClear={() => setQuery('')}
-          placeholder="Search decks..."
-          className={styles.deckDropSearch}
-        />
-      </div>
-      <div className={uiStyles.responsiveMenuList}>
-        <button
-          className={`${uiStyles.responsiveMenuAction} ${!value ? uiStyles.responsiveMenuActionActive : ''}`}
-          onClick={() => { onChange(null, null); close() }}>
-          <span>No deck selected</span>
-          <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">{!value ? <CheckIcon size={12} /> : null}</span>
-        </button>
-        {filteredOptions.map(d => (
-          <button key={d.id}
-            className={`${uiStyles.responsiveMenuAction} ${value === d.id ? uiStyles.responsiveMenuActionActive : ''}`}
-            onClick={() => { onChange(d.id, d.name); close() }}>
-            <span>{d.name}</span>
-            <span className={uiStyles.responsiveMenuMeta}>
-              {value === d.id ? 'selected' : ''}
-            </span>
-          </button>
-        ))}
-        {filteredOptions.length === 0 && (
-          <div className={styles.deckDropEmpty}>No matching decks.</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function DeckDropdown({ value, valueName, options, onChange }) {
-  return (
-    <ResponsiveMenu
-      title="Select Deck"
-      align="left"
-      wrapClassName={styles.deckDrop}
-      trigger={({ open, toggle }) => (
-        <button
-          className={`${styles.deckDropBtn} ${open ? styles.deckDropBtnOpen : ''}`}
-          onClick={toggle}>
-          <span className={styles.deckDropValue}>{valueName || 'No deck selected'}</span>
-          <span className={styles.deckDropArrow}>{open ? <ChevronUpIcon size={12} /> : <ChevronDownIcon size={12} />}</span>
-        </button>
-      )}
-    >
-      {({ close }) => (
-        <DeckDropdownMenu
-          value={value}
-          options={options}
-          onChange={onChange}
-          close={close}
-        />
-      )}
-    </ResponsiveMenu>
-  )
-}
-
-// ── Art Picker (page-level so transform:rotate doesn't break position:fixed) ──
-function ArtPicker({ onSelect, onClear, onClose, rotation = 0 }) {
-  const [query, setQuery]     = useState('')
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const inputRef = useRef(null)
-  const timerRef = useRef(null)
-  useEffect(() => inputRef.current?.focus(), [])
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  const search = async (q) => {
-    const term = q ?? query
-    if (!term.trim()) return
-    setLoading(true)
-    try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
-      const data = await r.json()
-      setResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
-    } catch { setResults([]) }
-    setLoading(false)
-  }
-
-  const handleQueryChange = (v) => {
-    setQuery(v)
-    clearTimeout(timerRef.current)
-    if (v.trim().length < 2) { setResults([]); return }
-    timerRef.current = setTimeout(() => search(v), 350)
-  }
-
-  return (
-    <div className={styles.artPickerOverlay} onClick={onClose}>
-      <div
-        className={[styles.artPickerPanel, styles.overlayRotatable, getRotationClass(rotation)].filter(Boolean).join(' ')}
-        onClick={e => e.stopPropagation()}>
-        <div className={styles.artPickerHead}>
-          <h2 className={styles.artPickerTitle}>Player Background Art</h2>
-          <button className={styles.artPickerClose} onClick={onClose}><CloseIcon size={13} /></button>
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-          <SearchInput ref={inputRef}
-            value={query} onChange={e => handleQueryChange(e.target.value)}
-            onClear={() => handleQueryChange('')}
-            onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(timerRef.current); search() } }}
-            placeholder="Search card name…"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--s-border2)', borderRadius: 3, padding: '8px 12px', color: 'var(--text)', fontSize: '0.88rem', outline: 'none' }}
-          />
-          {loading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.88rem' }}>…</span>}
-        </div>
-        <button onClick={onClear}
-          style={{ background: 'none', border: '1px solid rgba(200,70,60,0.3)', borderRadius: 3, padding: '4px 12px', color: '#e08878', fontSize: '0.76rem', cursor: 'pointer', marginBottom: 10 }}>
-          Remove art background
-        </button>
-        {results.length > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
-            {results.map(card => (
-              <button key={card.id}
-                onClick={() => onSelect(card.image_uris.art_crop)}
-                style={{ background: 'none', border: '1px solid var(--s-border2)', borderRadius: 4, padding: 0, cursor: 'pointer', overflow: 'hidden' }}
-                title={card.name}>
-                <img src={card.image_uris.art_crop} alt={card.name}
-                  style={{ width: '100%', display: 'block', aspectRatio: '4/3', objectFit: 'cover' }} />
-                <div style={{ padding: '4px 6px', fontSize: '0.68rem', color: 'var(--text)', background: 'var(--glass-medium)', borderTop: '1px solid var(--s-border)', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {card.name}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-        {!loading && results.length === 0 && query && (
-          <p style={{ color: 'var(--text-faint)', fontSize: '0.85rem' }}>No results.</p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Unified Game Log Overlay ───────────────────────────────────────────────────
-function GameLogOverlay({ events, onClose }) {
-  const now = useNow()
-  const fmtTime = (ts) => {
-    const s = Math.floor((now - ts) / 1000)
-    if (s < 5)  return 'just now'
-    if (s < 60) return `${s}s ago`
-    const m = Math.floor(s / 60)
-    if (m < 60) return `${m}m ago`
-    return `${Math.floor(m / 60)}h ago`
-  }
-  const fmtDelta = (d) => d > 0 ? `+${d}` : `${d}`
-  const groupedEvents = (events || []).reduce((acc, ev) => {
-    const prev = acc[acc.length - 1]
-    const sameCommanderSource = ev.type === 'cmdDmg' ? prev?.fromName === ev.fromName : true
-    if (
-      prev &&
-      prev.playerName === ev.playerName &&
-      prev.type === ev.type &&
-      sameCommanderSource
-    ) {
-      prev.delta += ev.delta
-      return acc
-    }
-    acc.push({ ...ev })
-    return acc
-  }, [])
-
-  return (
-    <div className={styles.cmdOverlay} onClick={onClose}>
-      <div className={styles.cmdOverlayPanel} onClick={e => e.stopPropagation()}>
-        <div className={styles.cmdOverlayHead}>
-          <div>
-            <div className={styles.cmdOverlayTitle}>📜 Game Log</div>
-            <div className={styles.cmdOverlaySub}>All events this game</div>
-          </div>
-          <button className={styles.cmdOverlayClose} onClick={onClose}><CloseIcon size={13} /></button>
-        </div>
-        {(!events || events.length === 0) ? (
-          <p className={styles.histEvtEmpty}>No events recorded yet this game.</p>
-        ) : (
-          <div className={styles.histEvtList}>
-            {groupedEvents.map((ev, i) => {
-              return (
-                <div key={i} className={styles.histEvtRow}>
-                  <span className={styles.histEvtIcon}>
-                    {ev.type === 'life' ? '♥' : '⚔'}
-                  </span>
-                  <div className={styles.histEvtDesc}>
-                    <span className={styles.histEvtPlayer} style={{ color: ev.playerColor }}>
-                      {ev.playerName}
-                    </span>
-                    {' '}
-                    {ev.type === 'life' && (
-                      <span>
-                        <span className={ev.delta > 0 ? styles.histEvtPos : styles.histEvtNeg}>
-                          {fmtDelta(ev.delta)}
-                        </span>
-                        {' '}life → <strong>{ev.total}</strong>
-                      </span>
-                    )}
-                    {ev.type === 'cmdDmg' && (
-                      <span>
-                        <span className={ev.delta > 0 ? styles.histEvtPos : styles.histEvtNeg}>{fmtDelta(ev.delta)}</span>
-                        {' '}commander from <em>{ev.fromName}</em> → <strong>{ev.total}</strong> life
-                      </span>
-                    )}
-                  </div>
-                  <span className={styles.histEvtTime}>{fmtTime(ev.ts)}</span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function getRotationClass(rotation = 0) {
-  if (rotation === 180) return styles.playerRotate180
-  if (rotation === 90) return styles.playerRotate90
-  if (rotation === -90) return styles.playerRotate90n
-  return ''
-}
-
-// ── Commander Damage Overlay (page-level) ──────────────────────────────────────
-function CmdDmgOverlay({ players, selfId, layout, viewerRotation = 0, onCmdDmgChange, onClose }) {
-  const player = players?.find(p => p.id === selfId)
-  if (!player || !layout) return null
-  const headRotClass = getRotationClass(viewerRotation)
-
-  function CtrlRow({ dmg, isLethal, pid, oid, isPartner2 }) {
-    const call = (d) => onCmdDmgChange(pid, oid, d, isPartner2)
-    return (
-      <div className={styles.cmdOverlayCtrl}>
-        <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); call(-1) }}>−</button>
-        <span className={`${styles.cmdOverlayVal} ${isLethal ? styles.cmdOverlayValLethal : ''}`}>{dmg}</span>
-        <button className={styles.cmdOverlayBtn} onPointerDown={e => { e.preventDefault(); call(+1) }}>+</button>
-      </div>
-    )
-  }
-
-  return (
-    <div className={styles.cmdOverlay} onClick={onClose}>
-      <div
-        className={`${styles.cmdOverlayPanel} ${styles.cmdOverlayPanelGrid}`}
-        onClick={e => e.stopPropagation()}>
-        <div className={`${styles.cmdOverlayHead} ${headRotClass}`}>
-          <div className={styles.cmdOverlayTitle}>⚔ Commander Damage</div>
-          <button className={styles.cmdOverlayClose} onClick={onClose}><CloseIcon size={13} /></button>
-        </div>
-        <div className={styles.cmdGrid} style={{ '--gcols': layout.cols }}>
-          {players.map(p => {
-            if (p.id === selfId) {
-              return (
-                <div
-                  key={p.id}
-                  className={[styles.cmdGridCell, styles.cmdGridSelf, headRotClass].filter(Boolean).join(' ')}
-                  style={{ '--opc': p.color }}>
-                  <span className={styles.cmdGridSelfLabel}>YOU</span>
-                  <span className={styles.cmdGridSelfName}>{p.name}</span>
-                </div>
-              )
-            }
-            const dmg  = player.cmdDmg?.[p.id]  || 0
-            const dmg2 = player.cmdDmg2?.[p.id] || 0
-            const l1   = dmg >= 21
-            const l2   = p.hasPartner && dmg2 >= 21
-            return (
-              <div
-                key={p.id}
-                className={[styles.cmdGridCell, (l1 || l2) ? styles.cmdOverlayLethal : '', headRotClass].filter(Boolean).join(' ')}
-                style={{ '--opc': p.color }}>
-                <div className={styles.cmdOverlayOpp}>
-                  <span className={styles.cmdOverlayDot} />
-                  <span className={styles.cmdOverlayOppName}>{p.name}</span>
-                  {(l1 || l2) && <span className={styles.cmdLethalBadge}>LETHAL</span>}
-                  {p.hasPartner && <span className={styles.cmdPartnerBadge}>partner</span>}
-                </div>
-                {p.hasPartner ? (
-                  <>
-                    <div className={styles.cmdOverlayDmgRow}>
-                      <span className={styles.cmdPartnerLabel}>①</span>
-                      <CtrlRow dmg={dmg} isLethal={l1} pid={player.id} oid={p.id} isPartner2={false} />
-                    </div>
-                    <div className={styles.cmdOverlayDmgRow}>
-                      <span className={styles.cmdPartnerLabel}>②</span>
-                      <CtrlRow dmg={dmg2} isLethal={l2} pid={player.id} oid={p.id} isPartner2={true} />
-                    </div>
-                  </>
-                ) : (
-                  <CtrlRow dmg={dmg} isLethal={l1} pid={player.id} oid={p.id} isPartner2={false} />
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-
-function PlayerSettingsOverlay({
-  player,
-  showCommander,
-  onColorChange,
-  onRequestArtPicker,
-  onTogglePartner,
-  onCounterChange,
-  onClose,
-  rotation = 0,
-}) {
-  if (!player) return null
-
-  return (
-    <div className={styles.settingsOverlay} onClick={onClose}>
-      <div
-        className={[styles.settingsPanel, styles.overlayRotatable, getRotationClass(rotation)].filter(Boolean).join(' ')}
-        onClick={e => e.stopPropagation()}>
-        <div className={styles.settingsHead}>
-          <div>
-            <div className={styles.settingsTitle}>Player Settings</div>
-            <div className={styles.settingsSub} style={{ color: player.color }}>
-              {player.name}
-            </div>
-          </div>
-          <button className={styles.settingsClose} onClick={onClose}><CloseIcon size={13} /></button>
-        </div>
-
-        <div className={styles.settingsSection}>
-          <div className={styles.settingsLabel}>Color</div>
-          <div className={styles.settingsColorGrid}>
-            {PLAYER_COLORS.map(c => (
-              <button
-                key={c}
-                className={`${styles.settingsColorDot} ${c === player.color ? styles.settingsColorDotActive : ''}`}
-                style={{ background: c }}
-                onClick={() => onColorChange(player.id, c)}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className={styles.settingsSection}>
-          <div className={styles.settingsLabel}>Counters</div>
-          <div className={styles.counterList}>
-            {COUNTER_DEFS.map(c => {
-              const val = player.counters?.[c.key] ?? 0
-              const lethal = c.key === 'poison' && val >= 10
-              return (
-                <div key={c.key} className={styles.counterRow}>
-                  <span className={styles.counterDot} style={{ background: c.color }} />
-                  <span className={styles.counterName}>{c.label}</span>
-                  <div className={styles.counterAdjust}>
-                    <button className={styles.counterBtn} onClick={() => onCounterChange?.(player.id, c.key, -1)}>−</button>
-                    <span className={`${styles.counterVal} ${lethal ? styles.counterValLethal : ''}`}>{val}</span>
-                    <button className={styles.counterBtn} onClick={() => onCounterChange?.(player.id, c.key, +1)}>+</button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className={styles.settingsActions}>
-          <button
-            className={styles.settingsActionBtn}
-            onClick={() => {
-              onRequestArtPicker(player.id)
-              onClose()
-            }}>
-            Background Art
-          </button>
-          {showCommander && (
-            <button
-              className={`${styles.settingsActionBtn} ${player.hasPartner ? styles.settingsActionBtnActive : ''}`}
-              onClick={() => onTogglePartner?.(player.id)}>
-              {player.hasPartner ? 'Partner Commanders On' : 'Partner Commanders Off'}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function FullscreenGameMenuOverlay({
-  onClose,
-  onExitFullscreen,
-  onShowGameLog,
-  onShowDice,
-  onShowPicker,
-  onShowCoin,
-  onShowEndGame,
-  onResetTotals,
-  onNewSetup,
-}) {
-  return (
-    <div className={styles.settingsOverlay} onClick={onClose}>
-        <div
-          className={styles.fsMenuOverlayPanel}
-          onClick={e => e.stopPropagation()}>
-          <div className={styles.cmdOverlayHead}>
-          <div className={styles.cmdOverlayTitle}>Game Menu</div>
-          <button className={styles.cmdOverlayClose} onClick={onClose}><CloseIcon size={13} /></button>
-        </div>
-
-        <div className={styles.fsMenuActionList}>
-          <button className={styles.fsMenuActionBtn} onClick={onExitFullscreen}>⊡ Exit Fullscreen</button>
-          <button className={styles.fsMenuActionBtn} onClick={onShowGameLog}>📜 Game Log</button>
-          <button className={styles.fsMenuActionBtn} onClick={onShowDice}>🎲 Dice Roller</button>
-          <button className={styles.fsMenuActionBtn} onClick={onShowPicker}>🎯 Random Player</button>
-          <button className={styles.fsMenuActionBtn} onClick={onShowCoin}>🪙 Coin Flipper</button>
-          <button className={styles.fsMenuActionBtn} onClick={onShowEndGame}>🏆 End Game</button>
-          <button className={styles.fsMenuActionBtn} onClick={onResetTotals}>↺ Reset Totals</button>
-          <button
-            className={`${styles.fsMenuActionBtn} ${styles.fsMenuActionBtnDanger}`}
-            onClick={onNewSetup}>
-            <CloseIcon size={12} /> New Setup
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function CoinFlipper({ onClose }) {
-  const [flipCount, setFlipCount] = useState(1)
-  const [flips, setFlips] = useState([])
-  const [displayFlips, setDisplayFlips] = useState([])
-  const [flipping, setFlipping] = useState(false)
-  const [flipMode, setFlipMode] = useState('count')
-  const timerRef = useRef(null)
-
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  const buildFinals = mode => {
-    if (mode === 'untilLose') {
-      const seq = []
-      do {
-        seq.push(Math.random() < 0.5 ? 'Heads' : 'Tails')
-      } while (seq[seq.length - 1] === 'Heads' && seq.length < 24)
-      return seq
-    }
-    return Array.from({ length: flipCount }, () => Math.random() < 0.5 ? 'Heads' : 'Tails')
-  }
-
-  const runFlip = (mode = flipMode) => {
-    if (flipping) return
-    clearTimeout(timerRef.current)
-    setFlipping(true)
-    setFlipMode(mode)
-    const finals = buildFinals(mode)
-    const shownCount = finals.length
-    let frame = 0
-    const totalFrames = 10
-    const animate = () => {
-      frame += 1
-      setDisplayFlips(Array.from({ length: shownCount }, () => Math.random() < 0.5 ? 'Heads' : 'Tails'))
-      if (frame < totalFrames) {
-        timerRef.current = setTimeout(animate, 18 + frame * 4)
-      } else {
-        setFlips(finals)
-        setDisplayFlips(finals)
-        setFlipping(false)
-      }
-    }
-    setDisplayFlips(Array.from({ length: shownCount }, () => Math.random() < 0.5 ? 'Heads' : 'Tails'))
-    timerRef.current = setTimeout(animate, 16)
-  }
-
-  const shown = flipping ? displayFlips : flips
-  const heads = flips.filter(v => v === 'Heads').length
-  const tails = flips.filter(v => v === 'Tails').length
-
-  return (
-    <div className={styles.pickerOverlay} onClick={onClose}>
-      <div className={`${styles.pickerPanel} ${styles.coinPanel}`} onClick={e => e.stopPropagation()}>
-        <div className={styles.pickerHead}>
-          <span className={styles.pickerTitle}>Coin Flipper</span>
-          <button className={styles.pickerClose} onClick={onClose}><CloseIcon size={13} /></button>
-        </div>
-        <div className={styles.coinCountRow}>
-          <span className={styles.coinCountLabel}>Coins</span>
-          <div className={styles.coinCountCtrl}>
-            <button
-              className={styles.coinCountBtn}
-              onClick={() => setFlipCount(n => Math.max(1, n - 1))}
-              disabled={flipping}>
-              -
-            </button>
-            <span className={styles.coinCountVal}>{flipCount}</span>
-            <button
-              className={styles.coinCountBtn}
-              onClick={() => setFlipCount(n => Math.min(12, n + 1))}
-              disabled={flipping}>
-              +
-            </button>
-          </div>
-        </div>
-        <div className={styles.coinResults}>
-          {shown.length > 0 ? (
-            <div className={styles.coinGrid}>
-              {shown.map((side, i) => (
-                <div key={i} className={`${styles.coinFace} ${flipping ? styles.coinFaceFlipping : ''}`}>
-                  <span className={styles.coinFaceInner}>{side === 'Heads' ? 'H' : 'T'}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className={styles.coinPrompt}>Flip to see the result</div>
-          )}
-          <div className={styles.coinSummary}>
-            <span>Heads: <strong>{heads}</strong></span>
-            <span>Tails: <strong>{tails}</strong></span>
-          </div>
-        </div>
-        <div className={styles.coinActions}>
-          <button className={styles.pickerBtn} onClick={() => runFlip('count')} disabled={flipping}>
-          {flipping ? 'Flipping…' : `Flip ${flipCount} Coin${flipCount > 1 ? 's' : ''}`}
-        </button>
-          <button className={styles.coinModeBtn} onClick={() => runFlip('untilLose')} disabled={flipping}>
-            {flipping && flipMode === 'untilLose' ? 'Flipping...' : 'Flip Until Lose'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-// ── Dice Roller ────────────────────────────────────────────────────────────────
-function DiceRoller({ onClose }) {
-  const [dieType,  setDieType]  = useState(20)
-  const [numDice,  setNumDice]  = useState(1)
-  const [results,  setResults]  = useState([])
-  const [dispVals, setDispVals] = useState([])
-  const [rolling,  setRolling]  = useState(false)
-  const frameRef = useRef(null)
-
-  useEffect(() => () => clearTimeout(frameRef.current), [])
-
-  const roll = () => {
-    if (rolling) return
-    setRolling(true)
-    const finals = Array.from({ length: numDice }, () => Math.floor(Math.random() * dieType) + 1)
-    let frame = 0
-    const total = 18
-    const animate = () => {
-      frame++
-      const vals = Array.from({ length: numDice }, () => Math.floor(Math.random() * dieType) + 1)
-      setDispVals(vals)
-      if (frame < total) {
-        frameRef.current = setTimeout(animate, 25 + frame * 6)
-      } else {
-        setResults(finals)
-        setDispVals(finals)
-        setRolling(false)
-      }
-    }
-    setDispVals(Array.from({ length: numDice }, () => Math.floor(Math.random() * dieType) + 1))
-    frameRef.current = setTimeout(animate, 25)
-  }
-
-  const shown    = rolling ? dispVals : results
-  const total    = results.reduce((s, v) => s + v, 0)
-  // Highlight max/min only when rolling more than 3 dice and animation has settled
-  const showHL   = numDice > 3 && !rolling && results.length > 0
-  const maxVal   = showHL ? Math.max(...results) : null
-  const minVal   = showHL && Math.min(...results) !== Math.max(...results) ? Math.min(...results) : null
-
-  return (
-    <div className={styles.diceOverlay} onClick={onClose}>
-      <div className={styles.dicePanel} onClick={e => e.stopPropagation()}>
-        <div className={styles.diceHead}>
-          <button className={styles.diceClose} onClick={onClose}><CloseIcon size={13} /></button>
-        </div>
-
-        <div className={styles.diceTypes}>
-          {DICE_TYPES.map(d => (
-            <button key={d}
-              className={`${styles.diceTypeBtn} ${dieType === d ? styles.diceTypeBtnActive : ''}`}
-              onClick={() => setDieType(d)}>
-              d{d}
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.diceCount}>
-          <span className={styles.diceCountLabel}>Number of dice</span>
-          <div className={styles.diceCountCtrl}>
-            <button className={styles.diceCountBtn} onClick={() => setNumDice(n => Math.max(1, n - 1))}>−</button>
-            <span className={styles.diceCountVal}>{numDice}</span>
-            <button className={styles.diceCountBtn} onClick={() => setNumDice(n => Math.min(10, n + 1))}>+</button>
-          </div>
-        </div>
-
-        <div className={styles.diceResults}>
-          {shown.length > 0 ? (
-            <>
-              <div className={styles.diceResultRow}>
-                {shown.map((v, i) => (
-                  <div key={i}
-                    className={[
-                      styles.dieFace,
-                      rolling ? styles.dieFaceRolling : styles.dieFaceSettled,
-                      showHL && v === maxVal ? styles.dieFaceMax : '',
-                      showHL && minVal !== null && v === minVal ? styles.dieFaceMin : '',
-                    ].filter(Boolean).join(' ')}>
-                    {v}
-                  </div>
-                ))}
-              </div>
-              {!rolling && numDice > 1 && (
-                <div className={styles.diceTotal}>
-                  Total: <strong>{total}</strong>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className={styles.dicePrompt}>Press Roll to see results</div>
-          )}
-        </div>
-
-        <button className={styles.diceRollBtn} onClick={roll} disabled={rolling}>
-          {rolling ? 'Rolling…' : `Roll ${numDice}d${dieType}`}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Random Player Picker ───────────────────────────────────────────────────────
-function RandomPicker({ players, onClose }) {
-  const [picking, setPicking] = useState(false)
-  const [current, setCurrent] = useState(null)
-  const [winner,  setWinner]  = useState(null)
-  const timerRef = useRef(null)
-
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  const pick = () => {
-    if (picking || players.length === 0) return
-    setPicking(true)
-    setWinner(null)
-    const duration  = 2400
-    const startTime = Date.now()
-    const step = () => {
-      const elapsed  = Date.now() - startTime
-      if (elapsed >= duration) {
-        const chosen = players[Math.floor(Math.random() * players.length)]
-        setCurrent(chosen)
-        setWinner(chosen)
-        setPicking(false)
-        return
-      }
-      setCurrent(players[Math.floor(Math.random() * players.length)])
-      const progress = elapsed / duration
-      timerRef.current = setTimeout(step, 55 + progress * progress * 500)
-    }
-    step()
-  }
-
-  return (
-    <div className={styles.pickerOverlay} onClick={onClose}>
-      <div className={styles.pickerPanel} onClick={e => e.stopPropagation()}>
-        <div className={styles.pickerHead}>
-          <span className={styles.pickerTitle}>🎯 Random Player</span>
-          <button className={styles.pickerClose} onClick={onClose}><CloseIcon size={13} /></button>
-        </div>
-        <div
-          className={`${styles.pickerDisplay} ${winner ? styles.pickerDisplayWin : ''} ${picking ? styles.pickerDisplayPicking : ''}`}
-          style={current ? { '--pc': current.color } : {}}>
-          {current ? (
-            <>
-              <div className={styles.pickerDot} style={{ background: current.color }} />
-              <div className={styles.pickerName} style={{ color: current.color }}>{current.name}</div>
-              {winner && <div className={styles.pickerGoesFirst}>Goes First! 🎉</div>}
-            </>
-          ) : (
-            <div className={styles.pickerEmpty}>Press Pick!</div>
-          )}
-        </div>
-        <button className={styles.pickerBtn} onClick={pick} disabled={picking}>
-          {picking ? '🎲 Picking…' : winner ? '🎲 Pick Again' : '🎲 Pick!'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Seat Layout Grid — tap-to-swap interactive seating arrangement ─────────────
-function SeatLayoutGrid({ players, layout, onSwap }) {
-  const [selected, setSelected] = useState(null)
-
-  const handleClick = (idx) => {
-    if (selected === null) {
-      setSelected(idx)
-    } else if (selected === idx) {
-      setSelected(null)
-    } else {
-      onSwap(selected, idx)
-      setSelected(null)
-    }
-  }
-
-  return (
-    <div className={styles.seatLayoutWrap}>
-      <p className={styles.seatHint}>
-        {selected !== null ? `Seat ${selected + 1} selected — tap another to swap` : 'Tap a seat, then another to swap'}
-      </p>
-      <div className={styles.seatLayoutGrid} style={{ '--gcols': layout?.cols ?? 2 }}>
-        {players.map((p, idx) => {
-          const rot = layout?.rotations?.[idx] || 0
-          const isSel = selected === idx
-          return (
-            <div key={idx} className={styles.seatCell} onClick={() => handleClick(idx)}>
-              <div
-                className={`${styles.seatPanel} ${isSel ? styles.seatPanelSel : ''} ${p.claimed === false ? styles.seatPanelEmpty : ''}`}
-                style={{ '--pc': p.color || 'rgba(255,255,255,0.2)', transform: `rotate(${rot}deg)` }}>
-                <span className={styles.seatIdx}>{idx + 1}</span>
-                <span className={styles.seatDot} style={{ background: p.color || 'rgba(255,255,255,0.3)' }} />
-                <span className={styles.seatName}>{p.name || `Player ${idx + 1}`}</span>
-                {p.deckName && <span className={styles.seatDeck}>{p.deckName}</span>}
-                {p.claimed !== undefined && (
-                  <span className={p.claimed ? styles.seatClaimed : styles.seatWaiting}>
-                    {p.claimed ? '✓' : '…'}
-                  </span>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ── Multiplayer Lobby Screen ───────────────────────────────────────────────────
-function LobbyScreen({ session, gameConfig, onStart, onCancel }) {
-  const [players,   setPlayers]   = useState([])
-  const [seatOrder, setSeatOrder] = useState([])   // display order (indices into players[])
-  const [starting,  setStarting]  = useState(false)
-  const [copied,    setCopied]    = useState(false)
-  const modeConf = MODES[gameConfig?.mode] || MODES.commander
-  const life     = gameConfig?.customLife || modeConf.life
-  const joinUrl  = getPublicAppUrl(`/join/${session.code}`)
-
-  useEffect(() => {
-    let active = true
-    const load = async () => {
-      const { data } = await sb.from('game_players')
-        .select('*').eq('session_id', session.id).order('slot_index')
-      if (active && data) {
-        setPlayers(data)
-        setSeatOrder(prev => prev.length === data.length ? prev : data.map((_, i) => i))
-      }
-    }
-    load()
-
-    const ch = sb.channel(`lobby-host:${session.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_players' }, () => load())
-      .subscribe()
-    const poll = setInterval(load, 3000)
-
-    return () => { active = false; sb.removeChannel(ch); clearInterval(poll) }
-  }, [session.id])
-
-  const swapSeats = (i, j) => {
-    setSeatOrder(prev => {
-      const next = [...prev]
-      ;[next[i], next[j]] = [next[j], next[i]]
-      return next
-    })
-  }
-
-  const copyLink = () => {
-    navigator.clipboard.writeText(joinUrl).then(() => {
-      setCopied(true); setTimeout(() => setCopied(false), 2200)
-    })
-  }
-
-  const handleStart = async () => {
-    setStarting(true)
-    try {
-      const { data: freshRows } = await sb.from('game_players')
-        .select('*').eq('session_id', session.id).order('slot_index')
-      const rows = freshRows || players
-      // Apply seat order so physical seating matches panel positions
-      const ordered = seatOrder.length === rows.length
-        ? seatOrder.map(i => rows[i])
-        : rows
-
-      await sb.from('game_sessions')
-        .update({ status: 'playing', started_at: new Date().toISOString() })
-        .eq('id', session.id)
-
-      const gamePlayers = ordered.map((lp, i) =>
-        makePlayer(i, life, {
-          name: lp.player_name, color: lp.color,
-          deckId: lp.deck_id, deckName: lp.deck_name,
-          artCropUrl: lp.art_crop_url, userId: lp.user_id,
-        })
-      )
-      onStart({ gamePlayers, layout: gameConfig.layout, sessionId: session.id })
-    } catch { setStarting(false) }
-  }
-
-  const claimedCount = players.filter(p => p.user_id).length
-  const orderedPlayers = seatOrder.length === players.length
-    ? seatOrder.map(i => players[i])
-    : players
-
-  return (
-    <div className={styles.lobbyScreen}>
-      <div className={styles.lobbyHero}>
-        <span className={styles.lobbyHeroGlyph}>⚔</span>
-        <h1 className={styles.lobbyTitle}>Multiplayer Lobby</h1>
-        <p className={styles.lobbySub}>
-          {modeConf.label} · {gameConfig?.playerCount} players · {life} life
-        </p>
-      </div>
-
-      {/* Join code block */}
-      <div className={styles.lobbyCodeBlock}>
-        <div className={styles.lobbyCodeLabel}>Join Code</div>
-        <div className={styles.lobbyCode}>
-          {session.code.split('').map((c, i) => (
-            <span key={i} className={styles.lobbyCodeChar}>{c}</span>
-          ))}
-        </div>
-        <button className={styles.lobbyCopyBtn} onClick={copyLink}>
-          {copied ? <><CheckIcon size={12} /> Copied!</> : <><CopyIcon size={12} /> Copy Join Link</>}
-        </button>
-        <div className={styles.lobbyJoinUrl}>{joinUrl}</div>
-      </div>
-
-      {/* Seat layout grid — tap to swap */}
-      <SeatLayoutGrid
-        players={orderedPlayers.map(p => ({
-          name:     p.player_name,
-          color:    p.color,
-          deckName: p.deck_name,
-          claimed:  !!p.user_id,
-        }))}
-        layout={gameConfig?.layout || defaultLayout(orderedPlayers.length)}
-        onSwap={swapSeats}
-      />
-
-      <p className={styles.lobbyCount}>
-        {claimedCount} / {gameConfig?.playerCount} joined
-      </p>
-
-      <div className={styles.lobbyFooter}>
-        <button className={styles.lobbyCancelBtn} onClick={onCancel}>
-          <CloseIcon size={12} /> Cancel Lobby
-        </button>
-        <button
-          className={styles.lobbyStartBtn}
-          onClick={handleStart}
-          disabled={starting || claimedCount < 1}>
-          {starting ? '…' : '⚔ Start Game'}
-        </button>
-      </div>
-
-      <p className={styles.lobbyHint}>
-        Share the code or link — other players open it on their own phone to pick their deck.
-        Tap two seats to swap their positions.
-      </p>
-    </div>
-  )
-}
-
-// ── Host Setup Screen (claim slot 0 after creating a shared lobby) ─────────────
-function HostSetupScreen({ session, config, decks, onSubmit, onCancel, nickname }) {
-  const { user } = useAuth()
-  const init = config?.playerConfigs?.[0] || {}
-  const [name,        setName]        = useState(init.name || nickname || PLAYER_NAMES[0])
-  const [color,       setColor]       = useState(init.color || PLAYER_COLORS[0])
-  const [deckId,      setDeckId]      = useState(init.deckId   || null)
-  const [deckName,    setDeckName]    = useState(init.deckName || null)
-  const [artUrl,      setArtUrl]      = useState(null)
-  const [artOpen,     setArtOpen]     = useState(false)
-  const [artQuery,    setArtQuery]    = useState('')
-  const [artResults,  setArtResults]  = useState([])
-  const [artLoading,  setArtLoading]  = useState(false)
-  const [submitting,  setSubmitting]  = useState(false)
-  const artTimerRef = useRef(null)
-  useEffect(() => () => clearTimeout(artTimerRef.current), [])
-
-  const searchArt = async (q) => {
-    const term = q ?? artQuery
-    if (!term.trim()) return
-    setArtLoading(true)
-    try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
-      const data = await r.json()
-      setArtResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
-    } catch { setArtResults([]) }
-    setArtLoading(false)
-  }
-
-  const handleArtQueryChange = (v) => {
-    setArtQuery(v)
-    clearTimeout(artTimerRef.current)
-    if (v.trim().length < 2) { setArtResults([]); return }
-    artTimerRef.current = setTimeout(() => searchArt(v), 350)
-  }
-
-  const handleSubmit = async () => {
-    if (!user) return
-    setSubmitting(true)
-    try {
-      await sb.from('game_players').update({
-        user_id:      user.id,
-        player_name:  name.trim() || PLAYER_NAMES[0],
-        color,
-        deck_id:      deckId   || null,
-        deck_name:    deckName || null,
-        art_crop_url: artUrl   || null,
-        claimed_at:   new Date().toISOString(),
-      }).eq('session_id', session.id).eq('slot_index', 0)
-      onSubmit()
-    } catch { setSubmitting(false) }
-  }
-
-  return (
-    <div className={styles.setupScreen}>
-      <div className={styles.setupHero}>
-        <div className={styles.setupHeroGlyph}>⚔</div>
-        <h1 className={styles.setupTitle}>Your Setup</h1>
-        <p className={styles.setupSub}>Configure your slot before others join</p>
-      </div>
-
-      <div className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Your Name</div>
-        <input className={styles.hostInput}
-          value={name}
-          onChange={e => setName(e.target.value)}
-          maxLength={24}
-          autoFocus />
-      </div>
-
-      <div className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Color</div>
-        <div className={styles.hostColorRow}>
-          {PLAYER_COLORS.map(c => (
-            <button key={c}
-              className={`${styles.hostColorDot} ${color === c ? styles.hostColorDotActive : ''}`}
-              style={{ background: c }}
-              onClick={() => setColor(c)} />
-          ))}
-        </div>
-      </div>
-
-      {decks.length > 0 && (
-        <div className={styles.setupBlock}>
-          <div className={styles.setupLabel}>Deck <span className={styles.hostOptional}>(optional)</span></div>
-          <DeckDropdown
-            value={deckId}
-            valueName={deckName}
-            options={decks}
-            onChange={(id, n) => { setDeckId(id); setDeckName(n) }}
-          />
-        </div>
-      )}
-
-      <div className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Background Art <span className={styles.hostOptional}>(optional)</span></div>
-        {artUrl && (
-          <div className={styles.hostArtPreviewRow}>
-            <img src={artUrl} className={styles.hostArtThumb} alt="bg art" />
-            <button className={styles.hostArtClear} onClick={() => setArtUrl(null)}><CloseIcon size={13} /></button>
-          </div>
-        )}
-        <button className={styles.hostArtToggle} onClick={() => setArtOpen(v => !v)}>
-          {artOpen ? '▲ Hide search' : '🖼 Search card art'}
-        </button>
-        {artOpen && (
-          <div className={styles.hostArtBox}>
-            <div className={styles.hostArtRow}>
-              <input className={styles.hostArtInput}
-                placeholder="Card name…"
-                value={artQuery}
-                onChange={e => handleArtQueryChange(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(artTimerRef.current); searchArt() } }} />
-              {artLoading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.88rem' }}>…</span>}
-            </div>
-            {artResults.length > 0 && (
-              <div className={styles.hostArtGrid}>
-                {artResults.map(c => (
-                  <button key={c.id}
-                    className={`${styles.hostArtItem} ${artUrl === c.image_uris.art_crop ? styles.hostArtItemActive : ''}`}
-                    onClick={() => { setArtUrl(c.image_uris.art_crop); setArtOpen(false) }}>
-                    <img src={c.image_uris.art_crop} alt={c.name} />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className={styles.hostFooter}>
-        <button className={styles.hostCancelBtn} onClick={onCancel}><CloseIcon size={12} /> Cancel</button>
-        <button className={styles.hostSubmitBtn} onClick={handleSubmit} disabled={submitting || !name.trim()}>
-          {submitting ? 'Saving…' : 'Continue to Lobby →'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Pre-game: Player Config Row ────────────────────────────────────────────────
-function PlayerConfig({ index, config, decks, deckStatsMap, onChange }) {
-  const [editing, setEditing] = useState(false)
-  const [nameVal, setNameVal] = useState(config.name)
-
-  const deckStats = config.deckId ? deckStatsMap?.[config.deckId] : null
-
-  return (
-    <div className={styles.playerConfig} style={{ '--pc': config.color }}>
-      <div className={styles.pcNum}>{index + 1}</div>
-      <div className={styles.pcBody}>
-        <div className={styles.pcTop}>
-          {editing
-            ? <input className={styles.pcNameInput}
-                value={nameVal}
-                onChange={e => setNameVal(e.target.value)}
-                onBlur={() => { setEditing(false); onChange({ name: nameVal.trim() || config.name }) }}
-                onKeyDown={e => e.key === 'Enter' && e.target.blur()}
-                autoFocus />
-            : <button className={styles.pcName} onClick={() => { setEditing(true); setNameVal(config.name) }}>
-                {config.name} <span className={styles.pcEditHint}><EditIcon size={11} /></span>
-              </button>
-          }
-          <div className={styles.pcColors}>
-            {PLAYER_COLORS.map(c => (
-              <button key={c}
-                className={`${styles.pcColorDot} ${c === config.color ? styles.pcColorDotActive : ''}`}
-                style={{ background: c }}
-                onClick={() => onChange({ color: c })} />
-            ))}
-          </div>
-        </div>
-        {decks.length > 0 && (
-          <div className={styles.pcDeckRow}>
-            <DeckDropdown
-              value={config.deckId}
-              valueName={config.deckName}
-              options={decks}
-              onChange={(id, name) => onChange({ deckId: id, deckName: name })}
-            />
-            {deckStats && deckStats.games > 0 && (
-              <span className={styles.pcDeckStats}>
-                {deckStats.wins}W–{deckStats.losses}L ({deckStats.win_pct}%)
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Pre-game: History entry ────────────────────────────────────────────────────
-function HistoryEntry({ game }) {
-  const sorted = [...game.players].sort((a, b) => a.placement - b.placement)
-  const mins   = Math.round((game.duration || 0) / 60000)
-  return (
-    <div className={styles.histEntry}>
-      <div className={styles.histEntryHead}>
-        <span className={styles.histMode}>{MODES[game.mode]?.label || game.mode}</span>
-        <span className={styles.histDate}>
-          {new Date(game.endedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-        </span>
-        {mins > 0 && <span className={styles.histDur}>{mins} min</span>}
-      </div>
-      <div className={styles.histPlayers}>
-        {sorted.map((p, i) => (
-          <span key={i}
-            className={`${styles.histPlayer} ${p.placement === 1 ? styles.histPlayerWin : ''}`}
-            style={{ '--pc': p.color }}>
-            {p.placement}. {p.name}{p.deckName ? ` · ${p.deckName}` : ''}
-          </span>
-        ))}
-      </div>
-      {game.notes && <p className={styles.histNotes}>{game.notes}</p>}
-    </div>
-  )
-}
-
-// ── Pre-game Setup Screen ──────────────────────────────────────────────────────
-const _GameHistoryPanel = function GameHistoryPanel({ rows, loading, decks, onRefresh, onUpdate, onDelete }) {
-  const [editingId, setEditingId] = useState(null)
-  const [editNotes, setEditNotes] = useState('')
-  const [editPlacement, setEditPlacement] = useState(1)
-  const [saving, setSaving] = useState(false)
-  const deckNameById = Object.fromEntries((decks || []).map(d => [d.id, d.name]))
-
-  const beginEdit = (row) => {
-    setEditingId(row.id)
-    setEditNotes(row.notes || '')
-    setEditPlacement(row.placement || 1)
-  }
-
-  const cancelEdit = () => {
-    setEditingId(null)
-    setEditNotes('')
-    setEditPlacement(1)
-  }
-
-  const submitEdit = async (row) => {
-    setSaving(true)
-    try {
-      await onUpdate(row.id, {
-        notes: editNotes.trim(),
-        placement: Number(editPlacement),
-      })
-      cancelEdit()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const [confirmDeleteRow, setConfirmDeleteRow] = useState(null)
-  const [deleting, setDeleting] = useState(false)
-
-  const handleDelete = async () => {
-    if (!confirmDeleteRow) return
-    setDeleting(true)
-    try {
-      await onDelete(confirmDeleteRow.id)
-      setConfirmDeleteRow(null)
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  return (
-    <div className={styles.historyScreen}>
-      <div className={styles.historyHero}>
-        <div className={styles.historyHeroGlyph}>📜</div>
-        <h1 className={styles.setupTitle}>Game History</h1>
-        <p className={styles.setupSub}>Private notes and results for your decks</p>
-      </div>
-
-      <div className={styles.historyActions}>
-        <button className={styles.historyRefreshBtn} onClick={onRefresh} disabled={loading}>
-          {loading ? 'Refreshing…' : <><SyncIcon size={12} /> Refresh</>}
-        </button>
-      </div>
-
-      {loading ? (
-        <div className={styles.historyEmpty}>Loading recent games…</div>
-      ) : rows.length === 0 ? (
-        <div className={styles.historyEmpty}>
-          No saved game history yet. Finish a local or shared game with one of your decks to see it here.
-        </div>
-      ) : (
-        <div className={styles.historyList}>
-          {rows.map(row => {
-            const players = [...(row.players_json || [])].sort((a, b) => (a.placement || 99) - (b.placement || 99))
-            const isEditing = editingId === row.id
-            const playedAt = row.played_at || row.game_ended_at
-            const mins = row.game_started_at && row.game_ended_at
-              ? Math.round((new Date(row.game_ended_at) - new Date(row.game_started_at)) / 60000)
-              : 0
-
-            return (
-              <div key={row.id} className={styles.historyEntryCard}>
-                <div className={styles.historyEntryHead}>
-                  <div className={styles.historyEntryMeta}>
-                    <span className={styles.histMode}>{MODES[row.format]?.label || row.format || 'Game'}</span>
-                    {playedAt && (
-                      <span className={styles.histDate}>
-                        {new Date(playedAt).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
-                      </span>
-                    )}
-                    {mins > 0 && <span className={styles.histDur}>{mins} min</span>}
-                  </div>
-                  <div className={styles.historyEntryResult}>
-                    <span
-                      className={`${styles.histPlayer} ${row.placement === 1 ? styles.histPlayerWin : ''}`}
-                      style={{ '--pc': row.player_color || '#c9a84c' }}>
-                      {row.placement}. {row.player_name || 'You'} · {row.deck_name || deckNameById[row.deck_id] || 'Deck'}
-                    </span>
-                  </div>
-                </div>
-
-                {players.length > 0 && (
-                  <div className={styles.histPlayers}>
-                    {players.map((p, idx) => (
-                      <span
-                        key={`${row.id}-${idx}`}
-                        className={`${styles.histPlayer} ${p.placement === 1 ? styles.histPlayerWin : ''}`}
-                        style={{ '--pc': p.color || '#c9a84c' }}>
-                        {p.placement}. {p.name}{p.deckName ? ` · ${p.deckName}` : ''}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {isEditing ? (
-                  <div className={styles.historyEditor}>
-                    <label className={styles.historyField}>
-                      <span>Placement</span>
-                      <Select
-                        className={styles.historySelect}
-                        title="Placement"
-                        value={editPlacement}
-                        onChange={e => setEditPlacement(e.target.value)}>
-                        {Array.from({ length: Math.max(row.player_count || players.length || 1, 1) }, (_, i) => i + 1).map(n => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </Select>
-                    </label>
-                    <label className={styles.historyField}>
-                      <span>Private notes</span>
-                      <textarea
-                        className={styles.historyTextarea}
-                        value={editNotes}
-                        onChange={e => setEditNotes(e.target.value)}
-                        rows={4}
-                        placeholder="Only visible to you" />
-                    </label>
-                    <div className={styles.historyEntryActions}>
-                      <button className={styles.historySecondaryBtn} onClick={cancelEdit} disabled={saving}>Cancel</button>
-                      <button className={styles.historyPrimaryBtn} onClick={() => submitEdit(row)} disabled={saving}>
-                        {saving ? 'Saving…' : 'Save'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {row.notes && <p className={styles.histNotes}>{row.notes}</p>}
-                    <div className={styles.historyEntryActions}>
-                      <button className={styles.historySecondaryBtn} onClick={() => beginEdit(row)}>Edit</button>
-                      <button className={styles.historyDangerBtn} onClick={() => setConfirmDeleteRow(row)}>Delete</button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {confirmDeleteRow && (
-        <ConfirmModal
-          title="Delete history entry?"
-          message={`Delete your history entry for ${confirmDeleteRow.deck_name || deckNameById[confirmDeleteRow.deck_id] || 'this game'}? This only removes it for your account.`}
-          confirmLabel="Delete"
-          busy={deleting}
-          onConfirm={handleDelete}
-          onClose={() => setConfirmDeleteRow(null)}
-        />
-      )}
-    </div>
-  )
-}
-
-function PreGameSetup({ onStart, onCreateLobby, decks, history, deckStatsMap, nickname }) {
-  const navigate = useNavigate()
-  const [mode,        setMode]        = useState('commander')
-  const [playerCount, setPlayerCount] = useState(MODES.commander.defaultPlayers)
-  const [customLife,  setCustomLife]  = useState(40)
-  const [layout,      setLayout]      = useState(() => defaultLayout(MODES.commander.defaultPlayers))
-  const [configs, setConfigs] = useState(
-    Array.from({ length: 6 }, (_, i) => ({
-      name: i === 0 && nickname ? nickname : PLAYER_NAMES[i],
-      color: PLAYER_COLORS[i], deckId: null, deckName: null,
-    }))
-  )
-  const [showHistory,  setShowHistory]  = useState(false)
-  const [showJoinBox,  setShowJoinBox]  = useState(false)
-  const [joinCode,     setJoinCode]     = useState('')
-  const joinInputRef = useRef(null)
-
-  const updateConfig = (i, patch) =>
-    setConfigs(prev => prev.map((c, idx) => idx === i ? { ...c, ...patch } : c))
-
-  const swapConfigs = (i, j) => {
-    setConfigs(prev => {
-      const next = [...prev]
-      ;[next[i], next[j]] = [next[j], next[i]]
-      return next
-    })
-  }
-
-  const handleModeChange = (m) => {
-    setMode(m)
-    const defCount = MODES[m].defaultPlayers
-    setPlayerCount(defCount)
-    setLayout(defaultLayout(defCount))
-  }
-
-  const handleCountChange = (n) => {
-    setPlayerCount(n)
-    setLayout(defaultLayout(n))
-  }
-
-  const handleStart = () => {
-    const life = mode === 'custom' ? customLife : MODES[mode].life
-    const players = Array.from({ length: playerCount }, (_, i) => makePlayer(i, life, configs[i]))
-    const finalLayout = layout || defaultLayout(playerCount)
-    onStart({ playerCount, mode, customLife, players, startedAt: Date.now(), layout: finalLayout })
-  }
-
-  const handleCreateLobby = () => {
-    const finalLayout = layout || defaultLayout(playerCount)
-    onCreateLobby?.({ playerCount, mode, customLife, layout: finalLayout, playerConfigs: configs })
-  }
-
-  const handleToggleJoin = () => {
-    setShowJoinBox(v => {
-      if (!v) setTimeout(() => joinInputRef.current?.focus(), 50)
-      return !v
-    })
-    setJoinCode('')
-  }
-
-  const handleJoin = () => {
-    const code = joinCode.trim().toUpperCase()
-    if (code.length < 4) return
-    navigate(`/join/${code}`)
-  }
-
-  return (
-    <div className={styles.setupScreen}>
-      <div className={styles.setupHero}>
-        <div className={styles.setupHeroGlyph}>♥</div>
-        <h1 className={styles.setupTitle}>Life Tracker</h1>
-        <p className={styles.setupSub}>Configure your game</p>
-      </div>
-
-      {/* Game mode */}
-      <section className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Game Mode</div>
-        <div className={styles.modeGrid}>
-          {Object.entries(MODES).map(([key, conf]) => (
-            <button key={key}
-              className={`${styles.modeCard} ${mode === key ? styles.modeCardActive : ''}`}
-              onClick={() => handleModeChange(key)}>
-              <span className={styles.modeCardName}>{conf.label}</span>
-              <span className={styles.modeCardLife}>{key === 'custom' ? '? life' : `${conf.life} life`}</span>
-            </button>
-          ))}
-        </div>
-        {mode === 'custom' && (
-          <div className={styles.customLifeWrap}>
-            <span className={styles.customLifeLabel}>Starting Life</span>
-            <div className={styles.customLifePresets}>
-              {[10, 20, 25, 30, 40, 50].map(v => (
-                <button key={v}
-                  className={`${styles.presetChip} ${customLife === v ? styles.presetChipActive : ''}`}
-                  onClick={() => setCustomLife(v)}>{v}</button>
-              ))}
-              <input type="number" className={styles.customLifeInput}
-                value={customLife}
-                onChange={e => setCustomLife(Math.max(1, Math.min(999, Number(e.target.value))))}
-                min={1} max={999} />
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Player count */}
-      <section className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Players</div>
-        <div className={styles.countRow}>
-          {[2, 3, 4, 5, 6].map(n => (
-            <button key={n}
-              className={`${styles.countChip} ${playerCount === n ? styles.countChipActive : ''}`}
-              onClick={() => handleCountChange(n)}>{n}</button>
-          ))}
-        </div>
-      </section>
-
-      {/* Layout + Seating combined */}
-      <section className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Table Layout &amp; Seating</div>
-        <LayoutPicker
-          playerCount={playerCount}
-          value={layout}
-          onChange={setLayout}
-        />
-        <SeatLayoutGrid
-          players={Array.from({ length: playerCount }, (_, i) => ({
-            name: configs[i]?.name || PLAYER_NAMES[i],
-            color: configs[i]?.color || PLAYER_COLORS[i],
-            deckName: configs[i]?.deckName || null,
-          }))}
-          layout={layout || defaultLayout(playerCount)}
-          onSwap={swapConfigs}
-        />
-      </section>
-
-      {/* Player config */}
-      <section className={styles.setupBlock}>
-        <div className={styles.setupLabel}>Players</div>
-        <div className={styles.playerConfigList}>
-          {Array.from({ length: playerCount }, (_, i) => (
-            <PlayerConfig key={i} index={i} config={configs[i]}
-              decks={i === 0 ? decks : []} deckStatsMap={deckStatsMap}
-              onChange={patch => updateConfig(i, patch)} />
-          ))}
-        </div>
-      </section>
-
-      {/* History */}
-      {history.length > 0 && (
-        <section className={styles.setupBlock}>
-          <button className={styles.histToggle} onClick={() => setShowHistory(v => !v)}>
-            📜 Recent Games ({history.length}) {showHistory ? '▲' : '▼'}
-          </button>
-          {showHistory && (
-            <div className={styles.histList}>
-              {history.slice(0, 8).map(g => <HistoryEntry key={g.id} game={g} />)}
-            </div>
-          )}
-        </section>
-      )}
-
-      <div className={styles.setupFooter}>
-        <button className={styles.startBtn} onClick={handleStart}>⚔ Start Game</button>
-        <div className={styles.lobbyRow}>
-          <button className={styles.lobbyBtn} onClick={handleCreateLobby}>
-            👥 Create Lobby
-          </button>
-          <button
-            className={`${styles.lobbyBtn} ${showJoinBox ? styles.lobbyBtnActive : ''}`}
-            onClick={handleToggleJoin}>
-            🔑 Join Lobby
-          </button>
-        </div>
-        {showJoinBox && (
-          <div className={styles.joinBox}>
-            <input
-              ref={joinInputRef}
-              className={styles.joinInput}
-              placeholder="Enter code (e.g. AX7K2P)"
-              value={joinCode}
-              maxLength={8}
-              onChange={e => setJoinCode(e.target.value.toUpperCase())}
-              onKeyDown={e => e.key === 'Enter' && handleJoin()}
-            />
-            <button
-              className={styles.joinGoBtn}
-              onClick={handleJoin}
-              disabled={joinCode.trim().length < 4}>
-              Join →
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── End Game Dialog ────────────────────────────────────────────────────────────
-function EndGameDialog({ players, onSave, onCancel }) {
-  const count = players.length
-  const [placements, setPlacements] = useState(() => {
-    const sorted = [...players].sort((a, b) => b.life - a.life)
-    return Object.fromEntries(sorted.map((p, i) => [p.id, i + 1]))
-  })
-  const [notes, setNotes] = useState('')
-
-  const setPlacement = (playerId, placement) => {
-    setPlacements(prev => {
-      const conflict = Object.entries(prev).find(([id, pl]) => Number(id) !== playerId && pl === placement)
-      const myOld = prev[playerId]
-      const next  = { ...prev, [playerId]: placement }
-      if (conflict) next[conflict[0]] = myOld
-      return next
-    })
-  }
-
-  const lbl = n => ['1st 🥇', '2nd 🥈', '3rd 🥉', '4th', '5th', '6th'][n - 1] || `${n}th`
-
-  return (
-    <div className={styles.endOverlay}>
-      <div className={styles.endDialog}>
-        <div className={styles.endHeader}>
-          <div className={styles.endIcon}>🏆</div>
-          <h2 className={styles.endTitle}>Game Over</h2>
-          <p className={styles.endSub}>Set final standings and add notes</p>
-        </div>
-        <div className={styles.endPlayerList}>
-          {players.map(p => (
-            <div key={p.id} className={styles.endPlayerRow} style={{ '--pc': p.color }}>
-              <div className={styles.endPlayerInfo}>
-                <span className={styles.endPlayerDot} />
-                <div>
-                  <div className={styles.endPlayerName}>{p.name}</div>
-                  {p.deckName && <div className={styles.endDeckName}>{p.deckName}</div>}
-                </div>
-                <span className={styles.endLifeBadge}>{p.life} ♥</span>
-              </div>
-              <div className={styles.endPlacements}>
-                {Array.from({ length: count }, (_, i) => i + 1).map(n => (
-                  <button key={n}
-                    className={`${styles.endPlaceBtn} ${placements[p.id] === n ? styles.endPlaceBtnActive : ''} ${n === 1 ? styles.endPlaceFirst : ''}`}
-                    onClick={() => setPlacement(p.id, n)}>
-                    {lbl(n)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className={styles.endNotesWrap}>
-          <label className={styles.endNotesLabel}>Post-game Notes</label>
-          <textarea className={styles.endNotesArea}
-            value={notes} onChange={e => setNotes(e.target.value)}
-            placeholder="What happened? What would you do differently next time?"
-            rows={3} />
-        </div>
-        <div className={styles.endActions}>
-          <button className={styles.endContinueBtn} onClick={onCancel}>← Continue Playing</button>
-          <button className={styles.endSaveBtn} onClick={() => onSave({ placements, notes })}>
-            💾 Save & Finish Game
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Player Panel ───────────────────────────────────────────────────────────────
-function PlayerPanel({
-  player, opponents,
-  onLifeChange, onNameChange, onCmdTaxChange,
-  onRequestPlayerSettings, onRequestCmdDmgOverlay,
-  showCommander, rotation = 0,
-}) {
-  const [editingName,        setEditingName]  = useState(false)
-  const [nameInput,          setNameInput]    = useState(player.name)
-  const [displayDelta,       setDisplayDelta] = useState(null)
-  const [deltaFading,        setDeltaFading]  = useState(false)
-  const [deathText,          setDeathText]    = useState(null)
-
-  const accumRef      = useRef(0)
-  const deltaTimerRef = useRef(null)
-  const fadeTimerRef  = useRef(null)
-  const holdTimerRef  = useRef(null)
-  const prevLife      = useRef(player.life)
-
-  useEffect(() => {
-    const d = player.life - prevLife.current
-    if (d !== 0) {
-      accumRef.current += d
-      setDisplayDelta(accumRef.current)
-      setDeltaFading(false)
-      clearTimeout(deltaTimerRef.current)
-      clearTimeout(fadeTimerRef.current)
-      // After 1 s of no further changes, begin the fade-out
-      deltaTimerRef.current = setTimeout(() => {
-        setDeltaFading(true)
-        fadeTimerRef.current = setTimeout(() => {
-          setDisplayDelta(null)
-          setDeltaFading(false)
-          accumRef.current = 0
-        }, 1600)
-      }, 1000)
-    }
-    prevLife.current = player.life
-  }, [player.life])
-
-  useEffect(() => () => {
-    clearTimeout(deltaTimerRef.current)
-    clearTimeout(fadeTimerRef.current)
-  }, [])
-
-  const isDead = isPlayerDead(player)
-
-  useEffect(() => {
-    if (isDead && !deathText) {
-      setDeathText(DEATH_TEXTS[Math.floor(Math.random() * DEATH_TEXTS.length)])
-    } else if (!isDead) {
-      setDeathText(null)
-    }
-  }, [isDead]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleLifeHoldStart = () => {
-    if (!showCommander || !opponents.length || !onRequestCmdDmgOverlay) return
-    holdTimerRef.current = setTimeout(() => onRequestCmdDmgOverlay(player.id), 550)
-  }
-  const handleLifeHoldEnd = () => clearTimeout(holdTimerRef.current)
-
-  const adjust = delta => onLifeChange(player.id, delta)
-  const handleNameSubmit = () => {
-    setEditingName(false)
-    onNameChange(player.id, nameInput.trim() || player.name)
-  }
-
-  const isLow  = !isDead && player.life <= 10 && player.life > 5
-  const isCrit = !isDead && player.life <= 5  && player.life > 0
-
-  return (
-    <div
-      className={[
-        styles.playerPanel,
-        player.artCropUrl ? styles.playerPanelArt : '',
-        isDead  ? styles.playerDead     : '',
-        isLow   ? styles.playerLifeLow  : '',
-        isCrit  ? styles.playerLifeCrit : '',
-        getRotationClass(rotation),
-      ].filter(Boolean).join(' ')}
-      style={{
-        '--player-color': player.color,
-      }}>
-      {player.artCropUrl && (
-        <>
-          <img className={styles.playerBgArt} src={player.artCropUrl} alt="" aria-hidden="true" />
-          <div className={styles.playerBgShade} aria-hidden="true" />
-        </>
-      )}
-
-      <div className={styles.playerPanelContent}>
-        <div className={styles.nameRow}>
-          <div className={styles.nameMain}>
-          {editingName
-            ? <input className={styles.nameInput}
-                value={nameInput}
-                onChange={e => setNameInput(e.target.value)}
-                onBlur={handleNameSubmit}
-                onKeyDown={e => e.key === 'Enter' && handleNameSubmit()}
-                autoFocus />
-            : <button className={styles.nameBtn}
-                onClick={() => { setEditingName(true); setNameInput(player.name) }}>
-                {player.name}
-              </button>
-          }
-          {player.deckName && <span className={styles.panelDeckBadge}>{player.deckName}</span>}
-          {showCommander && (
-            <div className={styles.cmdTaxGroup}>
-              <div className={styles.cmdTaxChip}>
-                <button className={styles.cmdTaxBtn} onPointerDown={e => { e.preventDefault(); onCmdTaxChange(player.id, -2, false) }}>−</button>
-                <span className={styles.cmdTaxVal}>T {player.cmdTax || 0}</span>
-                <button className={styles.cmdTaxBtn} onPointerDown={e => { e.preventDefault(); onCmdTaxChange(player.id, +2, false) }}>+</button>
-              </div>
-              {player.hasPartner && (
-                <div className={styles.cmdTaxChip}>
-                  <button className={styles.cmdTaxBtn} onPointerDown={e => { e.preventDefault(); onCmdTaxChange(player.id, -2, true) }}>−</button>
-                  <span className={styles.cmdTaxVal}>T2 {player.cmdTax2 || 0}</span>
-                  <button className={styles.cmdTaxBtn} onPointerDown={e => { e.preventDefault(); onCmdTaxChange(player.id, +2, true) }}>+</button>
-                </div>
-              )}
-            </div>
-          )}
-          </div>
-          <button
-            className={styles.playerSettingsBtn}
-            onClick={() => onRequestPlayerSettings?.(player.id)}
-            title="Player settings"><SettingsIcon size={15} /></button>
-        </div>
-
-        <div className={styles.lifeArea}>
-          <button className={`${styles.lifeBtn} ${styles.lifeBtnOuter}`} onPointerDown={e => { e.preventDefault(); adjust(-10) }}>- 10</button>
-          <button className={`${styles.lifeBtn} ${styles.lifeBtnInner}`} onPointerDown={e => { e.preventDefault(); adjust(-1) }}>-</button>
-
-          <div className={styles.lifeTotalWrap}
-            onPointerDown={handleLifeHoldStart}
-            onPointerUp={handleLifeHoldEnd}
-            onPointerLeave={handleLifeHoldEnd}
-            onContextMenu={e => { if (showCommander) e.preventDefault() }}
-            title={showCommander && opponents.length ? 'Hold for commander damage' : undefined}>
-            <span className={`${styles.lifeTotal} ${player.life <= 5 ? styles.lifeLow : ''} ${player.life <= 0 ? styles.lifeDead : ''}`}>
-              {player.life}
-            </span>
-            {displayDelta != null && (
-              <span
-                className={`${styles.lifeDelta} ${displayDelta > 0 ? styles.lifeDeltaUp : styles.lifeDeltaDown} ${deltaFading ? styles.lifeDeltaFade : ''}`}>
-                {displayDelta > 0 ? `+${displayDelta}` : displayDelta}
-              </span>
-            )}
-          </div>
-
-          <button className={`${styles.lifeBtn} ${styles.lifeBtnInner}`} onPointerDown={e => { e.preventDefault(); adjust(+1) }}>+</button>
-          <button className={`${styles.lifeBtn} ${styles.lifeBtnOuter}`} onPointerDown={e => { e.preventDefault(); adjust(+10) }}>+ 10</button>
-        </div>
-
-        {COUNTER_DEFS.some(c => (player.counters?.[c.key] ?? 0) > 0) && (
-          <div className={styles.counterBadges}>
-            {COUNTER_DEFS.map(c => {
-              const val = player.counters?.[c.key] ?? 0
-              if (val <= 0) return null
-              const lethal = c.key === 'poison' && val >= 10
-              return (
-                <span key={c.key} className={`${styles.counterBadge} ${lethal ? styles.counterBadgeLethal : ''}`} style={{ '--cc': c.color }} title={c.label}>
-                  {c.short} {val}
-                </span>
-              )
-            })}
-          </div>
-        )}
-
-        <div className={styles.statusRow}>
-          {showCommander && opponents.length > 0 && (
-            <div className={styles.cmdBar} onClick={() => onRequestCmdDmgOverlay?.(player.id)}>
-              <span className={styles.cmdBarIcon}>⚔</span>
-              <div className={styles.cmdBadges}>
-                {opponents.map(opp => {
-                  const dmg  = player.cmdDmg?.[opp.id]  || 0
-                  const dmg2 = player.cmdDmg2?.[opp.id] || 0
-                  const isLethal = dmg >= 21 || (opp.hasPartner && dmg2 >= 21)
-                  const hasAnyDmg = dmg > 0 || (opp.hasPartner && dmg2 > 0)
-                  return (
-                    <div key={opp.id}
-                      className={`${styles.cmdBadge} ${hasAnyDmg ? styles.cmdBadgeHit : ''} ${isLethal ? styles.cmdBadgeLethal : ''}`}
-                      style={{ '--opc': opp.color }}>
-                      <span className={styles.cmdBadgeDot} title={opp.name} />
-                      {opp.hasPartner
-                        ? <span className={styles.cmdBadgeVal}>{dmg}<span className={styles.cmdBadgeSep}>/</span>{dmg2}</span>
-                        : <span className={styles.cmdBadgeVal}>{dmg}</span>}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-        </div>
-
-        {isDead && deathText && (
-          <div className={styles.deathOverlay}>
-            <div className={styles.deathIcon}>☠</div>
-            <div className={styles.deathText}>{deathText}</div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-// ── Main Page ──────────────────────────────────────────────────────────────────
 export default function LifeTrackerPage() {
-  const { user }     = useAuth()
+  const { user } = useAuth()
   const { nickname } = useSettings()
   const { showToast } = useToast()
+  const navigate = useNavigate()
 
-  const [screen,       setScreen]       = useState('setup')
-  const [gameConfig,   setGameConfig]   = useState(null)
-  const [players,      setPlayers]      = useState([])
-  const [startedAt,    setStartedAt]    = useState(null)
-  const [showEndDialog,    setShowEndDialog]    = useState(false)
-  const [artPickerPlayer,  setArtPickerPlayer]  = useState(null)
-  const [cmdDmgPlayer,     setCmdDmgPlayer]     = useState(null)
-  const [playerSettingsPlayer, setPlayerSettingsPlayer] = useState(null)
-  const [showDice,     setShowDice]     = useState(false)
-  const [showPicker,   setShowPicker]   = useState(false)
-  const [showCoin,     setShowCoin]     = useState(false)
-  const [showGameMenu, setShowGameMenu] = useState(false)
-  const [decks,        setDecks]        = useState([])
-  const [history,      setHistory]      = useState(() => loadHistory())
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  // Two separate refs intentional: topbar and fsControls each render a gear wrap.
-  // If they share one ref, React nullifies it when fsControls unmounts (on fullscreen
-  // exit), causing the menu to close instantly after toggling fullscreen.
-    const gearMenuRef   = useRef(null)
-    const gearMenuFsRef = useRef(null)
-  const [session,        setSession]        = useState(null)
-  const [lobbyConfig,    setLobbyConfig]    = useState(null)
-  const [gameSessionId,  setGameSessionId]  = useState(null)
-  const [deckStatsMap, setDeckStatsMap] = useState({})
-  const [gameLog,      setGameLog]      = useState([])   // flat [{ts, type, playerName, playerColor, ...}]
-  const [showGameLog,  setShowGameLog]  = useState(false)
+  // Restore happens in the initialisers, not an effect, so the first paint is
+  // already the right screen — no flash of the setup form over a live game.
+  // loadGame also consumes the pre-rewrite sessionStorage key, so it must run once.
+  const [boot] = useState(loadGame)
+  const [game, dispatch] = useReducer(
+    gameReducer,
+    boot,
+    // A game found on disk resumes silently: after a crash or a backgrounded tab
+    // that is what the user wants. A game left overnight becomes an offer instead.
+    saved => (saved?.canAutoResume ? saved.game : null),
+  )
+  const [setup, setSetup] = useState(loadSetup)
+  const [resumable, setResumable] = useState(() => (
+    boot && !boot.canAutoResume
+      ? { game: boot.game, label: formatElapsed(Date.now() - boot.savedAt) }
+      : null
+  ))
+
+  const [decks, setDecks] = useState([])
+  const [deckStats, setDeckStats] = useState({})
+
+  const [seatSheet, setSeatSheet] = useState(null)
+  const [damageSheet, setDamageSheet] = useState(null)
+  const [showLog, setShowLog] = useState(false)
+  const [showTools, setShowTools] = useState(false)
+  const [showEnd, setShowEnd] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [confirmNew, setConfirmNew] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
+
+  const [lobby, setLobby] = useState(null)     // { session, slots }
+  const [lobbyBusy, setLobbyBusy] = useState(false)
+  const [lobbyError, setLobbyError] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  const format = LIFE_FORMATS[setup.format] ? setup.format : 'commander'
+  const startingLife = startingLifeFor(format, setup.customLife)
+  const layoutOptions = layoutsFor(setup.seatCount)
+  const activeSetupLayout = findLayout(setup.seatCount, setup.layoutId)
+
+  const playing = !!game
+
+  useEffect(() => registerFlushHooks(), [])
 
   useEffect(() => {
+    if (game) saveGame(game)
+  }, [game])
+
+  useEffect(() => { saveSetup(setup) }, [setup])
+
+  // Suppresses the premium themes' ambient card-art canvas over the table.
+  useEffect(() => {
+    if (!playing) return
     const root = document.documentElement
     root.setAttribute('data-life-tracker', '')
     return () => root.removeAttribute('data-life-tracker')
+  }, [playing])
+
+  useEffect(() => {
+    const sync = () => setFullscreen(!!(document.fullscreenElement || document.webkitFullscreenElement))
+    document.addEventListener('fullscreenchange', sync)
+    document.addEventListener('webkitfullscreenchange', sync)
+    return () => {
+      document.removeEventListener('fullscreenchange', sync)
+      document.removeEventListener('webkitfullscreenchange', sync)
+    }
   }, [])
 
-  const addGameLogEvent = useCallback((event) => {
-    setGameLog(prev => [event, ...prev].slice(0, 120))
-  }, [])
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    sb.from('folders')
+      .select('id,name,type')
+      .eq('user_id', user.id)
+      .in('type', ['deck', 'builder_deck'])
+      .order('name')
+      .then(({ data }) => { if (active) setDecks(data || []) })
+    return () => { active = false }
+  }, [user])
 
   const refreshDeckStats = useCallback(async () => {
     if (!user) return
     const { data } = await sb.from('game_results')
       .select('deck_id,placement')
       .eq('user_id', user.id)
-    setDeckStatsMap(buildDeckStatsMap(data || []))
+    setDeckStats(buildDeckStatsMap(data || []))
   }, [user])
 
+  // Loaded on mount, not only after saving a game — the old implementation only
+  // refreshed on save, so the deck W/L badge was empty on every fresh page load.
+  useEffect(() => { refreshDeckStats() }, [refreshDeckStats])
 
+  // ── Lobby ────────────────────────────────────────────────────────────────────
+  const lobbySessionId = lobby?.session?.id
   useEffect(() => {
-    if (!showGameMenu) return
-    const handler = e => {
-      const inNormal = gearMenuRef.current?.contains(e.target)
-      const inFs     = isFullscreen ? true : gearMenuFsRef.current?.contains(e.target)
-      if (!inNormal && !inFs) setShowGameMenu(false)
-    }
-    document.addEventListener('pointerdown', handler)
-    return () => document.removeEventListener('pointerdown', handler)
-  }, [showGameMenu, isFullscreen])
-
-  useEffect(() => {
-    if (
-      artPickerPlayer !== null ||
-      cmdDmgPlayer !== null ||
-      playerSettingsPlayer !== null ||
-      showDice ||
-      showPicker ||
-      showCoin ||
-      showGameLog ||
-      showEndDialog
-    ) {
-      setShowGameMenu(false)
-    }
-  }, [
-    artPickerPlayer,
-    cmdDmgPlayer,
-    playerSettingsPlayer,
-    showDice,
-    showPicker,
-    showCoin,
-    showGameLog,
-    showEndDialog,
-  ])
-
-  // Sync CSS isFullscreen state with the browser's native fullscreen state
-  useEffect(() => {
-    const handler = () => {
-      const nativeFs = !!(document.fullscreenElement || document.webkitFullscreenElement)
-      setIsFullscreen(nativeFs)
-    }
-    document.addEventListener('fullscreenchange', handler)
-    document.addEventListener('webkitfullscreenchange', handler)
-    return () => {
-      document.removeEventListener('fullscreenchange', handler)
-      document.removeEventListener('webkitfullscreenchange', handler)
-    }
-  }, [])
-
-  // Escape key exits CSS-only fullscreen (native fullscreen already handles Escape)
-  useEffect(() => {
-    if (!isFullscreen) return
-    const handler = e => {
-      if (e.key === 'Escape' && !document.fullscreenElement) setIsFullscreen(false)
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [isFullscreen])
-
-  const handleFullscreenToggle = useCallback(async () => {
-    if (!isFullscreen) {
+    if (!lobbySessionId || playing) return
+    const sessionId = lobbySessionId
+    let active = true
+    const reload = async () => {
       try {
-        const el = document.documentElement
-        if (el.requestFullscreen) {
-          await el.requestFullscreen()
-          // isFullscreen will be set by the fullscreenchange listener
-          return
-        } else if (el.webkitRequestFullscreen) {
-          el.webkitRequestFullscreen()
-          return
-        }
-      } catch {}
-      // Fallback: CSS-only (iOS Safari, embedded views)
-      setIsFullscreen(true)
-    } else {
-      try {
-        if (document.fullscreenElement && document.exitFullscreen) {
-          await document.exitFullscreen()
-          return
-        } else if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
-          document.webkitExitFullscreen()
-          return
-        }
-      } catch {}
-      setIsFullscreen(false)
+        const slots = await fetchLobbySlots(sessionId)
+        if (active) setLobby(prev => (prev?.session?.id === sessionId ? { ...prev, slots } : prev))
+      } catch { /* the poll will try again */ }
     }
-  }, [isFullscreen])
+    const unsubscribe = subscribeLobby(sessionId, reload)
+    return () => { active = false; unsubscribe() }
+  }, [lobbySessionId, playing])
 
-  const handleCreateLobby = useCallback(async (config) => {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const code = generateCode()
-      const { data: sess, error } = await sb.from('game_sessions').insert({
-        code,
-        host_user_id: user.id,
-        mode:         config.mode,
-        custom_life:  config.customLife,
-        player_count: config.playerCount,
-        status:       'lobby',
-      }).select().single()
-      if (error?.code === '23505') continue   // code collision — retry
-      if (error) { console.error('lobby create:', error); return }
-
-      // Create all player slots (unclaimed — host will claim slot 0 on next screen)
-      const slots = Array.from({ length: config.playerCount }, (_, i) => ({
-        session_id:  sess.id,
-        slot_index:  i,
-        player_name: config.playerConfigs[i]?.name  || PLAYER_NAMES[i],
-        color:       config.playerConfigs[i]?.color || PLAYER_COLORS[i],
-      }))
-      await sb.from('game_players').insert(slots)
-
-      setSession(sess)
-      setLobbyConfig(config)
-      setScreen('host-setup')  // host fills their slot before showing lobby
-      return
-    }
-  }, [user])
-
-  const handleCancelLobby = useCallback(async () => {
-    if (session) await sb.from('game_sessions').delete().eq('id', session.id)
-    setSession(null)
-    setLobbyConfig(null)
-    setScreen('setup')
-  }, [session])
-
-  const handleLobbyStart = useCallback(({ gamePlayers, layout, sessionId }) => {
-    setPlayers(gamePlayers)
-    setGameConfig({ ...lobbyConfig, layout })
-    setStartedAt(Date.now())
-    setGameSessionId(sessionId || null)
-    setScreen('playing')
-    setSession(null)
-    setLobbyConfig(null)
-  }, [lobbyConfig])
-
-  useEffect(() => {
+  const handleHostGame = async () => {
     if (!user) return
-    sb.from('folders')
-      .select('id,name,type')
-      .eq('user_id', user.id)
-      .in('type', ['deck', 'builder_deck'])
-      .order('name')
-      .then(({ data }) => setDecks(data || []))
-  }, [user])
-
-  useEffect(() => {
-    const saved = loadSession()
-    if (saved?.screen === 'playing' && saved.players && saved.config) {
-      setScreen('playing')
-      setGameConfig(saved.config)
-      setPlayers(saved.players.map(migratePlayer))
-      setStartedAt(saved.startedAt)
+    setLobbyBusy(true)
+    setLobbyError('')
+    try {
+      const { session } = await createLobby({
+        hostUserId: user.id, format, customLife: startingLife, seatCount: setup.seatCount,
+      })
+      const slots = await fetchLobbySlots(session.id)
+      // The host owns seat 1 automatically — one less thing to do before guests
+      // can start joining.
+      if (slots[0]) {
+        await claimSlot(slots[0].id, {
+          userId: user.id,
+          name: nickname?.trim() || slots[0].player_name,
+          color: slots[0].color,
+        })
+      }
+      setLobby({ session, slots: await fetchLobbySlots(session.id) })
+    } catch (err) {
+      setLobbyError(err?.message || 'Could not create the shared game.')
     }
-  }, [])
+    setLobbyBusy(false)
+  }
 
-  useEffect(() => {
-    if (screen === 'playing') {
-      saveSession({ screen, config: gameConfig, players, startedAt })
+  const handleCancelLobby = async () => {
+    if (!lobby) return
+    const sessionId = lobby.session.id
+    setLobby(null)
+    setLobbyError('')
+    await cancelLobby(sessionId)
+  }
+
+  const handleStartShared = async () => {
+    if (!lobby) return
+    setLobbyBusy(true)
+    setLobbyError('')
+    try {
+      const slots = await fetchLobbySlots(lobby.session.id)
+      await startLobby(lobby.session.id)
+      dispatch({
+        type: 'hydrate',
+        game: createGame({
+          format, customLife: startingLife, seatCount: setup.seatCount,
+          layoutId: setup.layoutId, seeds: seedsFromSlots(slots), sessionId: lobby.session.id,
+        }),
+      })
+      setLobby(null)
+    } catch (err) {
+      setLobbyError(err?.message || 'Could not start the game.')
     }
-  }, [screen, gameConfig, players, startedAt])
+    setLobbyBusy(false)
+  }
 
-  const handleStart = (config) => {
-    setGameConfig(config)
-    setPlayers(config.players)
-    setStartedAt(config.startedAt)
-    setScreen('playing')
+  const handleHostDeck = async (deckId) => {
+    if (!lobby || !user) return
+    const mine = lobby.slots.find(s => s.user_id === user.id)
+    if (!mine) return
+    const deck = deckId === NO_DECK ? null : decks.find(d => d.id === deckId)
+    try {
+      await claimSlot(mine.id, {
+        userId: user.id, name: mine.player_name, color: mine.color,
+        deckId: deck?.id || null, deckName: deck?.name || null, artUrl: mine.art_crop_url,
+      })
+      setLobby(prev => ({ ...prev, slots: applySlotDeck(prev.slots, mine.id, deck) }))
+    } catch (err) {
+      setLobbyError(err?.message || 'Could not save your deck.')
+    }
+  }
+
+  const copyJoinLink = () => {
+    if (!lobby) return
+    const url = getPublicAppUrl(`/join/${lobby.session.code}`)
+    navigator.clipboard?.writeText(url)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+      .catch(() => showToast('Could not copy the link.', { tone: 'error' }))
+  }
+
+  // ── Game lifecycle ───────────────────────────────────────────────────────────
+  const handleStartLocal = () => {
+    setResumable(null)
+    dispatch({
+      type: 'hydrate',
+      game: createGame({
+        format, customLife: startingLife, seatCount: setup.seatCount, layoutId: setup.layoutId,
+      }),
+    })
+  }
+
+  const closeSheets = () => {
+    setSeatSheet(null)
+    setDamageSheet(null)
+    setShowLog(false)
+    setShowTools(false)
+    setShowEnd(false)
   }
 
   const handleNewGame = () => {
-    clearSession()
-    setScreen('setup')
-    setGameConfig(null)
-    setPlayers([])
-    setGameLog([])
-    setShowGameLog(false)
-    setShowEndDialog(false)
-    setShowGameMenu(false)
+    closeSheets()
+    setConfirmNew(false)
+    clearGame()
+    setResumable(null)
+    dispatch({ type: 'hydrate', game: null })
   }
 
-  const handleSaveGame = async ({ placements, notes }) => {
-    const endedAt = Date.now()
-    const endedAtIso = new Date(endedAt).toISOString()
-    const startedAtIso = new Date(startedAt || endedAt).toISOString()
-    const serializedPlayers = serializeGamePlayers(players, placements)
-    const game = {
-      id: endedAt, mode: gameConfig.mode, startedAt, endedAt,
-      duration: endedAt - (startedAt || endedAt),
-      notes,
-      players: serializedPlayers.map(p => ({
-        name: p.name,
-        color: p.color,
-        deckId: p.deckId,
-        deckName: p.deckName,
-        placement: p.placement,
-        finalLife: p.finalLife,
-      })),
-    }
-    const newHistory = [game, ...history]
-    setHistory(newHistory)
-    saveHistory(newHistory)
+  const handleLeave = () => {
+    flushGame()
+    navigate('/')
+  }
 
-    if (user) {
-      const isShared = !!gameSessionId
-      const trackedPayload = {
-        source_session_id: gameSessionId || null,
-        host_user_id: user.id,
-        mode: gameConfig.mode,
-        custom_life: gameConfig.mode === 'custom' ? gameConfig.customLife : null,
-        player_count: players.length,
-        is_shared: isShared,
-        players_json: serializedPlayers,
-        started_at: startedAtIso,
-        ended_at: endedAtIso,
-      }
-
-      const localHistoryPlayers = players.filter(p => p.deckId || (p.deckName && p.deckName !== 'No deck selected'))
-      const resultPlayers = isShared
-        ? players.filter(p => p.userId)
-        : (localHistoryPlayers.length > 0 ? localHistoryPlayers : players.slice(0, 1))
-
-      const results = resultPlayers
-        .map(p => ({
-          session_id: gameSessionId || null,
-          user_id: isShared ? p.userId : user.id,
-          deck_id: p.deckId || null,
-          deck_name: p.deckName || 'No deck selected',
-          format: gameConfig.mode,
-          player_count: players.length,
-          placement: placements[p.id],
-          played_at: endedAtIso,
-          player_name: p.name,
-          player_color: p.color,
-          final_life: p.life,
-          game_started_at: startedAtIso,
-          game_ended_at: endedAtIso,
-          players_json: serializedPlayers,
-          notes: (isShared ? p.userId === user.id : true) ? notes.trim() : '',
-        }))
-
-      try {
-        const { data: trackedGame, error: trackedError } = await sb
-          .from('tracked_games')
-          .insert(trackedPayload)
-          .select('id')
-          .single()
-        if (trackedError) throw trackedError
-
-        if (results.length > 0) {
-          const rows = results.map(row => ({
-            ...row,
-            game_id: trackedGame.id,
-          }))
-          const { error } = await sb.from('game_results').insert(rows)
-          if (error) throw error
+  const toggleFullscreen = async () => {
+    const root = document.documentElement
+    try {
+      if (!fullscreen) {
+        if (root.requestFullscreen) { await root.requestFullscreen(); return }
+        if (root.webkitRequestFullscreen) { root.webkitRequestFullscreen(); return }
+      } else {
+        if (document.fullscreenElement && document.exitFullscreen) { await document.exitFullscreen(); return }
+        if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+          document.webkitExitFullscreen(); return
         }
+      }
+    } catch { /* not available — the toggle is a nicety, not a requirement */ }
+    setFullscreen(v => !v)
+  }
 
-        await refreshDeckStats()
-      } catch (e) {
-        console.error('game history save:', e)
-        const detail = [e?.message, e?.details, e?.hint].filter(Boolean).join(' ')
-        // Longer than the 3.2s default: the game stays open and the user has to
-        // act on this, so it must not vanish before it's read.
-        showToast(
-          detail
-            ? `Could not save game history. ${detail}`
-            : 'Could not save game history. Game still open. Please try again.',
-          { tone: 'error', duration: 6000 },
-        )
-        return
+  const handleSaveResult = async ({ order, notes }) => {
+    if (!game || !user) return
+    setSaving(true)
+    setSaveError('')
+
+    const endedAt = Date.now()
+
+    try {
+      // Pull the seats once more for a shared game: a guest may have claimed a seat
+      // or swapped decks after the game started, and that has to reach their row.
+      let finalGame = game
+      if (game.sessionId) {
+        try {
+          finalGame = mergeSlotAttribution(game, await fetchLobbySlots(game.sessionId))
+        } catch { /* fall back to what the device has */ }
+      }
+      const placements = buildPlacements(finalGame.players, order)
+
+      const { data: tracked, error: trackedError } = await sb.from('tracked_games')
+        .insert(buildTrackedGamePayload({ game: finalGame, placements, hostUserId: user.id, endedAt }))
+        .select('id')
+        .single()
+      if (trackedError) throw trackedError
+
+      const rows = buildGameResultRows({
+        game: finalGame, placements, hostUserId: user.id, endedAt, notes, trackedGameId: tracked.id,
+      })
+      if (rows.length > 0) {
+        const { error } = await sb.from('game_results').insert(rows)
+        if (error) throw error
+      }
+
+      if (game.sessionId) await endLobby(game.sessionId, new Date(endedAt).toISOString())
+      await refreshDeckStats()
+
+      showToast('Game saved.', { tone: 'success' })
+      handleNewGame()
+    } catch (err) {
+      // The game stays open so nothing is lost and the save can be retried.
+      const detail = [err?.message, err?.details, err?.hint].filter(Boolean).join(' ')
+      setSaveError(detail ? `Could not save. ${detail}` : 'Could not save the result. Try again.')
+    }
+    setSaving(false)
+  }
+
+  // ── Seat handlers ────────────────────────────────────────────────────────────
+  // Built once and keyed by seat index so they are referentially stable, which is
+  // what lets SeatPanel's memo do its job: one tap re-renders one seat instead of
+  // every seat, every art image and every chip on the table.
+  const seatHandlers = useMemo(() => {
+    const handlers = {}
+    for (let id = 0; id < MAX_SEATS; id++) {
+      handlers[id] = {
+        onLife: delta => dispatch({ type: 'life', id, delta }),
+        onOpenSeat: () => setSeatSheet(id),
+        onOpenDamage: () => setDamageSheet(id),
       }
     }
+    return handlers
+  }, [])
 
-    if (gameSessionId) {
-      const { error } = await sb.from('game_sessions')
-        .update({ status: 'ended', ended_at: endedAtIso })
-        .eq('id', gameSessionId)
-      if (error) console.error('game_sessions finalize:', error)
+  // Opponent lists only carry identity, so they are rebuilt when identity changes
+  // rather than on every life change — a direct comparison of the fields the rail
+  // actually reads.
+  const identityKey = game?.players.map(p => `${p.id}:${p.color}:${p.hasPartner ? 1 : 0}:${p.name}`).join('|')
+  const opponentsBySeat = useMemo(() => {
+    if (!game) return {}
+    const out = {}
+    for (const player of game.players) {
+      out[player.id] = game.players
+        .filter(other => other.id !== player.id)
+        .map(({ id, name, color, hasPartner }) => ({ id, name, color, hasPartner }))
     }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identityKey])
 
-    setGameSessionId(null)
-    handleNewGame()
-  }
+  const layout = game ? findLayout(game.seatCount, game.layoutId) : null
+  const commander = game ? isCommanderFormat(game.format) : false
+  const seatSheetPlayer = game?.players.find(p => p.id === seatSheet) || null
+  const damageSheetPlayer = game?.players.find(p => p.id === damageSheet) || null
+  const rotationOf = (id) => layout?.seats[id]?.rotation ?? 0
 
-  const resetGame = () => {
-    if (!gameConfig) return
-    const life = gameConfig.mode === 'custom' ? gameConfig.customLife : MODES[gameConfig.mode].life
-    setPlayers(prev =>
-      Array.from({ length: gameConfig.playerCount }, (_, i) => ({
-        ...makePlayer(i, life, prev[i]),
-        life,
-        cmdTax: 0,
-        cmdTax2: 0,
-        cmdDmg: {}, cmdDmg2: {},
-      }))
-    )
-    setGameLog([])
-    setShowGameMenu(false)
-  }
-
-  const onLifeChange = (id, delta) => {
-    const change = buildLifeChange(players, id, delta)
-    if (!change) return
-    setPlayers(ps => ps.map(p => p.id === id ? { ...p, life: p.life + delta } : p))
-    addGameLogEvent({ ts: Date.now(), ...change.logEntry })
-  }
-  const onCmdDmgChange = (pid, fid, delta, isPartner2 = false) => {
-    const player  = players.find(p => p.id === pid)
-    const opp     = players.find(p => p.id === fid)
-    const field   = isPartner2 ? 'cmdDmg2' : 'cmdDmg'
-    const cur     = player?.[field]?.[fid] || 0
-    const newVal  = Math.max(0, cur + delta)
-    const applied = newVal - cur
-    setPlayers(ps => ps.map(p => {
-      if (p.id !== pid) return p
-      return { ...p, life: p.life - applied, [field]: { ...p[field], [fid]: newVal } }
-    }))
-    if (applied !== 0) {
-      const newLife = (player?.life ?? 0) - applied
-      const label   = isPartner2 ? `${opp?.name || '?'} ②` : (opp?.name || '?')
-      addGameLogEvent({ ts: Date.now(), type: 'cmdDmg', delta: -applied, total: newLife, fromName: label, playerName: player?.name, playerColor: player?.color })
-    }
-  }
-  const onTogglePartner = (id) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, hasPartner: !p.hasPartner } : p))
-  const onCmdTaxChange = (id, delta, isPartner2 = false) => {
-    const field = isPartner2 ? 'cmdTax2' : 'cmdTax'
-    setPlayers(ps => ps.map(p => {
-      if (p.id !== id) return p
-      return { ...p, [field]: Math.max(0, (p[field] ?? 0) + delta) }
-    }))
-  }
-  const onNameChange    = (id, name)  => setPlayers(ps => ps.map(p => p.id === id ? { ...p, name } : p))
-  const onColorChange   = (id, color) => setPlayers(ps => ps.map(p => p.id === id ? { ...p, color } : p))
-  const onArtChange     = (id, url)   => setPlayers(ps => ps.map(p => p.id === id ? { ...p, artCropUrl: url } : p))
-
-  const onCounterChange = (id, key, delta) => {
-    setPlayers(ps => ps.map(p => {
-      if (p.id !== id) return p
-      const cur = p.counters?.[key] ?? 0
-      return { ...p, counters: { ...p.counters, [key]: Math.max(0, cur + delta) } }
-    }))
-  }
-
-  if (screen === 'setup') {
+  // ── Game table ───────────────────────────────────────────────────────────────
+  if (game) {
     return (
-      <div className={styles.page}>
-        <PreGameSetup
-          onStart={handleStart}
-          onCreateLobby={handleCreateLobby}
-          decks={decks}
-          history={history}
-          deckStatsMap={deckStatsMap}
-          nickname={nickname}
-        />
-      </div>
-    )
-  }
+      <div className={styles.table} data-fullscreen={fullscreen ? 'true' : undefined}>
+        <div className={styles.bar}>
+          <span className={styles.barLabel}>
+            {LIFE_FORMATS[game.format]?.label || game.format} · {game.players.length}
+            {game.sessionId && <span className={styles.sharedDot} title="Shared game" />}
+          </span>
 
-  if (screen === 'host-setup') {
-    return (
-      <div className={styles.page}>
-        <HostSetupScreen
-          session={session}
-          config={lobbyConfig}
-          decks={decks}
-          onSubmit={() => setScreen('lobby')}
-          onCancel={handleCancelLobby}
-          nickname={nickname}
-        />
-      </div>
-    )
-  }
-
-  if (screen === 'lobby') {
-    return (
-      <div className={styles.page}>
-        <LobbyScreen
-          session={session}
-          gameConfig={lobbyConfig}
-          onStart={handleLobbyStart}
-          onCancel={handleCancelLobby}
-        />
-      </div>
-    )
-  }
-
-  const modeConf  = MODES[gameConfig?.mode] || MODES.commander
-  const count     = players.length
-  const layout    = gameConfig?.layout || defaultLayout(count)
-  const getRotation = idx => layout.rotations?.[idx] || 0
-  const getRotationForPlayer = playerId => {
-    const idx = players.findIndex(p => p.id === playerId)
-    return idx >= 0 ? getRotation(idx) : 0
-  }
-
-  return (
-    <div className={`${styles.pageGame} ${isFullscreen ? styles.pageFullscreen : ''}`}>
-      <div className={styles.topBar}>
-        <div className={styles.topLeft}>
-          <span className={styles.pageTitle}>♥ Life Tracker</span>
-          <span className={styles.modeLabel}>{modeConf.label}</span>
-        </div>
-        <div className={styles.topRight}>
-          <button
-            className={styles.fullscreenBtn}
-            onClick={handleFullscreenToggle}
-            title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen'}>
-            {isFullscreen ? '⊡' : '⛶'}
-          </button>
-          <div className={styles.gearWrap} ref={gearMenuRef}>
-            <button
-              className={`${styles.gearBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
-              onClick={() => setShowGameMenu(v => !v)}
-              title="Game options">
-              <SettingsIcon size={18} />
+          <div className={styles.barActions}>
+            <button className={styles.iconBtn} onClick={() => setShowTools(true)} aria-label="Table tools">
+              <DiceIcon size={15} />
             </button>
-            {showGameMenu && (
-              <div className={styles.gearMenu}>
-                <button className={styles.gearMenuItem} onClick={() => { setShowGameLog(true); setShowGameMenu(false) }}>
-                  📜 Game Log
+            <button className={styles.iconBtn} onClick={() => setShowLog(true)} aria-label="Game log">
+              <ListIcon size={15} />
+            </button>
+
+            <ResponsiveMenu title="Game" align="right" portal
+              trigger={({ toggle }) => (
+                <button className={styles.iconBtn} onClick={toggle} aria-label="Game menu">
+                  <MenuIcon size={15} />
                 </button>
-                <button className={styles.gearMenuItem} onClick={() => { setShowDice(true); setShowGameMenu(false) }}>
-                  🎲 Dice Roller
-                </button>
-                <button className={styles.gearMenuItem} onClick={() => { setShowPicker(true); setShowGameMenu(false) }}>
-                  🎯 Random Player
-                </button>
-                <button className={styles.gearMenuItem} onClick={() => { setShowCoin(true); setShowGameMenu(false) }}>
-                  🪙 Coin Flipper
-                </button>
-                <div className={styles.gearMenuDiv} />
-                <button className={styles.gearMenuItem} onClick={resetGame}>
-                  ↺ Reset Totals
-                </button>
-                <button className={`${styles.gearMenuItem} ${styles.gearMenuItemDanger}`} onClick={handleNewGame}>
-                  <CloseIcon size={12} /> New Setup
-                </button>
-              </div>
-            )}
+              )}>
+              {({ close }) => (
+                <div className={uiStyles.responsiveMenuList}>
+                  <div className={uiStyles.responsiveMenuSectionLabel}>Seating</div>
+                  {layoutsFor(game.seatCount).map(option => (
+                    <button key={option.id}
+                      className={`${uiStyles.responsiveMenuAction} ${option.id === game.layoutId ? uiStyles.responsiveMenuActionActive : ''}`}
+                      onClick={() => { dispatch({ type: 'setLayout', layoutId: option.id }); close() }}>
+                      {option.label}
+                      {option.id === game.layoutId && (
+                        <span className={uiStyles.responsiveMenuCheck}><CheckIcon size={11} /></span>
+                      )}
+                    </button>
+                  ))}
+
+                  <div className={uiStyles.responsiveMenuSectionLabel}>Game</div>
+                  <button className={uiStyles.responsiveMenuAction}
+                    onClick={() => { dispatch({ type: 'reset' }); close() }}>
+                    Reset totals
+                  </button>
+                  <button className={uiStyles.responsiveMenuAction}
+                    onClick={() => { toggleFullscreen(); close() }}>
+                    {fullscreen ? 'Exit full screen' : 'Full screen'}
+                  </button>
+                  <button className={uiStyles.responsiveMenuAction}
+                    onClick={() => { handleLeave(); close() }}>
+                    Leave tracker
+                  </button>
+                  {/* Danger is a colour-only modifier — the base action class
+                      carries the row's border, height and typography. */}
+                  <button
+                    className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`}
+                    onClick={() => { setConfirmNew(true); close() }}>
+                    Discard game
+                  </button>
+                </div>
+              )}
+            </ResponsiveMenu>
+
+            <Button size="sm" variant="primary" onClick={() => setShowEnd(true)}>End</Button>
           </div>
-          <button className={styles.endBtn} onClick={() => setShowEndDialog(true)}>
-            🏆 End Game
-          </button>
+        </div>
+
+        <div
+          className={styles.grid}
+          style={{
+            gridTemplateAreas: layout.areas,
+            gridTemplateColumns: layout.cols,
+            gridTemplateRows: layout.rows,
+          }}
+        >
+          {game.players.map(player => (
+            <SeatPanel
+              key={player.id}
+              player={player}
+              opponents={opponentsBySeat[player.id] || []}
+              rotation={layout.seats[player.id]?.rotation ?? 0}
+              area={layout.seats[player.id]?.area}
+              commander={commander}
+              dead={isPlayerDead(player)}
+              deathText={deathTextFor(game, player)}
+              onLife={seatHandlers[player.id].onLife}
+              onOpenSeat={seatHandlers[player.id].onOpenSeat}
+              onOpenDamage={seatHandlers[player.id].onOpenDamage}
+            />
+          ))}
+        </div>
+
+        {seatSheetPlayer && (
+          <SeatSheet
+            player={seatSheetPlayer}
+            decks={decks}
+            deckStats={deckStats}
+            commander={commander}
+            rotation={rotationOf(seatSheetPlayer.id)}
+            onPatch={patch => dispatch({ type: 'patchPlayer', id: seatSheetPlayer.id, patch })}
+            onCounter={(key, delta) => dispatch({ type: 'counter', id: seatSheetPlayer.id, key, delta })}
+            onTax={(slot, delta) => dispatch({ type: 'tax', id: seatSheetPlayer.id, slot, delta })}
+            onClose={() => setSeatSheet(null)}
+          />
+        )}
+
+        {damageSheetPlayer && (
+          <CmdDamageSheet
+            player={damageSheetPlayer}
+            opponents={opponentsBySeat[damageSheetPlayer.id] || []}
+            rotation={rotationOf(damageSheetPlayer.id)}
+            onDamage={(fromId, slot, delta) =>
+              dispatch({ type: 'cmdDamage', id: damageSheetPlayer.id, fromId, slot, delta })}
+            onClose={() => setDamageSheet(null)}
+          />
+        )}
+
+        {showLog && <GameLogSheet log={game.log} onClose={() => setShowLog(false)} />}
+        {showTools && <ToolsSheet players={game.players} onClose={() => setShowTools(false)} />}
+
+        {showEnd && (
+          <EndGameSheet
+            players={game.players}
+            saving={saving}
+            error={saveError}
+            onSave={handleSaveResult}
+            onClose={() => { setShowEnd(false); setSaveError('') }}
+          />
+        )}
+
+        {confirmNew && (
+          <ConfirmModal
+            title="Discard this game?"
+            message="Life totals and the game log are deleted. Nothing is saved to your stats."
+            confirmLabel="Discard"
+            onConfirm={handleNewGame}
+            onClose={() => setConfirmNew(false)}
+          />
+        )}
+      </div>
+    )
+  }
+
+  // ── Lobby ────────────────────────────────────────────────────────────────────
+  if (lobby) {
+    const claimed = lobby.slots.filter(s => s.user_id).length
+    const mine = lobby.slots.find(s => s.user_id === user?.id)
+    return (
+      <div className={styles.page}>
+        <div className={styles.setup}>
+          <header className={styles.setupHead}>
+            <span className={styles.eyebrow}>Shared game</span>
+            <h1 className={styles.title}>Others join to track their decks</h1>
+            <p className={styles.lede}>
+              Life is tracked here, on this device. Anyone who joins gets the result
+              saved to their own deck record.
+            </p>
+          </header>
+
+          <div className={styles.codeCard}>
+            <span className={styles.codeLabel}>Join code</span>
+            <span className={styles.code}>{lobby.session.code}</span>
+            <Button variant="secondary" onClick={copyJoinLink}>
+              {copied ? <><CheckIcon size={13} /> Copied</> : <><CopyIcon size={13} /> Copy link</>}
+            </Button>
+          </div>
+
+          <div className={styles.slotList}>
+            {lobby.slots.map(slot => (
+              <div key={slot.id} className={styles.slot}
+                data-claimed={slot.user_id ? 'true' : undefined}>
+                <span className={styles.slotDot} style={{ '--sw': slot.color }} />
+                <div className={styles.slotBody}>
+                  <span className={styles.slotName}>{slot.player_name}</span>
+                  <span className={styles.slotMeta}>
+                    {slot.user_id
+                      ? (slot.deck_name || 'No deck chosen')
+                      : 'Open — waiting for a player'}
+                  </span>
+                </div>
+                {slot.user_id && <CheckIcon size={14} />}
+              </div>
+            ))}
+          </div>
+
+          {mine && decks.length > 0 && (
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Your deck</span>
+              <Select value={mine.deck_id || NO_DECK} onChange={e => handleHostDeck(e.target.value)}
+                searchable title="Select your deck">
+                <option value={NO_DECK}>— No deck —</option>
+                {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+              </Select>
+            </div>
+          )}
+
+          <ErrorBox>{lobbyError}</ErrorBox>
+
+          <div className={styles.setupActions}>
+            <Button variant="primary" size="lg" block onClick={handleStartShared} disabled={lobbyBusy}>
+              {lobbyBusy ? 'Starting…' : `Start game · ${claimed} joined`}
+            </Button>
+            <Button variant="ghost" block onClick={handleCancelLobby} disabled={lobbyBusy}>
+              Cancel shared game
+            </Button>
+          </div>
         </div>
       </div>
+    )
+  }
 
-      {/* Fullscreen menu button replaces the topbar to reclaim space */}
-        {isFullscreen && (
-          <div className={styles.fsMenuWrap} ref={gearMenuFsRef}>
-            <button
-              className={`${styles.fsMenuBtn} ${showGameMenu ? styles.gearBtnActive : ''}`}
-              onClick={() => setShowGameMenu(v => !v)}
-              title="Game options">
-              <SettingsIcon size={18} />
-            </button>
+  // ── Setup ────────────────────────────────────────────────────────────────────
+  return (
+    <div className={styles.page}>
+      <div className={styles.setup}>
+        <header className={styles.setupHead}>
+          <span className={styles.eyebrow}>Life tracker</span>
+          <h1 className={styles.title}>Set the table</h1>
+        </header>
+
+        {resumable && (
+          <div className={styles.resume}>
+            <div className={styles.resumeBody}>
+              <span className={styles.resumeTitle}>Game in progress</span>
+              <span className={styles.resumeMeta}>
+                {LIFE_FORMATS[resumable.game.format]?.label || resumable.game.format}
+                {' · '}{resumable.game.players.length} players
+                {' · '}{resumable.label}
+              </span>
+            </div>
+            <Button variant="primary"
+              onClick={() => { dispatch({ type: 'hydrate', game: resumable.game }); setResumable(null) }}>
+              Resume
+            </Button>
+            <Button variant="ghost" onClick={() => { clearGame(); setResumable(null) }}>Discard</Button>
           </div>
         )}
 
-      {/* Grid: columns driven by layout choice */}
-      <div className={styles.grid} style={{ '--gcols': layout.cols }}>
-        {players.map((player, idx) => {
-          const rotation = getRotation(idx)
-          return (
-            <div key={player.id} className={styles.gridCell}>
-              <PlayerPanel
-                player={player}
-                opponents={players.filter(p => p.id !== player.id)}
-                onLifeChange={onLifeChange}
-                onCmdDmgChange={onCmdDmgChange}
-                onCmdTaxChange={onCmdTaxChange}
-                onNameChange={onNameChange}
-                onRequestPlayerSettings={setPlayerSettingsPlayer}
-                onRequestCmdDmgOverlay={modeConf.commander ? setCmdDmgPlayer : null}
-                showCommander={modeConf.commander}
-                rotation={rotation}
-              />
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>Format</span>
+          <div className={styles.chipRow}>
+            {FORMAT_ORDER.map(key => (
+              <Button key={key} variant="toggle" active={format === key}
+                onClick={() => setSetup(prev => ({
+                  ...prev,
+                  format: key,
+                  seatCount: LIFE_FORMATS[key].seats,
+                  layoutId: null,
+                }))}>
+                {LIFE_FORMATS[key].label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className={styles.lifeCard}>
+          <span className={styles.fieldLabel}>Starting life</span>
+          {format === 'custom' ? (
+            <input
+              className={styles.lifeInput}
+              type="text"
+              inputMode="numeric"
+              value={setup.customLife}
+              aria-label="Starting life"
+              // Stored as typed and only clamped on commit. Clamping every
+              // keystroke was the old field's bug: Number('') is 0, which snapped
+              // the value to 1 the moment you cleared it to type a new number.
+              onChange={e => {
+                const digits = e.target.value.replace(/[^0-9]/g, '').slice(0, 3)
+                setSetup(prev => ({ ...prev, customLife: digits }))
+              }}
+              onBlur={() => setSetup(prev => ({ ...prev, customLife: clampLife(prev.customLife) }))}
+            />
+          ) : (
+            <span className={styles.lifeValue}>{startingLife}</span>
+          )}
+        </div>
+
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>Players</span>
+          <div className={styles.chipRow}>
+            {SEAT_OPTIONS.map(count => (
+              <Button key={count} variant="toggle" active={setup.seatCount === count}
+                onClick={() => setSetup(prev => ({ ...prev, seatCount: count, layoutId: null }))}>
+                {count}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {layoutOptions.length > 1 && (
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Seating</span>
+            <div className={styles.layoutRow}>
+              {layoutOptions.map(option => (
+                <button key={option.id} type="button" className={styles.layoutOption}
+                  data-active={activeSetupLayout.id === option.id ? 'true' : undefined}
+                  onClick={() => setSetup(prev => ({ ...prev, layoutId: option.id }))}>
+                  <span className={styles.layoutMap}
+                    style={{
+                      gridTemplateAreas: option.areas,
+                      gridTemplateColumns: option.cols,
+                      gridTemplateRows: option.rows,
+                    }}>
+                    {option.seats.map((s, i) => (
+                      <span key={i} className={styles.layoutSeat}
+                        style={{ gridArea: s.area }} data-rot={s.rotation} />
+                    ))}
+                  </span>
+                  <span className={styles.layoutLabel}>{option.label}</span>
+                </button>
+              ))}
             </div>
-          )
-        })}
+          </div>
+        )}
+
+        <div className={styles.setupActions}>
+          <Button variant="primary" size="lg" block onClick={handleStartLocal}>
+            <SwordIcon size={14} /> Start game
+          </Button>
+          <Button variant="secondary" block onClick={handleHostGame} disabled={lobbyBusy || !user}>
+            <PlayerIcon size={14} /> {lobbyBusy ? 'Creating…' : 'Host a shared game'}
+          </Button>
+          <Button variant="ghost" block onClick={() => navigate('/stats')}>
+            <TrophyIcon size={14} /> Past games and win rates
+          </Button>
+        </div>
+
+        <ErrorBox>{lobbyError}</ErrorBox>
+
+        <p className={styles.footNote}>
+          Set names, colours, art and decks by tapping a seat once the game is running.
+        </p>
       </div>
-
-      {playerSettingsPlayer !== null && (
-        <PlayerSettingsOverlay
-          player={players.find(p => p.id === playerSettingsPlayer)}
-          rotation={getRotationForPlayer(playerSettingsPlayer)}
-          showCommander={modeConf.commander}
-          onColorChange={onColorChange}
-          onRequestArtPicker={setArtPickerPlayer}
-          onTogglePartner={onTogglePartner}
-          onCounterChange={onCounterChange}
-          onClose={() => setPlayerSettingsPlayer(null)}
-        />
-      )}
-
-      {isFullscreen && showGameMenu && (
-        <FullscreenGameMenuOverlay
-          onClose={() => setShowGameMenu(false)}
-          onExitFullscreen={() => { handleFullscreenToggle(); setShowGameMenu(false) }}
-          onShowGameLog={() => { setShowGameLog(true); setShowGameMenu(false) }}
-          onShowDice={() => { setShowDice(true); setShowGameMenu(false) }}
-          onShowPicker={() => { setShowPicker(true); setShowGameMenu(false) }}
-          onShowCoin={() => { setShowCoin(true); setShowGameMenu(false) }}
-          onShowEndGame={() => { setShowEndDialog(true); setShowGameMenu(false) }}
-          onResetTotals={() => { resetGame(); setShowGameMenu(false) }}
-          onNewSetup={() => { handleNewGame(); setShowGameMenu(false) }}
-        />
-      )}
-
-      {artPickerPlayer !== null && (
-        <ArtPicker
-          rotation={getRotationForPlayer(artPickerPlayer)}
-          onSelect={url => { onArtChange(artPickerPlayer, url); setArtPickerPlayer(null) }}
-          onClear={() => { onArtChange(artPickerPlayer, null); setArtPickerPlayer(null) }}
-          onClose={() => setArtPickerPlayer(null)} />
-      )}
-
-      {cmdDmgPlayer !== null && (
-        <CmdDmgOverlay
-          players={players}
-          selfId={cmdDmgPlayer}
-          layout={layout}
-          viewerRotation={getRotationForPlayer(cmdDmgPlayer)}
-          onCmdDmgChange={onCmdDmgChange}
-          onClose={() => setCmdDmgPlayer(null)} />
-      )}
-
-      {showGameLog && (
-        <GameLogOverlay
-          events={gameLog}
-          onClose={() => setShowGameLog(false)} />
-      )}
-
-      {showDice   && <DiceRoller onClose={() => setShowDice(false)} />}
-      {showPicker && <RandomPicker players={players} onClose={() => setShowPicker(false)} />}
-      {showCoin   && <CoinFlipper onClose={() => setShowCoin(false)} />}
-      {showEndDialog && (
-        <EndGameDialog
-          players={players}
-          onSave={handleSaveGame}
-          onCancel={() => setShowEndDialog(false)} />
-      )}
     </div>
   )
 }
 
-
+// Applies the host's deck choice to the local slot list without a refetch.
+function applySlotDeck(slots, slotId, deck) {
+  return slots.map(slot => (
+    slot.id === slotId
+      ? { ...slot, deck_id: deck?.id || null, deck_name: deck?.name || null }
+      : slot
+  ))
+}

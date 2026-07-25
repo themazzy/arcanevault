@@ -1,411 +1,369 @@
-import { useState, useEffect, useRef } from 'react'
-import { CheckIcon, CloseIcon, SyncIcon } from '../icons'
-import { useParams, Link } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { Button, ErrorBox, Select } from '../components/UI'
 import { useAuth } from '../components/Auth'
-import { ResponsiveMenu } from '../components/UI'
+import { CheckIcon, PlayerIcon, SyncIcon } from '../icons'
 import { sb } from '../lib/supabase'
+import { LIFE_FORMATS, PLAYER_COLORS } from '../lib/lifeGame'
+import ArtPicker from '../components/lifeTracker/ArtPicker'
 import styles from './JoinGame.module.css'
 
-const PLAYER_COLORS = ['#c46060', '#6080c4', '#60a860', '#c4a040', '#9060c4', '#60b8c4']
-const MODE_LABELS = {
-  standard: 'Standard', commander: 'Commander', brawl: 'Brawl',
-  oathbreaker: 'Oathbreaker', planechase: 'Planechase', custom: 'Custom',
-}
+// Guest side of a shared game.
+//
+// Joining does not put a life tracker on your phone: life is tracked on the one
+// device in the middle of the table. You join so the result of this game is saved
+// against your deck, on your account. That is the whole feature, and this page now
+// says so instead of parking guests on a "waiting for the host…" screen that never
+// changed.
+//
+// This route is public and lives outside SettingsProvider, so nothing here may call
+// useSettings.
+
+const NO_DECK = '__none__'
+const POLL_MS = 5000
 
 export default function JoinGamePage() {
   const { code } = useParams()
-  const { user }  = useAuth()
+  const { user } = useAuth()
 
-  const [session,       setSession]       = useState(null)
-  const [slots,         setSlots]         = useState([])
-  const [decks,         setDecks]         = useState([])
-  const [status,        setStatus]        = useState('loading')
-  // loading | lobby | claiming | waiting | started | notfound
-  const [mySlotId,      setMySlotId]      = useState(null)
-  const [claimSlot,     setClaimSlot]     = useState(null)
-  const [claimName,     setClaimName]     = useState('')
-  const [claimColor,    setClaimColor]    = useState(PLAYER_COLORS[0])
-  const [claimDeckId,   setClaimDeckId]   = useState(null)
-  const [claimDeckName, setClaimDeckName] = useState(null)
-  const [claimArtUrl,   setClaimArtUrl]   = useState(null)
-  const [deckOpen,      setDeckOpen]      = useState(false)
-  const [showArtPicker, setShowArtPicker] = useState(false)
-  const [artQuery,      setArtQuery]      = useState('')
-  const [artResults,    setArtResults]    = useState([])
-  const [artLoading,    setArtLoading]    = useState(false)
-  const [submitting,    setSubmitting]    = useState(false)
-  const deckRef = useRef(null)
+  const [session, setSession] = useState(null)
+  const [slots, setSlots] = useState([])
+  const [status, setStatus] = useState('loading') // loading | notfound | roster
+  const [claiming, setClaiming] = useState(null)  // the slot being filled in
+  const [draftName, setDraftName] = useState('')
+  const [draftColor, setDraftColor] = useState(PLAYER_COLORS[0])
+  const [draftDeck, setDraftDeck] = useState(NO_DECK)
+  const [draftArt, setDraftArt] = useState(null)
+  const [showArt, setShowArt] = useState(false)
+  const [decks, setDecks] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
-  // Close deck dropdown on outside click
+  const codeUpper = code?.toUpperCase() || ''
+  const mine = slots.find(s => s.user_id && s.user_id === user?.id) || null
+
+  const load = useCallback(async () => {
+    if (!codeUpper) { setStatus('notfound'); return }
+    const { data, error: rpcError } = await sb.rpc('get_game_by_code', { p_code: codeUpper })
+    if (rpcError || !data?.session) { setStatus('notfound'); return }
+    setSession(data.session)
+    setSlots(data.players || [])
+    setStatus('roster')
+  }, [codeUpper])
+
+  useEffect(() => { load() }, [load])
+
+  // Realtime plus a slow poll. The poll matters more here than on the host: an
+  // anonymous visitor's realtime channel delivers nothing until they sign in.
+  // `load` is stable for the lifetime of a code, so it can be a plain dependency.
+  const sessionId = session?.id
   useEffect(() => {
-    if (!deckOpen) return
-    const h = e => { if (!deckRef.current?.contains(e.target)) setDeckOpen(false) }
-    document.addEventListener('pointerdown', h)
-    return () => document.removeEventListener('pointerdown', h)
-  }, [deckOpen])
+    if (!sessionId) return
+    const channel = sb.channel(`life-join:${sessionId}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'game_players',
+        filter: `session_id=eq.${sessionId}`,
+      }, load)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'game_sessions',
+      }, load)
+      .subscribe()
+    const poll = setInterval(load, POLL_MS)
+    return () => { sb.removeChannel(channel); clearInterval(poll) }
+  }, [sessionId, load])
 
-  // Load session once on mount. Uses the get_game_by_code RPC so unauthenticated
-  // visitors hitting /join/:code can render the lobby preview before logging in;
-  // direct SELECT on game_sessions / game_players is now authenticated-only.
-  useEffect(() => {
-    if (!code) { setStatus('notfound'); return }
-    ;(async () => {
-      const { data, error } = await sb.rpc('get_game_by_code', { p_code: code.toUpperCase() })
-      const sessionData = data?.session
-      if (error || !sessionData) { setStatus('notfound'); return }
-      if (sessionData.status === 'playing') { setStatus('started'); return }
-      if (sessionData.status === 'ended')   { setStatus('notfound'); return }
-      setSession(sessionData)
-      setSlots(data?.players || [])
-      setStatus('lobby')
-    })()
-  }, [code])
-
-  // When user logs in, check if they already have a slot
-  useEffect(() => {
-    if (!user || !slots.length) return
-    const mine = slots.find(s => s.user_id === user.id)
-    if (mine) { setMySlotId(mine.id); setStatus('waiting') }
-  }, [user, slots])
-
-  // Load user's decks
   useEffect(() => {
     if (!user) return
+    let active = true
     sb.from('folders').select('id,name,type')
       .eq('user_id', user.id)
       .in('type', ['deck', 'builder_deck'])
       .order('name')
-      .then(({ data }) => setDecks(data || []))
+      .then(({ data }) => { if (active) setDecks(data || []) })
+    return () => { active = false }
   }, [user])
 
-  // Realtime subscription + polling fallback. The RPC powers polling so it
-  // works for unauthenticated visitors too (realtime needs SELECT on the
-  // underlying tables and only delivers updates post-login).
-  useEffect(() => {
-    if (!session) return
-    const sid = session.id
-    const codeUpper = code?.toUpperCase()
-    let active = true
-
-    const reload = async () => {
-      const { data } = await sb.rpc('get_game_by_code', { p_code: codeUpper })
-      if (!active || !data?.session) return
-      setSlots(data.players || [])
-      if (data.session.status === 'playing') setStatus('started')
-    }
-
-    const ch = sb.channel(`join:${sid}`)
-      // payload.new only has primary key on UPDATE (default replica identity),
-      // so just re-fetch via the RPC on any change.
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'game_players',
-      }, reload)
-      .on('postgres_changes', {
-        event: 'UPDATE', schema: 'public', table: 'game_sessions',
-      }, payload => {
-        if (payload.new?.status === 'playing') setStatus('started')
-        else reload()
-      })
-      .subscribe()
-
-    // Poll every 3 s as fallback for realtime gaps (and for anon visitors
-    // whose realtime channel won't deliver until they sign in).
-    const poll = setInterval(reload, 3000)
-
-    return () => { active = false; sb.removeChannel(ch); clearInterval(poll) }
-  }, [session?.id, code])
-
-  const openClaim = slot => {
-    setClaimSlot(slot)
-    setClaimName(slot.player_name)
-    setClaimColor(slot.color)
-    setClaimDeckId(null)
-    setClaimDeckName(null)
-    setClaimArtUrl(null)
-    setStatus('claiming')
-  }
-
-  const artTimerRef = useRef(null)
-  useEffect(() => () => clearTimeout(artTimerRef.current), [])
-
-  const searchArt = async (q) => {
-    const term = q ?? artQuery
-    if (!term.trim()) return
-    setArtLoading(true)
-    try {
-      const r = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(term)}&unique=art&order=name`)
-      const data = await r.json()
-      setArtResults((data.data || []).filter(c => c.image_uris?.art_crop).slice(0, 20))
-    } catch { setArtResults([]) }
-    setArtLoading(false)
-  }
-
-  const handleArtQueryChange = (v) => {
-    setArtQuery(v)
-    clearTimeout(artTimerRef.current)
-    if (v.trim().length < 2) { setArtResults([]); return }
-    artTimerRef.current = setTimeout(() => searchArt(v), 350)
+  const openClaim = (slot) => {
+    setClaiming(slot)
+    setDraftName(user?.email?.split('@')[0]?.slice(0, 24) || slot.player_name)
+    setDraftColor(slot.color)
+    setDraftDeck(NO_DECK)
+    setDraftArt(null)
+    setShowArt(false)
+    setError('')
   }
 
   const submitClaim = async () => {
-    if (!user || !claimSlot) return
-    setSubmitting(true)
-    const { error } = await sb.from('game_players').update({
-      user_id: user.id,
-      player_name: claimName.trim() || claimSlot.player_name,
-      color: claimColor,
-      deck_id: claimDeckId,
-      deck_name: claimDeckName,
-      art_crop_url: claimArtUrl || null,
-      claimed_at: new Date().toISOString(),
-    }).eq('id', claimSlot.id).is('user_id', null)
+    if (!user || !claiming) return
+    setBusy(true)
+    setError('')
+    const deck = draftDeck === NO_DECK ? null : decks.find(d => d.id === draftDeck)
 
-    if (error) {
-      // Slot was taken by someone else — reload via the RPC and go back to lobby
-      const { data } = await sb.rpc('get_game_by_code', { p_code: code?.toUpperCase() })
-      if (data?.players) setSlots(data.players)
-      setStatus('lobby')
-    } else {
-      setMySlotId(claimSlot.id)
-      setStatus('waiting')
+    // `.is('user_id', null)` is the race guard: two people tapping the same open
+    // seat at once means the second update matches no rows.
+    const { data, error: updateError } = await sb.from('game_players').update({
+      user_id: user.id,
+      player_name: draftName.trim() || claiming.player_name,
+      color: draftColor,
+      deck_id: deck?.id || null,
+      deck_name: deck?.name || null,
+      art_crop_url: draftArt || null,
+      claimed_at: new Date().toISOString(),
+    }).eq('id', claiming.id).is('user_id', null).select('id')
+
+    setBusy(false)
+    if (updateError || !data?.length) {
+      setError('Someone just took that seat. Pick another one.')
+      setClaiming(null)
+      load()
+      return
     }
-    setSubmitting(false)
-    setClaimSlot(null)
+    setClaiming(null)
+    load()
   }
 
-  // ── Screens ────────────────────────────────────────────────────────────────
+  // Deck stays changeable after joining: people swap decks between claiming a seat
+  // and actually shuffling up. The host re-reads the seats when saving the result.
+  const changeDeck = async (deckId) => {
+    if (!mine) return
+    const deck = deckId === NO_DECK ? null : decks.find(d => d.id === deckId)
+    setSlots(prev => prev.map(s => (
+      s.id === mine.id ? { ...s, deck_id: deck?.id || null, deck_name: deck?.name || null } : s
+    )))
+    const { error: updateError } = await sb.from('game_players').update({
+      deck_id: deck?.id || null,
+      deck_name: deck?.name || null,
+    }).eq('id', mine.id).eq('user_id', user.id)
+    if (updateError) { setError('Could not save that deck. Try again.'); load() }
+  }
 
+  const leaveSeat = async () => {
+    if (!mine) return
+    setBusy(true)
+    await sb.from('game_players').update({
+      user_id: null, deck_id: null, deck_name: null, claimed_at: null,
+    }).eq('id', mine.id).eq('user_id', user.id)
+    setBusy(false)
+    load()
+  }
+
+  // ── Shells ─────────────────────────────────────────────────────────────────
   if (status === 'loading') return (
-    <div className={styles.page}>
-      <div className={styles.centerBox}>
-        <div className={styles.spinner}><SyncIcon size={22} /></div>
-        <p className={styles.loadingText}>Looking up lobby…</p>
-      </div>
-    </div>
+    <Frame>
+      <div className={styles.spinner}><SyncIcon size={20} /></div>
+      <p className={styles.note}>Looking up the game…</p>
+    </Frame>
   )
 
   if (status === 'notfound') return (
-    <div className={styles.page}>
-      <div className={styles.centerBox}>
-        <div className={styles.bigIcon}>⚠</div>
-        <h2 className={styles.boxTitle}>Lobby Not Found</h2>
-        <p className={styles.boxSub}>
-          The code <strong>{code?.toUpperCase()}</strong> didn't match any open lobby.
-        </p>
-        <Link to="/life" className={styles.backLink}>← Back to Life Tracker</Link>
-      </div>
-    </div>
+    <Frame title="No game with that code">
+      <p className={styles.note}>
+        <strong>{codeUpper}</strong> doesn't match an open game. Codes are six
+        characters and are shown on the host's device.
+      </p>
+      <Link className={styles.link} to="/life">Open the life tracker</Link>
+    </Frame>
   )
 
-  if (status === 'started') return (
-    <div className={styles.page}>
-      <div className={styles.centerBox}>
-        <div className={styles.bigIcon}>⚔</div>
-        <h2 className={styles.boxTitle}>Game Has Started</h2>
-        <p className={styles.boxSub}>The host started the game on the shared device.</p>
-        <Link to="/life" className={styles.backLink}>← Life Tracker</Link>
-      </div>
-    </div>
+  if (session?.status === 'ended') return (
+    <Frame title="That game has finished">
+      <p className={styles.note}>
+        If you had a seat, the result is already on your record.
+      </p>
+      <Link className={styles.link} to="/stats">See your past games</Link>
+    </Frame>
   )
 
-  if (status === 'waiting') return (
-    <div className={styles.page}>
-      <div className={styles.waitBox}>
-        <div className={styles.waitIcon}>⏳</div>
-        <h2 className={styles.boxTitle}>You're In!</h2>
-        <p className={styles.boxSub}>Waiting for the host to start the game…</p>
-        <div className={styles.waitSlots}>
-          {slots.map(s => (
-            <div key={s.id}
-              className={`${styles.waitSlot} ${s.user_id ? styles.waitSlotFilled : ''} ${s.id === mySlotId ? styles.waitSlotMine : ''}`}
-              style={{ '--pc': s.color }}>
-              <span className={styles.waitSlotDot} style={{ background: s.color }} />
-              <span className={styles.waitSlotName}>{s.player_name}</span>
-              {s.deck_name && <span className={styles.waitSlotDeck}>{s.deck_name}</span>}
-              <span className={styles.waitSlotStatus}>
-                {s.user_id ? '✓' : '…'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-
-  if (status === 'claiming') return (
-    <div className={styles.page}>
-      <div className={styles.claimBox}>
-        <button className={styles.claimBack} onClick={() => setStatus('lobby')}>←</button>
-        <h2 className={styles.claimTitle}>Join as Player {(claimSlot?.slot_index ?? 0) + 1}</h2>
-
-        <label className={styles.claimLabel}>Your Name</label>
-        <input className={styles.claimInput}
-          value={claimName}
-          onChange={e => setClaimName(e.target.value)}
-          maxLength={24}
-          autoFocus />
-
-        <label className={styles.claimLabel}>Color</label>
-        <div className={styles.claimColors}>
-          {PLAYER_COLORS.map(c => (
-            <button key={c}
-              className={`${styles.claimColorDot} ${claimColor === c ? styles.claimColorActive : ''}`}
-              style={{ background: c }}
-              onClick={() => setClaimColor(c)} />
-          ))}
-        </div>
-
-        {decks.length > 0 && (
-          <>
-            <label className={styles.claimLabel}>
-              Deck <span className={styles.claimOptional}>(optional)</span>
-            </label>
-            <ResponsiveMenu
-              title="Select Deck"
-              align="left"
-              wrapClassName={styles.claimDeckWrap}
-              trigger={() => (
-              <button
-                className={`${styles.claimDeckBtn} ${deckOpen ? styles.claimDeckBtnOpen : ''}`}
-                onClick={() => setDeckOpen(v => !v)}>
-                <span className={styles.claimDeckVal}>{claimDeckName || '— No deck —'}</span>
-                <span>{deckOpen ? '▲' : '▼'}</span>
-              </button>
-              )}
-            >
-              {deckOpen && (
-                <div className={styles.claimDeckMenu}>
-                  <button className={styles.claimDeckItem}
-                    onClick={() => { setClaimDeckId(null); setClaimDeckName(null); setDeckOpen(false) }}>
-                    — No deck —
-                  </button>
-                  {decks.map(d => (
-                    <button key={d.id}
-                      className={`${styles.claimDeckItem} ${claimDeckId === d.id ? styles.claimDeckItemActive : ''}`}
-                      onClick={() => { setClaimDeckId(d.id); setClaimDeckName(d.name); setDeckOpen(false) }}>
-                      <span>{d.name}</span>
-                      {d.type === 'builder_deck' && <span className={styles.claimDeckBadge}>builder</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </ResponsiveMenu>
-          </>
-        )}
-
-        <label className={styles.claimLabel}>
-          Background Art <span className={styles.claimOptional}>(optional)</span>
-        </label>
-        <div className={styles.artPickerWrap}>
-          {claimArtUrl && (
-            <div className={styles.artPreviewRow}>
-              <img src={claimArtUrl} className={styles.artPreviewThumb} alt="bg art" />
-              <button className={styles.artClearBtn} onClick={() => setClaimArtUrl(null)}><CloseIcon size={13} /></button>
-            </div>
-          )}
-          <button className={styles.artSearchToggle} onClick={() => setShowArtPicker(v => !v)}>
-            {showArtPicker ? '▲ Hide search' : '🖼 Search card art'}
-          </button>
-          {showArtPicker && (
-            <div className={styles.artSearchBox}>
-              <div className={styles.artSearchRow}>
-                <input
-                  className={styles.artSearchInput}
-                  placeholder="Card name…"
-                  value={artQuery}
-                  onChange={e => handleArtQueryChange(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') { clearTimeout(artTimerRef.current); searchArt() } }}
-                />
-                {artLoading && <span style={{ alignSelf: 'center', color: 'var(--text-faint)', fontSize: '0.88rem' }}>…</span>}
-              </div>
-              {artResults.length > 0 && (
-                <div className={styles.artGrid}>
-                  {artResults.map(c => (
-                    <button key={c.id} className={`${styles.artItem} ${claimArtUrl === c.image_uris.art_crop ? styles.artItemActive : ''}`}
-                      onClick={() => { setClaimArtUrl(c.image_uris.art_crop); setShowArtPicker(false) }}>
-                      <img src={c.image_uris.art_crop} alt={c.name} />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className={styles.claimActions}>
-          <button className={styles.claimCancelBtn} onClick={() => setStatus('lobby')}>Back</button>
-          <button className={styles.claimConfirmBtn} onClick={submitClaim} disabled={submitting || !claimName.trim()}>
-            {submitting ? 'Joining…' : 'Confirm →'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-
-  // ── Lobby view (status === 'lobby') ────────────────────────────────────────
   if (!user) return (
-    <div className={styles.page}>
-      <div className={styles.centerBox}>
-        <div className={styles.bigIcon}>🔐</div>
-        <h2 className={styles.boxTitle}>Log In to Join</h2>
-        <p className={styles.boxSub}>You need a DeckLoom account to join a lobby.</p>
-        <Link to="/login" className={styles.loginLink}>Log In →</Link>
-      </div>
-    </div>
+    <Frame title="Sign in to join">
+      <p className={styles.note}>
+        A DeckLoom account is what the result gets saved to, so joining needs one.
+      </p>
+      <Link className={styles.link} to="/">Sign in</Link>
+    </Frame>
   )
 
-  return (
-    <div className={styles.page}>
-      <div className={styles.lobbyView}>
-        <div className={styles.lobbyHeader}>
-          <Link to="/life" className={styles.lobbyBack}>← Life Tracker</Link>
-          <div className={styles.lobbyMeta}>
-            <span className={styles.lobbyMetaMode}>{MODE_LABELS[session.mode] || session.mode}</span>
-            <span className={styles.lobbyMetaPlayers}>{session.player_count} players</span>
+  const formatLabel = LIFE_FORMATS[session.mode]?.label || session.mode
+  const started = session.status === 'playing'
+
+  // ── Claim form ─────────────────────────────────────────────────────────────
+  if (claiming) {
+    if (showArt) return (
+      <Frame title="Background art" eyebrow={`Seat ${claiming.slot_index + 1}`}>
+        <ArtPicker value={draftArt} autoFocus
+          onSelect={url => { setDraftArt(url); setShowArt(false) }} />
+        <div className={styles.actions}>
+          <Button variant="ghost" block onClick={() => setShowArt(false)}>Back</Button>
+          {draftArt && (
+            <Button variant="danger" block onClick={() => { setDraftArt(null); setShowArt(false) }}>
+              Remove
+            </Button>
+          )}
+        </div>
+      </Frame>
+    )
+
+    return (
+      <Frame title={`Take seat ${claiming.slot_index + 1}`} eyebrow={formatLabel}>
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="join-name">Your name</label>
+          <input id="join-name" className={styles.input} value={draftName} maxLength={24}
+            onChange={e => setDraftName(e.target.value)} autoFocus />
+        </div>
+
+        <div className={styles.field}>
+          <span className={styles.label}>Colour</span>
+          <div className={styles.swatches}>
+            {PLAYER_COLORS.map(color => (
+              <button key={color} type="button" className={styles.swatch}
+                style={{ '--sw': color }}
+                data-active={draftColor === color ? 'true' : undefined}
+                aria-label={`Colour ${color}`} aria-pressed={draftColor === color}
+                onClick={() => setDraftColor(color)} />
+            ))}
           </div>
         </div>
 
-        <div className={styles.lobbyHero}>
-          <span className={styles.lobbyHeroGlyph}>♥</span>
-          <h1 className={styles.lobbyTitle}>Pick Your Seat</h1>
-          <p className={styles.lobbySub}>Tap an open seat to join the game</p>
-        </div>
-
-        <div className={styles.lobbySlots}>
-          {slots.map(s => {
-            const isMine  = s.user_id === user?.id
-            const isTaken = s.user_id && !isMine
-            const canClaim = !isTaken && !mySlotId
-            return (
-              <button key={s.id}
-                className={`${styles.lobbySlot}
-                  ${isTaken  ? styles.lobbySlotTaken  : ''}
-                  ${isMine   ? styles.lobbySlotMine   : ''}
-                  ${canClaim ? styles.lobbySlotOpen   : ''}`}
-                style={{ '--pc': s.color }}
-                onClick={() => canClaim && openClaim(s)}
-                disabled={!canClaim}>
-                <span className={styles.lobbySlotDot} style={{ background: s.color }} />
-                <div className={styles.lobbySlotInfo}>
-                  <div className={styles.lobbySlotName}>{s.player_name}</div>
-                  <div className={styles.lobbySlotSub}>
-                    {isMine   ? '✓ You'       :
-                     isTaken  ? 'Taken'        :
-                     s.deck_name ? `🃏 ${s.deck_name}` : 'Tap to claim'}
-                  </div>
-                </div>
-                {canClaim && <span className={styles.lobbySlotArrow}>→</span>}
-                {(isMine || isTaken) && <span className={styles.lobbySlotCheck}><CheckIcon size={14} /></span>}
-              </button>
-            )
-          })}
-        </div>
-
-        {mySlotId && (
-          <p className={styles.lobbyWaiting}>
-            ✓ You've joined! Waiting for the host to start…
-          </p>
+        {decks.length > 0 && (
+          <div className={styles.field}>
+            <span className={styles.label}>Deck</span>
+            <Select value={draftDeck} onChange={e => setDraftDeck(e.target.value)} searchable
+              title="Select your deck">
+              <option value={NO_DECK}>— No deck —</option>
+              {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+            </Select>
+            <p className={styles.hint}>The win or loss saves to this deck. You can change it later.</p>
+          </div>
         )}
+
+        <div className={styles.field}>
+          <span className={styles.label}>Background art</span>
+          <div className={styles.artRow}>
+            {draftArt && <img className={styles.artThumb} src={draftArt} alt="" />}
+            <Button variant="secondary" onClick={() => setShowArt(true)}>
+              {draftArt ? 'Change art' : 'Choose art'}
+            </Button>
+          </div>
+          <p className={styles.hint}>Shows behind your life total on the host's device.</p>
+        </div>
+
+        <ErrorBox>{error}</ErrorBox>
+
+        <div className={styles.actions}>
+          <Button variant="ghost" onClick={() => setClaiming(null)} disabled={busy}>Back</Button>
+          <Button variant="primary" block onClick={submitClaim}
+            disabled={busy || !draftName.trim()}>
+            {busy ? 'Joining…' : 'Take this seat'}
+          </Button>
+        </div>
+      </Frame>
+    )
+  }
+
+  // ── Joined ─────────────────────────────────────────────────────────────────
+  if (mine) return (
+    <Frame title="You're in" eyebrow={`Game ${session.code}`}>
+      <div className={styles.mine}>
+        <span className={styles.mineSeat}>Seat {mine.slot_index + 1}</span>
+        <span className={styles.mineName}>
+          <span className={styles.dot} style={{ '--sw': mine.color }} />
+          {mine.player_name}
+        </span>
+      </div>
+
+      {decks.length > 0 ? (
+        <div className={styles.field}>
+          <span className={styles.label}>Your deck</span>
+          <Select value={mine.deck_id || NO_DECK} onChange={e => changeDeck(e.target.value)}
+            searchable title="Select your deck">
+            <option value={NO_DECK}>— No deck —</option>
+            {decks.map(deck => <option key={deck.id} value={deck.id}>{deck.name}</option>)}
+          </Select>
+        </div>
+      ) : (
+        <p className={styles.note}>
+          You have no decks yet, so this game saves without deck win rates.
+        </p>
+      )}
+
+      <p className={styles.note}>
+        {started
+          ? 'The game is underway. Life is tracked on the host\'s device — your result saves to this deck when it ends.'
+          : 'Life is tracked on the host\'s device. Your result saves to this deck when the game ends.'}
+        {' '}You can change your deck right up until then, then put your phone away.
+      </p>
+
+      <div className={styles.roster}>
+        {slots.map(slot => (
+          <div key={slot.id} className={styles.slot}
+            data-claimed={slot.user_id ? 'true' : undefined}
+            data-mine={slot.id === mine.id ? 'true' : undefined}>
+            <span className={styles.dot} style={{ '--sw': slot.color }} />
+            <span className={styles.slotName}>{slot.player_name}</span>
+            <span className={styles.slotMeta}>{slot.deck_name || (slot.user_id ? 'No deck' : 'Open')}</span>
+            {slot.user_id && <CheckIcon size={13} />}
+          </div>
+        ))}
+      </div>
+
+      <ErrorBox>{error}</ErrorBox>
+
+      <div className={styles.actions}>
+        <Link className={styles.link} to="/life">Open my life tracker</Link>
+        {!started && (
+          <Button variant="ghost" onClick={leaveSeat} disabled={busy}>Leave the game</Button>
+        )}
+      </div>
+    </Frame>
+  )
+
+  // ── Roster (not yet claimed) ───────────────────────────────────────────────
+  return (
+    <Frame title="Pick your seat" eyebrow={`${formatLabel} · Game ${session.code}`}>
+      <p className={styles.note}>
+        Life is tracked on the host's device. You're joining so this game's result
+        saves to your deck.
+      </p>
+
+      {started && (
+        <p className={styles.warn}>
+          The game has already started. You can still take an open seat — the host
+          picks up your deck when they save the result.
+        </p>
+      )}
+
+      <div className={styles.roster}>
+        {slots.map(slot => {
+          const taken = !!slot.user_id
+          return (
+            <button key={slot.id} type="button" className={styles.slotBtn}
+              data-claimed={taken ? 'true' : undefined}
+              disabled={taken}
+              onClick={() => openClaim(slot)}>
+              <span className={styles.dot} style={{ '--sw': slot.color }} />
+              <span className={styles.slotName}>{slot.player_name}</span>
+              <span className={styles.slotMeta}>
+                {taken ? (slot.deck_name || 'Taken') : 'Tap to take'}
+              </span>
+              {taken ? <CheckIcon size={13} /> : <PlayerIcon size={13} />}
+            </button>
+          )
+        })}
+      </div>
+
+      <ErrorBox>{error}</ErrorBox>
+      <Link className={styles.link} to="/life">Open my life tracker instead</Link>
+    </Frame>
+  )
+}
+
+function Frame({ title, eyebrow, children }) {
+  return (
+    <div className={styles.page}>
+      <div className={styles.card}>
+        {eyebrow && <span className={styles.eyebrow}>{eyebrow}</span>}
+        {title && <h1 className={styles.title}>{title}</h1>}
+        {children}
       </div>
     </div>
   )

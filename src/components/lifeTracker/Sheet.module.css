@@ -1,0 +1,146 @@
+/* Sheet — the shared bottom-sheet shell for the life tracker.
+ * Sticky header + internally scrolling body, so a long list never pushes the
+ * title off screen. All colour via tokens; the sheet is normal app chrome, unlike
+ * the seats it opens over. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  /* Above the game table (300) but below the app's portaled popovers (750). */
+  z-index: 420;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.62);
+  padding: 0;
+  animation: overlayIn 0.16s ease-out;
+}
+
+/* A seat rotated 180° sits on the far edge of the device, so its sheet opens at
+ * that edge and reads the right way up for the person it belongs to. */
+.overlay[data-flip='true'] { justify-content: flex-start; }
+.overlay[data-flip='true'] .sheet {
+  transform: rotate(180deg);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  animation-name: sheetInFlipped;
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 88vh;
+  max-height: 88dvh;
+  overflow: hidden;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.4);
+  animation: sheetIn 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes sheetIn {
+  from { transform: translateY(14px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+@keyframes sheetInFlipped {
+  from { transform: rotate(180deg) translateY(14px); opacity: 0; }
+  to   { transform: rotate(180deg) translateY(0); opacity: 1; }
+}
+
+/* On a tablet or desktop the sheet becomes a centred dialog — a full-width strip
+ * across 1200px of screen is a waste of the space and hard to scan. */
+@media (min-width: 720px) {
+  .overlay { justify-content: center; align-items: center; padding: 24px; }
+  .overlay[data-flip='true'] { justify-content: center; }
+  .sheet {
+    width: min(100%, 520px);
+    max-height: 84vh;
+    border-bottom: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+  }
+  .overlay[data-flip='true'] .sheet { border-radius: var(--radius-xl); }
+  .sheet[data-size='lg'] { width: min(100%, 680px); }
+}
+
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--s-border);
+}
+
+.titleBlock { flex: 1; min-width: 0; }
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-lg);
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.subtitle {
+  margin: 3px 0 0;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+}
+
+.close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s-subtle);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.16s ease;
+}
+
+.close:focus-visible { outline: 2px solid var(--border-hi); outline-offset: 1px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .close:hover {
+    border-color: var(--border-hi);
+    background: var(--s-medium);
+    color: var(--text);
+  }
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.footer {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--s-border);
+  background: var(--bg2);
+}
+
+/* The flipped sheet's safe-area padding belongs on the other edge. */
+.overlay[data-flip='true'] .footer {
+  padding-bottom: 12px;
+  padding-top: calc(12px + env(safe-area-inset-bottom, 0px));
+}

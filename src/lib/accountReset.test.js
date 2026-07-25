@@ -71,6 +71,7 @@ describe('reconcileActiveUser', () => {
       arcanevault_recently_viewed: '[]',
       av_tournaments_v1: '[]',
       av_game_history: '[]',
+      av_life_game_v2: '{"savedAt":1,"game":{"players":[]}}',
       [`arcanevault_unlocked_milestones_${USER_A}`]: '["first"]',
       // Device-level caches that must survive the switch:
       av_scryfall_sets: 'cached',
@@ -93,6 +94,8 @@ describe('reconcileActiveUser', () => {
     expect(store.has('arcanevault_recently_viewed')).toBe(false)
     expect(store.has('av_tournaments_v1')).toBe(false)
     expect(store.has('av_game_history')).toBe(false)
+    // An in-progress game holds the previous account's seat user_ids and deck_ids.
+    expect(store.has('av_life_game_v2')).toBe(false)
     expect(store.has(`arcanevault_unlocked_milestones_${USER_A}`)).toBe(false)
     // ...device-level caches survive.
     expect(store.get('av_scryfall_sets')).toBe('cached')
