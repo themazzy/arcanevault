@@ -107,4 +107,6 @@
 .text { flex: 1; font-size: 0.84rem; line-height: 1.4; color: var(--text); }
 .text strong { font-weight: 600; }
 .deck { color: var(--gold); }
+/* Milestone rows lead with the milestone's emoji instead of an actor name. */
+.milestoneIcon { margin-right: 6px; }
 .time { flex: 0 0 auto; font-size: 0.7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }

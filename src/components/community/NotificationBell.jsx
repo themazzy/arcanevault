@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMyNotifications, getUnreadNotificationCount, markAllNotificationsRead } from '../../lib/community'
+import { MILESTONES } from '../../lib/milestones'
+import { useSettings } from '../SettingsContext'
 import { BellIcon } from '../../icons'
 import styles from './NotificationBell.module.css'
 
@@ -14,12 +16,15 @@ function timeAgo(iso) {
 
 const VERB = { like: 'liked', comment: 'commented on', follow: 'started following you', trade_proposal: 'sent you a trade proposal' }
 
+const MILESTONE_BY_ID = new Map(MILESTONES.map(m => [m.id, m]))
+
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [unread, setUnread] = useState(0)
   const [notes, setNotes] = useState(null)   // null = not loaded
   const wrapRef = useRef(null)
   const navigate = useNavigate()
+  const { nickname } = useSettings()
 
   const refreshCount = useCallback(() => {
     getUnreadNotificationCount().then(setUnread).catch(() => {})
@@ -53,7 +58,10 @@ export default function NotificationBell() {
 
   const go = (n) => {
     setOpen(false)
-    if (n.type === 'trade_proposal') {
+    if (n.type === 'milestone') {
+      // The milestones block lives on the owner's own profile.
+      if (nickname) navigate(`/profile/${encodeURIComponent(nickname)}`)
+    } else if (n.type === 'trade_proposal') {
       navigate('/trading?tab=proposals')
     } else if (n.type === 'follow') {
       if (n.actor_name) navigate(`/profile/${encodeURIComponent(n.actor_name)}`)
@@ -75,20 +83,32 @@ export default function NotificationBell() {
           {notes === null ? (
             <div className={styles.empty}>Loading…</div>
           ) : notes.length === 0 ? (
-            <div className={styles.empty}>Nothing yet. Likes, comments and follows show up here.</div>
+            <div className={styles.empty}>Nothing yet. Milestones, likes, comments and follows show up here.</div>
           ) : (
             <ul className={styles.list}>
-              {notes.map(n => (
-                <li key={n.id}>
-                  <button className={`${styles.item} ${n.read ? '' : styles.itemUnread}`} onClick={() => go(n)}>
-                    <span className={styles.text}>
-                      <strong>{n.actor_name || 'Someone'}</strong> {VERB[n.type] || 'interacted'}
-                      {n.type !== 'follow' && n.deck_name ? <> <span className={styles.deck}>{n.deck_name}</span></> : null}
-                    </span>
-                    <span className={styles.time}>{timeAgo(n.created_at)}</span>
-                  </button>
-                </li>
-              ))}
+              {notes.map(n => {
+                const milestone = n.type === 'milestone' ? MILESTONE_BY_ID.get(n.milestone_id) : null
+                return (
+                  <li key={n.id}>
+                    <button className={`${styles.item} ${n.read ? '' : styles.itemUnread}`} onClick={() => go(n)}>
+                      <span className={styles.text}>
+                        {n.type === 'milestone' ? (
+                          <>
+                            <span className={styles.milestoneIcon}>{milestone?.icon || '🏆'}</span>
+                            Milestone unlocked — <strong>{milestone?.label || 'New milestone'}</strong>
+                          </>
+                        ) : (
+                          <>
+                            <strong>{n.actor_name || 'Someone'}</strong> {VERB[n.type] || 'interacted'}
+                            {n.type !== 'follow' && n.deck_name ? <> <span className={styles.deck}>{n.deck_name}</span></> : null}
+                          </>
+                        )}
+                      </span>
+                      <span className={styles.time}>{timeAgo(n.created_at)}</span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>

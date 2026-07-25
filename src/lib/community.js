@@ -83,3 +83,15 @@ export async function markAllNotificationsRead() {
   const { error } = await sb.rpc('mark_all_notifications_read')
   if (error) throw error
 }
+
+// Milestone unlocks are detected client-side, so unlike social notifications
+// the client writes these rows itself (RLS only lets it insert milestone rows
+// addressed to itself). `ignoreDuplicates` + the (user_id, milestone_id) unique
+// index means two devices spotting the same unlock produce one notification.
+export async function recordMilestoneNotifications(userId, milestoneIds) {
+  if (!userId || !milestoneIds?.length) return
+  const rows = milestoneIds.map(id => ({ user_id: userId, type: 'milestone', milestone_id: id }))
+  const { error } = await sb.from('notifications')
+    .upsert(rows, { onConflict: 'user_id,milestone_id', ignoreDuplicates: true })
+  if (error) throw error
+}

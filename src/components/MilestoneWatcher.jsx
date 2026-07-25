@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { useAuth } from './Auth'
 import { useSettings } from './SettingsContext'
-import { useToast } from './ToastContext'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
+import { recordMilestoneNotifications } from '../lib/community'
 import { getLocalCards, getLocalFolders } from '../lib/db'
 
 function parseFolderMeta(description) {
@@ -58,7 +58,6 @@ function buildMilestoneShape(cards, folders, settings) {
 export default function MilestoneWatcher() {
   const { user } = useAuth()
   const settings = useSettings()
-  const { showToast } = useToast()
   const nickname = settings?.nickname
   const profileConfig = settings?.profile_config
 
@@ -78,14 +77,14 @@ export default function MilestoneWatcher() {
           stats: data.stats,
           profile: data.profile,
           userId: user.id,
-          showToast,
+          onUnlock: ids => recordMilestoneNotifications(user.id, ids).catch(() => {}),
         })
       } catch {}
     }
 
     const t = setTimeout(run, 2500)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [user?.id, nickname, profileConfig, showToast])
+  }, [user?.id, nickname, profileConfig])
 
   return null
 }

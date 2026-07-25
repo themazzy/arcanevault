@@ -11,10 +11,9 @@ import { Select } from '../components/UI'
 import { MILESTONES } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import FollowButton from '../components/community/FollowButton'
-import { getUserFollowStats } from '../lib/community'
+import { getUserFollowStats, recordMilestoneNotifications } from '../lib/community'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
 import { deckBracketBadge } from '../lib/commanderBracket'
-import { useToast } from '../components/ToastContext'
 import {
   DndContext,
   DragOverlay,
@@ -1037,12 +1036,18 @@ export default function ProfilePage() {
       .catch(() => {})
   }, [isOwn, user?.id, savedFeaturedDeckId])
 
-  const { showToast } = useToast()
-
   // Track milestone earn dates for owner
   useEffect(() => {
     if (!isOwn || !user || !profile?.stats) return
-    checkAndNotifyMilestones({ stats: profile.stats, profile, userId: user.id, showToast })
+    // Profile stats are richer than the watcher's IDB-derived shape (collection
+    // value, game stats), so this catches milestones the watcher can't see.
+    // Unlocks go to the notification bell, not a toast.
+    checkAndNotifyMilestones({
+      stats: profile.stats,
+      profile,
+      userId: user.id,
+      onUnlock: ids => recordMilestoneNotifications(user.id, ids).catch(() => {}),
+    })
     const cfg      = profile.bento_config || {}
     const earnedAt = cfg.milestone_earned_at || {}
     const now      = new Date().toISOString()

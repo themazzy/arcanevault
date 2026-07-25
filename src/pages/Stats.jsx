@@ -17,6 +17,7 @@ import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deck
 import { MILESTONES } from '../lib/milestones'
 import { cardDayChange } from '../lib/dayChange'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
+import { recordMilestoneNotifications } from '../lib/community'
 import { useToast } from '../components/ToastContext'
 import { ChevronDownIcon, ChevronUpIcon } from '../icons'
 import {
@@ -742,7 +743,6 @@ function ColorDistributionBars({ byColor, totalQty }) {
 
 function MilestonesSection({ stats, historyRows, publicDeckCount }) {
   const { user } = useAuth()
-  const { showToast } = useToast()
   const statsShape = useMemo(() => ({
     total_cards: stats.totalQty,
     unique_cards: stats.uniqueCards,
@@ -764,8 +764,14 @@ function MilestonesSection({ stats, historyRows, publicDeckCount }) {
   const pending = useMemo(() => MILESTONES.filter(m => !m.check(statsShape, profileShape)), [statsShape, profileShape])
 
   useEffect(() => {
-    checkAndNotifyMilestones({ stats: statsShape, profile: profileShape, userId: user?.id, showToast })
-  }, [statsShape, profileShape, user?.id, showToast])
+    if (!user?.id) return
+    checkAndNotifyMilestones({
+      stats: statsShape,
+      profile: profileShape,
+      userId: user.id,
+      onUnlock: ids => recordMilestoneNotifications(user.id, ids).catch(() => {}),
+    })
+  }, [statsShape, profileShape, user?.id])
 
   return (
     <div className={styles.chartBox}>
