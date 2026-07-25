@@ -293,6 +293,64 @@ export function buildSyncDiff({ baseline, builderCards, collectionCards }) {
   return { builderOnly, collectionOnly, conflicts }
 }
 
+/**
+ * The current state of both sides, in the shape buildSyncDiff expects as a baseline.
+ * Used to record "these two agree right now" as the new reference point.
+ */
+export function buildPairSnapshot({ builderCards, collectionCards }) {
+  return {
+    builder_cards: normalizeBuilderCards(builderCards || []),
+    collection_cards: normalizeCollectionAllocations(collectionCards || [])
+      .map(({ allocations: _allocations, ...rest }) => rest),
+  }
+}
+
+/** Does either side still claim to be out of sync? */
+export function hasStaleUnsyncedFlag(...metas) {
+  return metas.some(meta => {
+    const state = getSyncState(meta)
+    return !!(state.unsynced_builder || state.unsynced_collection)
+  })
+}
+
+/**
+ * Clear an unsynced flag that a fresh comparison has disproved.
+ *
+ * `unsynced_builder` / `unsynced_collection` are a cached hint, written whenever
+ * drift becomes possible — at link time, or on an edit to either side. Until now
+ * they were only ever cleared by persistLinkedSyncSnapshot, which runs after an
+ * apply. So a pair whose sides had converged (or were never actually different) kept
+ * its badge forever: opening the sync review reported no changes, there was nothing
+ * to apply, and nothing wrote the flag back down.
+ *
+ * Recording the snapshot as well as clearing the flags matters, because these pairs
+ * have last_sync_snapshot: null — with no baseline every future comparison starts
+ * from scratch.
+ *
+ * @returns {Promise<object|null>} persisted metas, or null when there was nothing to fix
+ */
+export async function reconcileCleanPair({ builderDeckId, collectionDeckId, snapshot }) {
+  if (!builderDeckId || !collectionDeckId) return null
+
+  const rows = await fetchLinkedDeckPair(builderDeckId, collectionDeckId)
+  const builder = rows.find(row => row.id === builderDeckId)
+  const collection = rows.find(row => row.id === collectionDeckId)
+  if (!builder || !collection) return null
+
+  const builderMeta = parseDeckMeta(builder.description)
+  const collectionMeta = parseDeckMeta(collection.description)
+  if (!hasStaleUnsyncedFlag(builderMeta, collectionMeta)) return null
+
+  return persistLinkedSyncSnapshot({
+    builderDeckId,
+    collectionDeckId,
+    builderMeta,
+    collectionMeta,
+    snapshot,
+    hasUnresolved: false,
+  })
+}
+
 export function summarizeSyncDiff(diff) {
   const total = (diff?.builderOnly?.length || 0) + (diff?.collectionOnly?.length || 0) + (diff?.conflicts?.length || 0)
   return {

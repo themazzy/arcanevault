@@ -25,7 +25,7 @@ import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFo
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
-import { getSyncState, unlinkPairedDeck } from '../lib/deckSync'
+import { getLinkedDeckIds, getSyncState, unlinkPairedDeck } from '../lib/deckSync'
 import { trackActivity } from '../lib/activity'
 import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
 
@@ -379,7 +379,10 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
   const bgUrl  = useMemo(() => parseBgUrl(folder.description), [folder.description])
   const tradeBinder = isTradeBinder(folder)
   const syncState = folder.type === 'deck' ? getSyncState(folder) : null
-  const unsynced = !!(syncState?.unsynced_builder || syncState?.unsynced_collection)
+  // Gate on an actual link, matching Builder.jsx's tile: with no counterpart there is
+  // nothing to sync, so a leftover flag would show a badge that can never clear.
+  const isLinked = !!getLinkedDeckIds(folder).linkedBuilderId
+  const unsynced = isLinked && !!(syncState?.unsynced_builder || syncState?.unsynced_collection)
   const [menuOpen, setMenuOpen] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameVal, setRenameVal] = useState('')

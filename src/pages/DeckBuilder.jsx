@@ -56,6 +56,7 @@ import { getCardLegalityWarnings } from '../lib/deckLegality'
 import { comboInColorIdentity } from '../lib/deckBuildAssistant'
 import { useDeckCardLegalityWarnings } from '../lib/useDeckWarnings'
 import {
+  buildPairSnapshot,
   buildSyncDiff,
   buildSyncSnapshot,
   getSyncState,
@@ -65,6 +66,7 @@ import {
   persistLinkedSyncSnapshot,
   setLinkedDeckBracket,
   setLinkedDeckVisibility,
+  reconcileCleanPair,
   summarizeSyncDiff,
   unlinkPairedDeck,
   withLinkedPair,
@@ -730,6 +732,9 @@ export default function DeckBuilderPage() {
   const [recsOwnedOnly, setRecsOwnedOnly] = useState(false)
   const [collapsedCats, setCollapsedCats] = useState(new Set())
   const recsLoadedForRef = useRef(null) // track {commanderName, formatId} the current recs were loaded for
+  // Pair already reconciled this mount, so a clean diff doesn't re-read the folders
+  // on every deck edit.
+  const reconciledPairRef = useRef(null)
 
   // Collection
   const [ownedMap,       setOwnedMap]       = useState(new Map())
@@ -4146,6 +4151,35 @@ export default function DeckBuilderPage() {
         })
         const summary = summarizeSyncDiff(diff)
         if (!cancelled) setSyncStatus({ loading: false, dirty: summary.dirty, count: summary.total, unavailable: false, diff })
+
+        // The sides agree, so a lingering "unsynced" flag is simply wrong — clear it
+        // and record this state as the baseline. Without this the badge on /decks
+        // survives forever: the review reports no changes, so there is nothing to
+        // apply, and only an apply used to write the flag back down.
+        const builderPairId = isCollectionDeck ? (deckMeta.linked_builder_id || null) : deckId
+        const pairKey = `${builderPairId}:${targetDeckId}`
+        if (!cancelled && !summary.dirty && builderPairId && reconciledPairRef.current !== pairKey) {
+          reconciledPairRef.current = pairKey
+          try {
+            const reconciled = await reconcileCleanPair({
+              builderDeckId: builderPairId,
+              collectionDeckId: targetDeckId,
+              snapshot: buildPairSnapshot({
+                builderCards: deckCards.filter(card => normalizeBoard(card.board) !== 'maybe'),
+                collectionCards: currentAllocations || [],
+              }),
+            })
+            if (reconciled && !cancelled) {
+              setDeckMeta(isCollectionDeck ? reconciled.collectionNext : reconciled.builderNext)
+              // /decks reads sync_state off the cached folder row, so its badge only
+              // disappears once that cache is refreshed.
+              await invalidateCollectionPlacementQueries({ includeFolders: true })
+            }
+          } catch (err) {
+            // Cosmetic cleanup — never let it break the sync indicator.
+            console.warn('[DeckBuilder] could not clear stale sync flag:', err?.message || err)
+          }
+        }
       } catch {
         if (!cancelled) setSyncStatus({ loading: false, dirty: false, count: 0, unavailable: true })
       }
@@ -4155,7 +4189,8 @@ export default function DeckBuilderPage() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [deckCards, syncSnapshotKey, linkedDeckId, deckId, isCollectionDeck, user?.id])
+  }, [deckCards, syncSnapshotKey, linkedDeckId, deckId, isCollectionDeck, user?.id,
+      deckMeta.linked_builder_id, invalidateCollectionPlacementQueries])
 
   useEffect(() => {
     if (!location.state?.openSync) return
