@@ -16,7 +16,7 @@ import { CardBrowserViewControls, CardBrowserContent } from '../components/CardB
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
-import { buildSyncDiff, getSyncState, isUniqueNameConflict, linkDeckPair, markLinkedPairUnsynced, resolveBuilderNameConflict, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
+import { buildPairSnapshot, buildSyncDiff, getSyncState, isUniqueNameConflict, linkDeckPair, markLinkedPairUnsynced, reconcileCleanPair, resolveBuilderNameConflict, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import { lastInputWasTouch } from '../lib/inputType'
@@ -652,6 +652,8 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
   const [syncCheck, setSyncCheck] = useState({ loading: false, dirty: false, count: 0, unavailable: false })
   const linkedBuilderIdRef = useRef(parseDeckMeta(folder?.description || '{}').linked_builder_id || null)
   const isUnsyncedRef = useRef(false)
+  // Pair already reconciled this mount — a clean diff must not re-write on every pass.
+  const reconciledPairRef = useRef(null)
   const deckMeta = useMemo(() => parseDeckMeta(folderDescription || '{}'), [folderDescription])
   const syncState = getSyncState(deckMeta)
   const isCheckingLinkedSync = !!deckMeta.linked_builder_id && syncCheck.loading
@@ -985,13 +987,27 @@ export default function DeckBrowser({ folder, onBack, onDelete }) {
         const diff = buildSyncDiff({ baseline, builderCards, collectionCards })
         const summary = summarizeSyncDiff(diff)
         setSyncCheck({ loading: false, dirty: summary.dirty, count: summary.total, unavailable: false })
+
+        // isUnsynced ORs this fresh result with the stored flag, so a clean diff
+        // alone cannot get the button out of its "Unsynced changes" state — the
+        // stored flag has to be corrected. This page already has both sides loaded,
+        // so it reconciles here rather than making the user visit the Builder first.
+        if (!summary.dirty && reconciledPairRef.current !== builderId) {
+          reconciledPairRef.current = builderId
+          const reconciled = await reconcileCleanPair({
+            builderDeckId: builderId,
+            collectionDeckId: folder.id,
+            snapshot: buildPairSnapshot({ builderCards, collectionCards }),
+          })
+          if (reconciled && !cancelled) await invalidatePlacementCaches({ includeFolders: true })
+        }
       } catch {
         if (!cancelled) setSyncCheck({ loading: false, dirty: false, count: 0, unavailable: true })
       }
     }
     checkLinkedSync()
     return () => { cancelled = true }
-  }, [folder.id, folderDescription])
+  }, [folder.id, folderDescription, invalidatePlacementCaches])
 
   // "Move to" dropdown — read from IDB first; fall back to Supabase if IDB is
   // empty (e.g. user landed on a deck page without visiting Collection first).
