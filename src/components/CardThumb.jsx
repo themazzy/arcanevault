@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { scryfallImageUrlFromId } from '../lib/scryfall'
+import { scryfallImageUrlFromId, pickImageTier } from '../lib/scryfall'
+import { useDevicePixelRatio } from '../hooks/useDevicePixelRatio'
 import { lastInputWasTouch } from '../lib/inputType'
 import styles from './CardThumb.module.css'
 
@@ -22,9 +23,15 @@ const CAN_HOVER = typeof window !== 'undefined'
  * variant's aspect ratio (for responsive grid tiles). Both preview the full
  * `normal` card image.
  */
-export default function CardThumb({ scryfallId, name, size = 40, variant = 'art', fill = false }) {
+export default function CardThumb({ scryfallId, name, size = 40, variant = 'art', fill = false, renderWidth }) {
   const isCard = variant === 'card'
-  const thumb = scryfallImageUrlFromId(scryfallId, isCard ? 'small' : 'art_crop')
+  const dpr = useDevicePixelRatio()
+  // `art_crop` has no size tiers, so only the full-card variant has a choice to
+  // make. `fill` stretches to the parent, whose width only the caller knows —
+  // hence `renderWidth`. Without it a 190px picker tile was served the 146px
+  // `small` and upscaled.
+  const cardTier = pickImageTier(renderWidth ?? size, dpr)
+  const thumb = scryfallImageUrlFromId(scryfallId, isCard ? cardTier : 'art_crop')
   const full = scryfallImageUrlFromId(scryfallId, 'normal')
   const w = size
   const h = isCard ? Math.round(size * 7 / 5) : size

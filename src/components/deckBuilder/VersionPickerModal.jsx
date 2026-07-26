@@ -11,6 +11,10 @@ import { Button, useModalKeys } from '../UI'
 import CardThumb from '../CardThumb'
 import styles from './VersionPickerModal.module.css'
 
+// Keep in sync with `.grid`'s minmax. `fill` tiles size to the parent, so the
+// tier can only follow the width the caller knows about.
+const VERSION_TILE_W = 190
+
 function LocationBadges({ locations }) {
   if (!locations?.length) return null
   const visible = locations.slice(0, 2)
@@ -144,7 +148,7 @@ export default function VersionPickerModal({ dc, ownedMap, userId, priceSource =
                 const lights = formatAttractionLights(p)
                 return (
                   <div key={p.id} className={`${styles.tile} ${isActive ? styles.tileSelected : ''}`}>
-                    <CardThumb scryfallId={p.id} name={p.set_name} variant="card" fill />
+                    <CardThumb scryfallId={p.id} name={p.set_name} variant="card" fill renderWidth={VERSION_TILE_W} />
                     <div className={styles.info}>
                       <div className={styles.setName}>{p.set_name}{p.collector_number ? ` #${p.collector_number}` : ''}</div>
                       <div className={styles.availRow}>

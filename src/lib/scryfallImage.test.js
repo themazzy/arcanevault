@@ -126,6 +126,15 @@ describe('pickImageTier', () => {
     }
   })
 
+  // A 168px tile divides 672 exactly four times, and the selection used to
+  // prefer that over an off-level reduction from 488. But 672 is JPEG-only and
+  // 488 has a WebP, and 672-at-168 was measured as the worse of the two — so
+  // covering beats mip alignment. The shared-folder grid renders at this width.
+  it('prefers the WebP tier over an exact reduction from large', () => {
+    expect(pickImageTier(168, 1)).toBe('normal')
+    expect(pickImageTier(336, 1)).toBe('normal')
+  })
+
   it('holds a tier that falls just short instead of stepping up', () => {
     expect(pickImageTier(147, 1)).toBe('small')   // 0.7% over 146 — not worth a 3.3:1 reduction
     expect(pickImageTier(489, 1)).toBe('normal')  // 0.2% over 488

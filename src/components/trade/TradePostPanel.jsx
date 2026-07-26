@@ -5,6 +5,7 @@ import { useAuth } from '../Auth'
 import { useSettings } from '../SettingsContext'
 import { useToast } from '../ToastContext'
 import { Button, EmptyState } from '../UI'
+import CardImg from '../CardImg'
 import { isGroupFolder } from '../../lib/collectionFetchers'
 import { getPublicAppUrl } from '../../lib/publicUrl'
 import { ensureTradeBinder } from '../../lib/tradeBinder'
@@ -128,8 +129,10 @@ export function TradePostManager() {
           <div className={styles.haveList}>
             {haves.map(h => (
               <div key={h.folderCardId} className={styles.haveRow}>
+                {/* `owned_cards_view.image_uri` is the 488px `normal`; this thumb
+                    is 38px, so ask for `small` rather than pull ~78KB for it. */}
                 {h.image_uri
-                  ? <img className={styles.haveThumb} src={h.image_uri} alt="" loading="lazy" />
+                  ? <CardImg className={styles.haveThumb} url={h.image_uri} forceTier="small" loading="lazy" />
                   : <div className={styles.haveThumbEmpty} />}
                 <div className={styles.haveMain}>
                   <div className={styles.haveName}>{h.name || 'Card'}{h.foil ? ' ✦' : ''}</div>

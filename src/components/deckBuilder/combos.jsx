@@ -1,26 +1,20 @@
 import { useState } from 'react'
 import { cardNameMatchKeys } from '../../lib/deckBuilderHelpers'
-import { resolveTileImage } from '../../lib/scryfall'
+import CardImg from '../CardImg'
 import { useComboCardImage } from '../../hooks/useComboCardImage'
-import { useDevicePixelRatio } from '../../hooks/useDevicePixelRatio'
 
-// At DPR 1 the thumb renders at a quarter of the 488px `normal` image, which is
-// one of its mipmap levels — the browser draws that pre-filtered level ~1:1
-// instead of undersampling, so the art stays readable instead of shimmering.
-// resolveTileImage picks a bigger tier on denser displays. The box is border-box
-// with a 1px border, so it carries 2px more than the image itself.
-const THUMB_IMG_W = 122 // 488 / 4
+// At this width the thumb resolves to a reduction of the 488px `normal` image
+// rather than the 146px `small`, which is the right call at any size below the
+// band `small` was sharpened for. The box is border-box with a 1px border, so it
+// carries 2px more than the image itself.
+const THUMB_IMG_W = 122
 const THUMB_IMG_H = 170 // 680 / 4
 const THUMB_BORDER = 1
 
 // Thumbnail tile for a single card inside a combo result. Shows an "+ Add"
 // button when the card isn't in the deck and an onAdd callback is provided.
 export function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail }) {
-  const resolved = useComboCardImage(name, existingUri)
-  const dpr = useDevicePixelRatio()
-  const [webpFailed, setWebpFailed] = useState(false)
-  const { src, fallback } = resolveTileImage(resolved, THUMB_IMG_W, dpr)
-  const img = webpFailed && fallback ? fallback : src
+  const img = useComboCardImage(name, existingUri)
   const [adding, setAdding] = useState(false)
   const handleAdd = async e => {
     e.stopPropagation()
@@ -35,7 +29,7 @@ export function ComboCardThumb({ name, inDeck, existingUri, onAdd, onOpenDetail 
         background: 'var(--s2)',
       }}>
         {img
-          ? <img src={img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" onError={fallback && !webpFailed ? () => setWebpFailed(true) : undefined} />
+          ? <CardImg url={img} width={THUMB_IMG_W} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
           : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.73rem', color: 'var(--text-faint)', padding: 8, textAlign: 'center', lineHeight: 1.3 }}>{name}</div>}
         {!inDeck && onAdd && (
           <button

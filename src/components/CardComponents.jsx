@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { formatAttractionLights } from '../lib/attractions'
 import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
+import CardImg from './CardImg'
 import { Modal, Badge, Button, Input, ResponsiveMenu, Select, SearchInput } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
@@ -33,6 +34,14 @@ function isGroupFolder(folder) {
   try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
 }
 
+// Keep in sync with `.grid`'s minmax in CardComponents.module.css. This grid
+// asked for `small` (146) into a 168px tile, i.e. an upscale, until it went
+// through CardImg.
+const SHARE_GRID_IMG_W = 168
+
+// `.printingImgGrid` in the same stylesheet.
+const PRINTING_TILE_W = 120
+
 // Build full-size Scryfall image URL directly from scryfall_id
 function scryfallLargeUrl() {
   return null
@@ -41,7 +50,7 @@ function scryfallLargeUrl() {
 // ── CardGrid ──────────────────────────────────────────────────────────────────
 function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, loading }) {
   const displayKey = card._displayKey || card.id
-  const img = getImageUri(sfCard, 'small') // grid thumbnail; detail view uses normal/large
+  const img = getImageUri(sfCard, 'normal') // CardImg re-tiers; detail view uses large
   const scryfallPrice = getPrice(sfCard, card.foil)
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
   const price = unitPrice != null ? unitPrice * totalQty : null
@@ -82,7 +91,7 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
       )}
       <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
         {img
-          ? <img className={styles.img} src={img} alt={card.name} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
+          ? <CardImg className={styles.img} url={img} width={SHARE_GRID_IMG_W} alt={card.name} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
         {(card._folder_qty || card.qty) > 1 && <div className={styles.qty}>×{card._folder_qty || card.qty}</div>}
@@ -1240,8 +1249,8 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                                 onClick={() => { handleChangePrinting(p); close() }}
                               >
                                 <div className={styles.printingCardImgWrap}>
-                                  {p.image_uris?.small ? (
-                                    <img className={styles.printingCardImg} src={p.image_uris.small} alt={p.name} loading="lazy" />
+                                  {p.image_uris?.normal || p.image_uris?.small ? (
+                                    <CardImg className={styles.printingCardImg} url={p.image_uris.normal || p.image_uris.small} width={PRINTING_TILE_W} alt={p.name} loading="lazy" />
                                   ) : (
                                     <div className={styles.printingCardImgPlaceholder}>?</div>
                                   )}

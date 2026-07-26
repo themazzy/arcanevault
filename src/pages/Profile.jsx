@@ -31,9 +31,19 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import CardImg from '../components/CardImg'
 import styles from './Profile.module.css'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+
+// Painted widths of the card images on this page, so CardImg can pick the tier
+// each needs. `owned_cards_view.image_uri` is always the 488px `normal`, so the
+// 34-80px thumbs were pulling a ~78KB image apiece; those ask for `small` by
+// name (nothing is legible at that size, and it is ~7x lighter). Keep these in
+// sync with `.featuredStandoutCard` and `.topCardsHero` in the stylesheet.
+const STANDOUT_TILE_W = 120
+const TOP_CARDS_HERO_W = 160
+
 const ACCENT_PALETTE = [
   '#c9a84c', '#e8c96a', '#e07840', '#e05c5c', '#c44569',
   '#9b59b6', '#6c5ce7', '#4a90d9', '#00b4d8', '#2ecc71',
@@ -548,7 +558,7 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
                   : c.art_crop
                 return (
                   <div key={i} className={styles.featuredStandoutCard} title={c.name}>
-                    <img src={fullImg} alt={c.name} className={styles.featuredStandoutImg} loading="lazy" />
+                    <CardImg url={fullImg} width={STANDOUT_TILE_W} alt={c.name} className={styles.featuredStandoutImg} loading="lazy" />
                     {editMode && (
                       <button className={styles.featuredStandoutRemove}
                         onClick={() => onChangeCards((standoutCards || []).filter((_, j) => j !== i))}><CloseIcon size={13} /></button>
@@ -621,7 +631,7 @@ function RecentCardsBlock({ cards }) {
         {cards.map((card, i) => (
           <div key={i} className={styles.recentCardItem} title={card.name}>
             {card.image_uri
-              ? <img src={card.image_uri} alt={card.name} className={styles.recentCardImg} loading="lazy" />
+              ? <CardImg url={card.image_uri} forceTier="small" alt={card.name} className={styles.recentCardImg} loading="lazy" />
               : <div className={styles.recentCardPlaceholder}>{card.name?.[0] || '?'}</div>
             }
           </div>
@@ -708,7 +718,7 @@ function CrownBlock({ topCard }) {
     <div className={styles.blockInner}>
       <div className={styles.blockTitle}>Crown Jewel</div>
       <div className={styles.crownWrap}>
-        {topCard.image_uri && <img className={styles.crownImg} src={topCard.image_uri} alt={topCard.name} loading="lazy" />}
+        {topCard.image_uri && <CardImg className={styles.crownImg} url={topCard.image_uri} forceTier="small" alt={topCard.name} loading="lazy" />}
         <div className={styles.crownInfo}>
           <div className={styles.crownName}>{topCard.name}</div>
           <div className={styles.crownSet}>{(topCard.set_code || '').toUpperCase()} #{topCard.collector_number}</div>
@@ -745,7 +755,7 @@ function TopCardsBlock({ cards }) {
         <div className={styles.topCardsHero}>
           <div className={styles.topCardsCardFrame}>
             {active.image_uri
-              ? <img key={active.image_uri} src={active.image_uri} alt={active.name} className={styles.topCardsCardImg} loading="lazy" />
+              ? <CardImg key={active.image_uri} url={active.image_uri} width={TOP_CARDS_HERO_W} alt={active.name} className={styles.topCardsCardImg} loading="lazy" />
               : <div className={styles.topCardsCardPlaceholder}>{active.name?.[0] || '?'}</div>
             }
           </div>
@@ -772,7 +782,7 @@ function TopCardsBlock({ cards }) {
               className={`${styles.topCardsChip}${i === activeIndex ? ' ' + styles.topCardsChipActive : ''}`}
               onClick={() => setActiveIndex(i)}>
               <div className={styles.topCardsChipThumb}>
-                {c.image_uri && <img src={c.image_uri} alt={c.name} className={styles.topCardsChipImg} loading="lazy" />}
+                {c.image_uri && <CardImg url={c.image_uri} forceTier="small" alt={c.name} className={styles.topCardsChipImg} loading="lazy" />}
               </div>
               <div className={styles.topCardsChipMeta}>
                 <span className={styles.topCardsChipRank}>#{i + 1}</span>

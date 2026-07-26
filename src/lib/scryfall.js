@@ -760,27 +760,19 @@ export const SCRYFALL_TIER_WIDTH = { small: 146, normal: 488, large: 672 }
 
 const TIERS_SMALLEST_FIRST = ['small', 'normal', 'large']
 
-// True when the browser can draw `tierWidth` at `deviceWidth` off a pre-filtered
-// mipmap level (each level halves), i.e. the ratio is 1, 2, 4... Anything else
-// makes it squeeze a level by an awkward factor, which undersamples and shimmers.
-function isMipAlignedRatio(tierWidth, deviceWidth) {
-  if (deviceWidth <= 0 || tierWidth < deviceWidth) return false
-  const exponent = Math.log2(tierWidth / deviceWidth)
-  return Math.abs(exponent - Math.round(exponent)) < 0.01
-}
-
 // Pick the tier to render a tile at. The browser scales images to *device*
 // pixels, not CSS pixels, so the tier has to follow devicePixelRatio: a 146px
 // tile is a 1:1 match for `small` on a plain monitor, but wants 292px on a retina
 // laptop and ~440px on a phone — and DeckLoom ships as an Android app, so those
 // are normal, not edge cases. Serving `small` there would upscale it into mush.
 //
-// Prefer the smallest tier the tile divides into by a power of two, so the browser
-// draws a mip level ~1:1. Note this is not the same as "smallest tier that fits":
-// a 122px tile is covered by `small` (146), but 146->122 is an off-level squeeze,
-// whereas 488->122 is an exact 4:1 off a much richer source and looks better. Fall
-// back to the smallest covering tier only when nothing aligns, which is where odd
-// ratios like DPR 2 land.
+// This used to prefer a tier the tile divides into by a power of two, on the
+// theory that the browser could then draw a pre-filtered mip level. Since
+// `small` became native-only that preference could no longer change the answer
+// downwards — only upwards, to `large` — and the one width where it did (a 168px
+// tile taking 672 on an exact 4:1) is the case measured as *worse* than 488-WebP
+// off-level. So: smallest covering tier, and WebP wins over mip alignment.
+//
 // How close a tier's native width must be to the device width to be served at
 // that native size rather than rescaled. Also the slack that stops the choice
 // being a knife edge: the responsive grid stretches columns to fill a row, so
@@ -806,8 +798,6 @@ export function pickImageTier(cssWidth, dpr = 1) {
     t => Math.abs(SCRYFALL_TIER_WIDTH[t] / deviceWidth - 1) <= TIER_MATCH_TOLERANCE,
   )
   if (nearNative) return nearNative
-  const aligned = REDUCIBLE_TIERS.find(t => isMipAlignedRatio(SCRYFALL_TIER_WIDTH[t], deviceWidth))
-  if (aligned) return aligned
   return REDUCIBLE_TIERS.find(t => SCRYFALL_TIER_WIDTH[t] >= deviceWidth) || 'large'
 }
 

@@ -11,6 +11,10 @@ import { useSettings } from '../SettingsContext'
 import CardThumb from '../CardThumb'
 import styles from './PrintingPickerModal.module.css'
 
+// Keep in sync with `.grid`'s minmax. `fill` tiles size to the parent, so the
+// tier can only follow the width the caller knows about.
+const PRINTING_TILE_W = 190
+
 export default function PrintingPickerModal({ cardName, options, selectedCardId, onSelect, onClose }) {
   const { price_source } = useSettings()
   const [details, setDetails] = useState([])
@@ -104,7 +108,7 @@ export default function PrintingPickerModal({ cardName, options, selectedCardId,
               const priceValue = priceEntry ? getPrice(priceEntry, !!option.foil, { price_source }) : null
               return (
                 <div key={option.card_id} className={`${styles.tile} ${selected ? styles.tileSelected : ''}`}>
-                  <CardThumb scryfallId={option.scryfall_id} name={option.name} variant="card" fill />
+                  <CardThumb scryfallId={option.scryfall_id} name={option.name} variant="card" fill renderWidth={PRINTING_TILE_W} />
                   <div className={styles.info}>
                     <div className={styles.setName}>{option.set_name}</div>
                     <div className={styles.meta}>
