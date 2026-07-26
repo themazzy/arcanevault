@@ -196,6 +196,10 @@ Owned collection cards cannot exist without at least one binder or collection-de
 - When removing cards from binders or collection decks, only delete the underlying `cards` row if no `folder_cards` or `deck_allocations` placement remains anywhere else.
 - Deleting a non-empty binder or deck must offer transfer options so cards can be moved instead of being implicitly deleted.
 
+**One `cards` row can be placed in several folders**, and Collection renders one tile per placement (`_displayKey`/`_displayFolder`), so the tiles look like independent cards. But the row's *identity* — `card_print_id`, `foil`, `language`, `condition`, i.e. exactly the columns in the `cards_unique_owned_print_idx` unique index — is shared by every copy on that row. Editing any of them from a tile must be scoped to that placement, never written straight to the row (doing so restamps every copy of the card in every location).
+
+All four go through the **`change_owned_card_identity(p_card_id, p_new_print_id, p_foil, p_language, p_condition, p_folder_id, p_qty)`** RPC (null = keep that column). It splits the row — moving only that folder's copies onto a new or existing row and re-pointing the placement — inside one transaction, because `cards.qty` must always equal the sum of its placements and separate client writes could break that mid-way. It merges into an already-owned identity only when that row is in the *same* folder, and otherwise refuses with errcode 23505 (`src/lib/changePrinting.js` maps the message). Quantity edits are not part of it: `CardDetail.handleSave` applies the qty change first, then calls the RPC, so each step is self-consistent on its own. A zero-quantity placement violates `deck_allocations_qty_check` — delete an emptied slot, never decrement it to 0.
+
 ### Deck Model
 
 - `deck_cards` is the source of truth for intended deck contents in Builder.

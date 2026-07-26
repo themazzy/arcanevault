@@ -13,6 +13,11 @@ import { useLongPress } from '../hooks/useLongPress'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { applyFilterSort as applyFilterSortCore } from '../lib/filterCore'
 import { buyLinksForCard } from '../lib/buyLinks'
+// The app-wide singleton rather than useQueryClient(): CardDetail renders in a
+// dozen places (including tests) and must not require a provider in its tree.
+import { queryClient } from '../lib/queryClient'
+import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
+import { changePrintingErrorMessage } from '../lib/changePrinting'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -775,12 +780,24 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
     }
   }
 
+  // foil / language / condition are identity columns on the owned row, exactly
+  // like the printing — see handleChangePrinting. Editing them from a tile that
+  // represents one placement must not restamp every copy of the card.
+  const identityChanged = (
+    !!editFoil !== !!card.foil ||
+    (editCondition || null) !== (card.condition || null) ||
+    (editLanguage || null) !== (card.language || null)
+  )
+
   const handleSave = async () => {
     setSaving(true)
     setSaveError('')
     let folderQty = card._folder_qty
     let ownedQty
 
+    // Quantity first, identity second. Each step is self-consistent on its own,
+    // so a failure between them leaves qty matching its placements rather than
+    // a half-applied split.
     if (currentFolderId && card._folder_qty != null) {
       const table = scopedFolderType === 'deck' ? 'deck_allocations' : 'folder_cards'
       const key = scopedFolderType === 'deck' ? 'deck_id' : 'folder_id'
@@ -796,27 +813,45 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
       folderQty = editQty
       ownedQty = Math.max(0, (card.qty || 0) - (card._folder_qty || 0) + editQty)
 
-      const cardUpdates = {
-        qty: ownedQty,
-        foil: editFoil,
-        condition: editCondition,
-        language: editLanguage,
-      }
-      const { error: cardError } = await sb.from('cards').update(cardUpdates).eq('id', card.id)
+      const { error: cardError } = await sb.from('cards').update({ qty: ownedQty }).eq('id', card.id)
       if (cardError) {
         setSaveError(cardError.message)
         setSaving(false)
         return
       }
     } else {
-      const updates = { qty: editQty, foil: editFoil, condition: editCondition, language: editLanguage }
-      const { error } = await sb.from('cards').update(updates).eq('id', card.id)
+      const { error } = await sb.from('cards').update({ qty: editQty }).eq('id', card.id)
       if (error) {
         setSaveError(error.message)
         setSaving(false)
         return
       }
       ownedQty = editQty
+    }
+
+    if (identityChanged) {
+      const { data, error } = await sb.rpc('change_owned_card_identity', {
+        p_card_id: card.id,
+        p_new_print_id: null,
+        p_foil: editFoil,
+        p_language: editLanguage,
+        p_condition: editCondition,
+        p_folder_id: currentFolderId || null,
+        p_qty: null,
+      })
+      if (error) {
+        setSaveError(changePrintingErrorMessage(error))
+        setSaving(false)
+        return
+      }
+      if (data?.split) {
+        // These copies now live on a different owned row — nothing local to
+        // patch, and the open modal is describing a card that moved.
+        await invalidateOwnedCollectionQueries(queryClient, card.user_id, { includeCards: true })
+        setSaving(false)
+        onClose?.()
+        return
+      }
     }
 
     const updatedCard = {
@@ -861,17 +896,39 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
         collector_number: newPrint.collector_number,
         scryfall_id: newPrint.id,
       }, getCardPrint(printMap, newPrint))
-      // Only card_print_id is writable on the base table post-5d; the rest of
-      // `enriched` updates the in-memory card so the UI re-renders with the
-      // new printing's metadata immediately.
-      const { error } = await sb.from('cards').update({ card_print_id: enriched.card_print_id }).eq('id', card.id)
+      if (!enriched.card_print_id) throw new Error('Could not resolve that printing.')
+
+      // Scoped to the location this card was opened from. One `cards` row can
+      // be placed in several folders, and the collection grid shows one tile
+      // per placement — so re-pointing the row here used to change the printing
+      // of every copy everywhere. The RPC splits the row instead: only the
+      // copies in this folder move. It runs server-side because the change
+      // spans cards + folder_cards/deck_allocations and `cards.qty` must stay
+      // equal to the sum of its placements even if a step fails.
+      const { data, error } = await sb.rpc('change_owned_card_identity', {
+        p_card_id: card.id,
+        p_new_print_id: enriched.card_print_id,
+        p_foil: null,
+        p_language: null,
+        p_condition: null,
+        p_folder_id: currentFolderId || null,
+        p_qty: null,
+      })
       if (error) throw error
-      const updatedCard = { ...card, ...enriched }
-      await putCards([updatedCard])
-      onSave?.(updatedCard)
+
+      if (data?.split) {
+        // The copies now live on a different (possibly brand-new) owned row, so
+        // there is nothing local to patch — refetch cards and placements.
+        await invalidateOwnedCollectionQueries(queryClient, card.user_id, { includeCards: true })
+      } else {
+        // Whole row re-pointed in place: patch it locally for an instant redraw.
+        const updatedCard = { ...card, ...enriched }
+        await putCards([updatedCard])
+        onSave?.(updatedCard)
+      }
       onClose?.()
     } catch (err) {
-      setSaveError(err.message || 'Could not change printing.')
+      setSaveError(changePrintingErrorMessage(err))
     } finally {
       setSaving(false)
     }
