@@ -25,6 +25,10 @@ const SF = 'https://api.scryfall.com'
 // Page explicitly because PostgREST responses are capped at 1000 rows and the
 // heavily reprinted basics exceed that limit.
 const PRINTINGS_PAGE_SIZE = 1000
+// Printing pickers render the newest page first and stream the rest in behind
+// it. Basics are the reason: ~850 English printings each (Mountain 851, Forest
+// 835), ~600 KB of rows, where the picker's own viewport shows about a dozen.
+const PRINTINGS_FIRST_PAGE_SIZE = 60
 const PRINTINGS_NAME_CHUNK = 40
 const DISPLAY_PRINTING_NAME_CHUNK = 100
 const PRICE_ID_CHUNK = 200
@@ -193,14 +197,18 @@ async function attachSharedPrices(cards) {
   if (!ids.length) return cards
   const today = isoDateUtc(0)
   const yesterday = isoDateUtc(-1)
+  const chunks = []
+  for (let i = 0; i < ids.length; i += PRICE_ID_CHUNK) chunks.push(ids.slice(i, i + PRICE_ID_CHUNK))
   const rows = []
   try {
-    for (let i = 0; i < ids.length; i += PRICE_ID_CHUNK) {
-      const { data, error } = await sb
-        .from('card_prices')
-        .select('scryfall_id,snapshot_date,price_regular_eur,price_foil_eur,price_regular_usd,price_foil_usd')
-        .in('scryfall_id', ids.slice(i, i + PRICE_ID_CHUNK))
-        .in('snapshot_date', [today, yesterday])
+    // Issued together rather than one after another: a basic land's ~850 ids
+    // used to mean five serialized round trips before anything could render.
+    const results = await Promise.all(chunks.map(chunk => sb
+      .from('card_prices')
+      .select('scryfall_id,snapshot_date,price_regular_eur,price_foil_eur,price_regular_usd,price_foil_usd')
+      .in('scryfall_id', chunk)
+      .in('snapshot_date', [today, yesterday])))
+    for (const { data, error } of results) {
       if (error) throw error
       rows.push(...(data || []))
     }
@@ -301,11 +309,21 @@ function printRowsQuery(language) {
     .order('scryfall_id', { ascending: true })
 }
 
-async function queryPrintRows(builderFn, { language = 'english' } = {}) {
+/**
+ * `limit` fetches exactly one bounded page; otherwise rows are paged from
+ * `from` until the catalogue is exhausted.
+ */
+async function queryPrintRows(builderFn, { language = 'english', from = 0, limit = null } = {}) {
+  if (limit != null) {
+    const { data, error } = await builderFn(printRowsQuery(language))
+      .range(from, from + limit - 1)
+    if (error) throw error
+    return data || []
+  }
   const rows = []
-  for (let from = 0; ; from += PRINTINGS_PAGE_SIZE) {
+  for (let offset = from; ; offset += PRINTINGS_PAGE_SIZE) {
     const query = builderFn(printRowsQuery(language))
-      .range(from, from + PRINTINGS_PAGE_SIZE - 1)
+      .range(offset, offset + PRINTINGS_PAGE_SIZE - 1)
     const { data, error } = await query
     if (error) throw error
     rows.push(...(data || []))
@@ -318,28 +336,51 @@ function escapeLike(value) {
   return value.replace(/[\\%_]/g, ch => `\\${ch}`)
 }
 
+async function toPricedCards(rows, withPrices) {
+  const cards = rows.map(rowToCard).filter(Boolean)
+  if (!withPrices || !cards.length) return cards
+  return attachSharedPrices(cards)
+}
+
 /**
  * All paper printings of an exact card name, newest first, with shared daily
  * prices attached (pass `withPrices: false` to skip the extra query).
- * `onPartial(cards)` streams incremental results on the paginated Scryfall
- * fallback path.
+ *
+ * The promise still resolves with the *complete* list, so callers that ignore
+ * `onPartial` are unaffected. `onPartial(cards)` fires early with the newest
+ * page (and again per page on the Scryfall fallback), which is what lets a
+ * picker paint a basic land's newest printings without waiting on the other
+ * ~800.
  */
-export async function fetchPrintingsByName(name, { withPrices = true, onPartial = null, language = 'english' } = {}) {
+export async function fetchPrintingsByName(name, {
+  withPrices = true,
+  onPartial = null,
+  language = 'english',
+  firstPageSize = PRINTINGS_FIRST_PAGE_SIZE,
+} = {}) {
   const cardName = (name || '').trim()
   if (!cardName) return []
   try {
-    let rows = await queryPrintRows(query => query.eq('name', cardName), { language })
-    if (!rows.length && !cardName.includes('//')) {
+    let build = query => query.eq('name', cardName)
+    let head = await queryPrintRows(build, { language, limit: firstPageSize })
+    if (!head.length && !cardName.includes('//')) {
       // card_prints stores DFC names as the full "Front // Back"; a bare
       // front-face name (e.g. from the scanner) matches as a prefix, and this
       // catches every back-face variant of that front face at once.
-      rows = await queryPrintRows(query => query.like('name', `${escapeLike(cardName)} // %`), { language })
+      build = query => query.like('name', `${escapeLike(cardName)} // %`)
+      head = await queryPrintRows(build, { language, limit: firstPageSize })
     }
-    if (rows.length) {
-      let cards = rows.map(rowToCard).filter(Boolean)
-      if (withPrices) cards = await attachSharedPrices(cards)
-      onPartial?.(cards)
-      return cards
+    if (head.length) {
+      const headCards = await toPricedCards(head, withPrices)
+      onPartial?.(headCards)
+      // A short first page is already the whole list — no tail request at all,
+      // which is every card that isn't heavily reprinted.
+      if (head.length < firstPageSize) return headCards
+      try {
+        const tail = await queryPrintRows(build, { language, from: head.length })
+        if (tail.length) return headCards.concat(await toPricedCards(tail, withPrices))
+      } catch { /* keep the page already in hand rather than losing everything */ }
+      return headCards
     }
   } catch { /* fall back to Scryfall */ }
   return fetchPrintingsScryfall(cardName, onPartial, language)

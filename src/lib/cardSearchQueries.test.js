@@ -40,6 +40,21 @@ function printingQuery(pages, calls) {
   return query
 }
 
+// A card_prices query that records its chunk sizes and stays pending until the
+// test releases it — that pending window is what proves the chunks were issued
+// together instead of one after another.
+function priceQuery(calls) {
+  const query = {
+    select: vi.fn(() => query),
+    in: vi.fn((column, values) => {
+      if (column === 'scryfall_id') calls.priceChunks.push(values.length)
+      return query
+    }),
+    then: (resolve) => { calls.gate.push(() => resolve({ data: [], error: null })) },
+  }
+  return query
+}
+
 describe('card printing catalog queries', () => {
   beforeEach(() => {
     sb.from.mockReset()
@@ -55,12 +70,81 @@ describe('card printing catalog queries', () => {
       { data: second, error: null },
     ], calls))
 
-    const cards = await fetchPrintingsByName('Forest', { withPrices: false, language: 'all' })
+    // firstPageSize pinned to the page size so this stays a test of the
+    // full-catalogue paging boundary; the default 60-row first page has its own
+    // tests below.
+    const cards = await fetchPrintingsByName('Forest', {
+      withPrices: false, language: 'all', firstPageSize: 1000,
+    })
 
     expect(cards).toHaveLength(1001)
     expect(cards.at(-1)).toMatchObject({ released_at: '1993-08-05', finishes: ['foil'] })
     expect(calls.ranges).toEqual([[0, 999], [1000, 1999]])
     expect(calls.orders).toEqual(expect.arrayContaining(['released_at', 'created_at', 'scryfall_id']))
+  })
+
+  it('streams the newest page before the tail and still resolves with everything', async () => {
+    const calls = { orders: [], ranges: [] }
+    const head = Array.from({ length: 60 }, (_, index) => printRow(index))
+    const tail = Array.from({ length: 40 }, (_, index) => printRow(60 + index))
+    sb.from.mockReturnValue(printingQuery([
+      { data: head, error: null },
+      { data: tail, error: null },
+    ], calls))
+
+    const partials = []
+    const cards = await fetchPrintingsByName('Forest', {
+      withPrices: false,
+      language: 'all',
+      onPartial: partial => partials.push(partial.length),
+    })
+
+    expect(partials).toEqual([60])          // painted before the tail landed
+    expect(cards).toHaveLength(100)
+    expect(calls.ranges).toEqual([[0, 59], [60, 1059]])
+  })
+
+  it('skips the tail request entirely when the first page is the whole list', async () => {
+    const calls = { orders: [], ranges: [] }
+    sb.from.mockReturnValue(printingQuery([
+      { data: [printRow(1), printRow(2)], error: null },
+    ], calls))
+
+    const cards = await fetchPrintingsByName('Lightning Bolt', { withPrices: false, language: 'all' })
+
+    expect(cards).toHaveLength(2)
+    expect(calls.ranges).toEqual([[0, 59]])
+  })
+
+  it('keeps the first page when the tail request fails', async () => {
+    const calls = { orders: [], ranges: [] }
+    const head = Array.from({ length: 60 }, (_, index) => printRow(index))
+    sb.from.mockReturnValue(printingQuery([
+      { data: head, error: null },
+      { data: null, error: new Error('tail timed out') },
+    ], calls))
+
+    const cards = await fetchPrintingsByName('Forest', { withPrices: false, language: 'all' })
+
+    expect(cards).toHaveLength(60)
+    expect(sfGet).not.toHaveBeenCalled()   // a failed tail is not a catalogue outage
+  })
+
+  it('issues every price chunk in one wave', async () => {
+    const calls = { orders: [], ranges: [], priceChunks: [], gate: [] }
+    const rows = Array.from({ length: 450 }, (_, index) => printRow(index))
+    sb.from.mockImplementation(table => (table === 'card_prices'
+      ? priceQuery(calls)
+      : printingQuery([{ data: rows, error: null }], calls)))
+
+    // firstPageSize above the row count keeps this to a single printings page,
+    // so the only thing in flight is the 450-id price fan-out (200/chunk).
+    const promise = fetchPrintingsByName('Forest', { language: 'all', firstPageSize: 500 })
+    await vi.waitFor(() => expect(calls.gate).toHaveLength(3))
+    expect(calls.priceChunks).toEqual([200, 200, 50])
+
+    calls.gate.forEach(release => release())
+    expect(await promise).toHaveLength(450)
   })
 
   it('filters Scryfall face-name collisions on the fallback path', async () => {

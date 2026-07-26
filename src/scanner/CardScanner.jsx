@@ -41,6 +41,7 @@ import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
+import { filterPrintings } from '../lib/printingFilter'
 import { isCurrentManualSearchRequest } from './manualSearchRequest'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
@@ -2472,7 +2473,7 @@ export default function CardScanner({ onMatch, onClose }) {
           <div className={styles.searchInputRow}>
             <SearchInput
               className={styles.searchInput}
-              placeholder="Filter by set name, code, or year…"
+              placeholder="Filter by set, year, or #number…"
               value={printingPickerSearch}
               onChange={e => setPrintingPickerSearch(e.target.value)}
               onClear={() => setPrintingPickerSearch('')}
@@ -2481,13 +2482,7 @@ export default function CardScanner({ onMatch, onClose }) {
           </div>
           {printingPickerLoading && <div className={styles.overlayPanelState}>Loading…</div>}
           <div className={styles.printingGrid}>
-            {printingPickerResults.filter(sf => {
-              if (!printingPickerSearch) return true
-              const q = printingPickerSearch.toLowerCase()
-              return (sf.set_name?.toLowerCase().includes(q)) ||
-                (sf.set?.toLowerCase().includes(q)) ||
-                (sf.released_at?.slice(0, 4).includes(q))
-            }).map(sf => {
+            {filterPrintings(printingPickerResults, printingPickerSearch).map(sf => {
               const img = getCardImg(sf)
               const pickerCard = pendingCards.find(c => c.uid === printingPickerFor)
               const isActive = pickerCard?.id === sf.id

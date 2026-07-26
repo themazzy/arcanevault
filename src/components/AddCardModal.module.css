@@ -251,6 +251,40 @@
   font-style: italic;
   padding: 6px 0;
 }
+/* ── Printing filter (set / year / #number) ── */
+.printingFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 2px;
+}
+.printingFilterInput {
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  border-radius: 3px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 0.82rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.printingFilterInput:focus { border-color: var(--border-hi); }
+.printingFilterInput::placeholder { color: var(--text-faint); }
+.printingFilterCount {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Shown while the tail of a heavily reprinted card is still streaming in. */
+.printingFilterMore {
+  margin-left: 4px;
+  font-style: italic;
+  opacity: 0.8;
+}
+
 /* ── Printings grid ── */
 .printingsGrid {
   display: grid;

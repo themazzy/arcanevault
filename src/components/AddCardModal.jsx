@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { CheckIcon, CloseIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
-import { Modal, Button, ConfirmModal, ErrorBox, ResponsiveMenu } from './UI'
+import { Modal, Button, ConfirmModal, ErrorBox, ResponsiveMenu, SearchInput } from './UI'
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
@@ -11,6 +11,7 @@ import { removeAcquiredFromWishlists } from '../lib/wishlistSync'
 import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
 import { getDiscardDialogModel } from '../lib/addCardDiscard'
 import { scheduleInitialCardSelection } from '../lib/initialCardSelection'
+import { filterPrintings } from '../lib/printingFilter'
 import styles from './AddCardModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -251,7 +252,15 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
   const [allPrintings, setAllPrintings]         = useState([])   // full list
   const [showAllPrintings, setShowAllPrintings] = useState(false)
   const [loadingPrintings, setLoadingPrintings] = useState(false)
+  const [loadingMorePrintings, setLoadingMorePrintings] = useState(false)
   const [selectedPrinting, setSelectedPrinting] = useState(null)
+  const [printingFilter, setPrintingFilter]     = useState('')   // set name / code / year / #number
+  // Printings arrive in two waves (newest page, then the tail). These track
+  // which request is current, and whether the tail is still allowed to move the
+  // selection — once the user clicks a printing themselves, it never is.
+  const printingsRequestRef  = useRef(0)
+  const userPickedPrintingRef = useRef(false)
+  const selectedPrintingIdRef = useRef(null)
 
   // Form
   const [qty, setQty]                   = useState(initialCard?.qty || 1)
@@ -326,36 +335,68 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
 
   // ── Callbacks ────────────────────────────────────────────────────────────────
 
+  // The exact printing an incoming card asked for, if it's in `list` yet.
+  const findPreferredPrinting = (list) => {
+    if (!initialCard) return null
+    return list.find(printing =>
+      printing.id === initialCard.scryfall_id ||
+      (printing.set === initialCard.set_code && String(printing.collector_number) === String(initialCard.collector_number))
+    ) || null
+  }
+
+  const applyInitialSelection = (list) => {
+    if (!list.length) return
+    const chosen = findPreferredPrinting(list) || list[0]
+    const initialFoil = !!initialCard?.foil
+    selectedPrintingIdRef.current = chosen.id
+    setSelectedPrinting(chosen)
+    setFoil(initialFoil)
+    setQty(initialCard?.qty || 1)
+    setPurchasePrice(getMarketPrice(chosen, initialFoil, price_source))
+  }
+
   // Called when user types and picks a card name
   const selectCard = async (name) => {
     setSelectedName(name)
     setQuery(name)
     setSuggestions([]); setSuggestOpen(false)
     setLoadingPrintings(true)
+    setLoadingMorePrintings(false)
     setSelectedPrinting(null)
     setPrintings([]); setAllPrintings([]); setShowAllPrintings(false)
+    setPrintingFilter('')
     setView('configure')
+    userPickedPrintingRef.current = false
+    selectedPrintingIdRef.current = null
+    const requestId = ++printingsRequestRef.current
+    const isStale = () => printingsRequestRef.current !== requestId
     try {
       // card_prints first (newest-first, shared prices attached), Scryfall
-      // fallback inside the helper.
-      const prints = await fetchPrintingsByName(name)
+      // fallback inside the helper. `onPartial` paints the newest page while
+      // the rest of a heavily reprinted card's catalogue is still in flight.
+      const prints = await fetchPrintingsByName(name, {
+        onPartial: partial => {
+          if (isStale()) return
+          setPrintings(partial); setAllPrintings(partial)
+          setLoadingPrintings(false)
+          setLoadingMorePrintings(true)
+          applyInitialSelection(partial)
+        },
+      })
+      if (isStale()) return
       setPrintings(prints)     // manual: show all (no art filtering)
       setAllPrintings(prints)
-      if (prints.length > 0) {
-        const preferred = initialCard
-          ? prints.find(printing =>
-              printing.id === initialCard.scryfall_id ||
-              (printing.set === initialCard.set_code && String(printing.collector_number) === String(initialCard.collector_number)))
-          : null
-        const chosen = preferred || prints[0]
-        const initialFoil = !!initialCard?.foil
-        setSelectedPrinting(chosen)
-        setFoil(initialFoil)
-        setQty(initialCard?.qty || 1)
-        setPurchasePrice(getMarketPrice(chosen, initialFoil, price_source))
+      // The requested printing may only show up in the tail. Re-select it then,
+      // but never over a printing the user has since picked by hand.
+      const preferred = findPreferredPrinting(prints)
+      if (!selectedPrintingIdRef.current) applyInitialSelection(prints)
+      else if (!userPickedPrintingRef.current && preferred && preferred.id !== selectedPrintingIdRef.current) {
+        applyInitialSelection(prints)
       }
     } catch {}
+    if (isStale()) return
     setLoadingPrintings(false)
+    setLoadingMorePrintings(false)
   }
 
   // Pre-fill card from the standalone scanner: auto-search on mount
@@ -365,6 +406,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
   }, [])
 
   const choosePrinting = (p) => {
+    userPickedPrintingRef.current = true
+    selectedPrintingIdRef.current = p.id
     setSelectedPrinting(p)
     setPurchasePrice(getMarketPrice(p, foil, price_source))
   }
@@ -375,8 +418,14 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
   }
 
   const resetSearch = () => {
+    // Bump the request id so an in-flight printings load can't repopulate the
+    // grid after the user has moved on.
+    printingsRequestRef.current++
+    userPickedPrintingRef.current = false
+    selectedPrintingIdRef.current = null
+    setLoadingPrintings(false); setLoadingMorePrintings(false)
     setQuery(''); setSelectedName(null)
-    setSelectedPrinting(null); setPrintings([]); setAllPrintings([])
+    setSelectedPrinting(null); setPrintings([]); setAllPrintings([]); setPrintingFilter('')
     setQty(1); setFoil(false); setCondition('near_mint')
     setLanguage('en'); setPurchasePrice('')
   }
@@ -648,7 +697,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
     setSaving(false)
   }
 
-  const displayedPrintings = showAllPrintings ? allPrintings : printings
+  const availablePrintings = showAllPrintings ? allPrintings : printings
+  const displayedPrintings = filterPrintings(availablePrintings, printingFilter)
   const imageUri   = getCardImage(selectedPrinting)
   // Card has a foil version if Scryfall says so in finishes[], OR if there's a foil price
   const hasFoil = !!(
@@ -752,8 +802,34 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                   )}
                 </div>
 
+                {/* Filter the printing list the way the scanner's picker does —
+                    popular cards have 60+ printings and scrolling for the one
+                    in hand is hopeless. Hidden for short lists. */}
+                {!loadingPrintings && availablePrintings.length > 5 && (
+                  <div className={styles.printingFilterRow}>
+                    <SearchInput
+                      className={styles.printingFilterInput}
+                      placeholder="Filter by set, year, or #number…"
+                      value={printingFilter}
+                      onChange={e => setPrintingFilter(e.target.value)}
+                      onClear={() => setPrintingFilter('')}
+                      aria-label="Filter printings"
+                    />
+                    <span className={styles.printingFilterCount}>
+                      {printingFilter.trim()
+                        ? `${displayedPrintings.length} / ${availablePrintings.length}`
+                        : `${availablePrintings.length}`}
+                      {loadingMorePrintings && <span className={styles.printingFilterMore}>+ more…</span>}
+                    </span>
+                  </div>
+                )}
+
                 {loadingPrintings
                   ? <div className={styles.loadingText}>Loading printings…</div>
+                  : displayedPrintings.length === 0
+                  ? <div className={styles.loadingText}>
+                      {availablePrintings.length === 0 ? 'No printings found.' : 'No printings match that filter.'}
+                    </div>
                   : (
                     <div className={styles.printingsGrid}>
                       {displayedPrintings.map(p => {
@@ -766,7 +842,8 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
                             title={`${p.set_name} (${p.released_at?.slice(0,4)}) · ${p.rarity} · ${fmtPrintingPrice(p)}`}
                           >
                             {thumbUri
-                              ? <img src={thumbUri} alt={p.set_name} className={styles.printingGridImg} />
+                              ? <img src={thumbUri} alt={p.set_name} className={styles.printingGridImg}
+                                  loading="lazy" decoding="async" />
                               : <div className={styles.printingGridImgEmpty} />
                             }
                             <span className={styles.printingGridSet}>{p.set?.toUpperCase()}</span>
