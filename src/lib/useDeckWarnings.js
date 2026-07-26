@@ -14,6 +14,7 @@ export function useDeckCardLegalityWarnings({
   deckCards,
   builderSfMap,
   legalitiesByName = {},
+  copyLimitsByName = {},
   format,
   isEDH,
   colorIdentity,
@@ -65,19 +66,23 @@ export function useDeckCardLegalityWarnings({
         if (!name) continue
         nameGroups.set(name, [...(nameGroups.get(name) || []), dc])
       }
-      for (const [, cards] of nameGroups) {
+      for (const [name, cards] of nameGroups) {
         const qty = cards.reduce((sum, dc) => sum + (dc.qty || 0), 0)
         if (qty <= 1) continue
         if (isBasicLandName(cards[0]?.name)) continue
+        // Cards whose own text overrides singleton ("A deck can have any
+        // number of cards named …" / "up to nine cards named Nazgûl").
+        const limit = copyLimitsByName[name] ?? 1
+        if (qty <= limit) continue
+        const text = limit > 1
+          ? `${cards[0]?.name || name} has ${qty} copies, but a deck can have up to ${limit}.`
+          : `${cards[0]?.name || name} has ${qty} copies in a singleton format.`
         for (const dc of cards) {
-          addWarnings(dc.id, [{
-            reason: 'duplicate',
-            text: `${dc.name} has ${qty} copies in a singleton format.`,
-          }])
+          addWarnings(dc.id, [{ reason: 'duplicate', text }])
         }
       }
     }
 
     return warningsById
-  }, [builderSfMap, legalitiesByName, colorIdentity, deckCards, format, isEDH])
+  }, [builderSfMap, legalitiesByName, copyLimitsByName, colorIdentity, deckCards, format, isEDH])
 }

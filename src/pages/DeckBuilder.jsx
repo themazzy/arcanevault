@@ -52,7 +52,7 @@ import {
   setDeckCardCategory,
   updateDeckCategoryOrder,
 } from '../lib/deckCategories'
-import { getCardLegalityWarnings } from '../lib/deckLegality'
+import { getCardLegalityWarnings, getDeckCopyLimit } from '../lib/deckLegality'
 import { comboInColorIdentity } from '../lib/deckBuildAssistant'
 import { useDeckCardLegalityWarnings } from '../lib/useDeckWarnings'
 import {
@@ -838,6 +838,11 @@ export default function DeckBuilderPage() {
   // builderSfMap for most deck cards — intentionally omits legalities, so
   // freshly-imported/added cards would otherwise carry none and never warn.
   const [deckLegalitiesByName, setDeckLegalitiesByName] = useState({})
+  // Deck-copy limits from the same RPC's oracle text, keyed by normalized name:
+  // Infinity for "A deck can have any number of cards named …" (Relentless
+  // Rats, Dragon's Approach), a finite count for "up to nine cards named
+  // Nazgûl". Keeps those cards from tripping the singleton duplicate warning.
+  const [rpcCopyLimitsByName, setRpcCopyLimitsByName] = useState({})
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   const [draggedCategoryId, setDraggedCategoryId] = useState(null)
   const [stackHoverState, setStackHoverState] = useState(null) // { group, stackIdx }
@@ -1058,22 +1063,42 @@ export default function DeckBuilderPage() {
   // carries legalities for the minority of cards that fell through to Scryfall;
   // this covers the rest (card_prints-resolved) so bans/not-legal cards warn.
   useEffect(() => {
-    if (!deckNameSignature) { setDeckLegalitiesByName({}); return }
+    if (!deckNameSignature) { setDeckLegalitiesByName({}); setRpcCopyLimitsByName({}); return }
     let cancelled = false
     const names = deckNameSignature.split('|').filter(Boolean)
     fetchRecommendationMetadataByNames(names)
       .then(cards => {
         if (cancelled) return
         const legMap = {}
+        const limitMap = {}
         for (const c of cards) {
           const key = normalizeCardName(c.requested_name || c.name)
-          if (key && c.legalities && Object.keys(c.legalities).length) legMap[key] = c.legalities
+          if (!key) continue
+          if (c.legalities && Object.keys(c.legalities).length) legMap[key] = c.legalities
+          const limit = getDeckCopyLimit(c)
+          if (limit != null) limitMap[key] = limit
         }
         setDeckLegalitiesByName(legMap)
+        setRpcCopyLimitsByName(limitMap)
       })
-      .catch(() => { if (!cancelled) setDeckLegalitiesByName({}) })
+      .catch(() => { if (!cancelled) { setDeckLegalitiesByName({}); setRpcCopyLimitsByName({}) } })
     return () => { cancelled = true }
   }, [deckNameSignature])
+
+  // Deck-copy limits by normalized name. The name RPC is the primary source;
+  // builderSfMap (loaded with requireOracle) covers any name it didn't answer
+  // for, so the duplicate warning doesn't flash before the RPC resolves.
+  const deckCopyLimitsByName = useMemo(() => {
+    const out = { ...rpcCopyLimitsByName }
+    for (const dc of deckCards) {
+      const key = normalizeCardName(dc.name)
+      if (!key || out[key] != null) continue
+      const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
+      const limit = getDeckCopyLimit(sf) ?? getDeckCopyLimit(dc)
+      if (limit != null) out[key] = limit
+    }
+    return out
+  }, [rpcCopyLimitsByName, deckCards, builderSfMap])
 
   useEffect(() => { deckCardsRef.current = deckCards }, [deckCards])
   useEffect(() => { deckCategoriesRef.current = deckCategories }, [deckCategories])
@@ -1584,15 +1609,21 @@ export default function DeckBuilderPage() {
       for (const [name, qty] of nameQty) {
         if (qty <= 1) continue
         const sample = normalDeckCards.find(dc => normalizeCardName(dc.name) === name)
-        if (!isBasicLandName(sample?.name || name)) {
-          pushWarning({
-            key: `duplicate:${name}`,
-            level: 'error',
-            targetCardIds: normalDeckCards.filter(dc => normalizeCardName(dc.name) === name).map(dc => dc.id),
-            summary: `${sample?.name || name}: ${qty} copies`,
-            detail: `${sample?.name || name} exceeds singleton limits for this format.`,
-          })
-        }
+        if (isBasicLandName(sample?.name || name)) continue
+        // "A deck can have any number of cards named …" / "up to nine cards
+        // named Nazgûl" beats the format's singleton rule.
+        const limit = deckCopyLimitsByName[name] ?? 1
+        if (qty <= limit) continue
+        const label = sample?.name || name
+        pushWarning({
+          key: `duplicate:${name}`,
+          level: 'error',
+          targetCardIds: normalDeckCards.filter(dc => normalizeCardName(dc.name) === name).map(dc => dc.id),
+          summary: limit > 1 ? `${label}: ${qty} copies (max ${limit})` : `${label}: ${qty} copies`,
+          detail: limit > 1
+            ? `${label} allows up to ${limit} copies in a deck, but this deck has ${qty}.`
+            : `${label} exceeds singleton limits for this format.`,
+        })
       }
     }
 
@@ -1638,7 +1669,7 @@ export default function DeckBuilderPage() {
     }
 
     return warnings
-  }, [builderSfMap, deckLegalitiesByName, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards, deckMeta.companion, companionValidation])
+  }, [builderSfMap, deckLegalitiesByName, deckCopyLimitsByName, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards, deckMeta.companion, companionValidation])
 
   const visibleDeckWarnings = useMemo(
     () => deckWarnings.filter(w => w.level === 'error'),
@@ -1649,6 +1680,7 @@ export default function DeckBuilderPage() {
     deckCards,
     builderSfMap,
     legalitiesByName: deckLegalitiesByName,
+    copyLimitsByName: deckCopyLimitsByName,
     format,
     isEDH,
     colorIdentity,
