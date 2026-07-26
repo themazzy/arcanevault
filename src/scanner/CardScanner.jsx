@@ -46,6 +46,12 @@ import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
+import {
+  filterDestinationFolders,
+  hasDestinationNamed,
+  isSaveDestinationFolder,
+  isSaveDestinationType,
+} from './saveDestinations'
 import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
 import { playMatchSound } from './scanSounds'
@@ -243,7 +249,12 @@ function getOwnedCardKey(c) {
 
 async function batchSaveCards({ userId, cards, folderId, folderType }) {
   if (!cards.length || !folderId) return
-  const destinationType = folderType === 'deck' || folderType === 'builder_deck' ? 'deck' : folderType
+  // See saveDestinations.js — the picker never offers anything else, so this is
+  // a guard against a bad folder row rather than a reachable UI state.
+  if (!isSaveDestinationType(folderType)) {
+    throw new Error('Cards can only be saved to a binder, collection deck, or wishlist.')
+  }
+  const destinationType = folderType
 
   let aggregatedOwned = Array.from(
     cards.reduce((map, c) => {
@@ -1241,11 +1252,11 @@ export default function CardScanner({ onMatch, onClose }) {
     setAddFlowFoldersLoading(true)
     try {
       const { data, error } = await sb.from('folders')
-        .select('id,name,type')
+        .select('id,name,type,description')
         .eq('user_id', user?.id)
         .order('name')
       if (error) throw new Error(error.message)
-      setAddFlowFolders(data ?? [])
+      setAddFlowFolders((data ?? []).filter(isSaveDestinationFolder))
     } catch (e) {
       setAddFlowError(e.message)
     }
@@ -1257,8 +1268,9 @@ export default function CardScanner({ onMatch, onClose }) {
     if (!rawName || !user?.id || addFlowCreatingFolder) return
 
     const normalizedName = rawName.toLowerCase()
-    const folderType = addFlowFolderType === 'deck' ? 'deck' : addFlowFolderType
+    const folderType = addFlowFolderType
     const existing = addFlowFolders.find(f =>
+      isSaveDestinationFolder(f) &&
       f.type === folderType &&
       String(f.name || '').trim().toLowerCase() === normalizedName
     )
@@ -1873,22 +1885,15 @@ export default function CardScanner({ onMatch, onClose }) {
     setFlashMode(current => ((current === 'torch' || current === 'on') ? 'off' : (availableFlashModes.includes('torch') ? 'torch' : 'on')))
   }, [availableFlashModes, flashSupported])
 
-  const filteredFolders = addFlowFolders.filter(f => {
-    const typeMatch = addFlowFolderType === 'binder' ? f.type === 'binder'
-      : addFlowFolderType === 'deck' ? (f.type === 'deck' || f.type === 'builder_deck')
-      : f.type === 'list'
-    if (!typeMatch) return false
-    if (!addFlowFolderSearch.trim()) return true
-    return f.name.toLowerCase().includes(addFlowFolderSearch.toLowerCase())
+  const filteredFolders = filterDestinationFolders(addFlowFolders, {
+    type: addFlowFolderType,
+    search: addFlowFolderSearch,
   })
   const createFolderLabel = addFlowFolderType === 'list' ? 'wishlist' : addFlowFolderType
   const canCreateAddFlowFolder = !!addFlowFolderSearch.trim() && !addFlowCreatingFolder
-  const hasExactAddFlowMatch = addFlowFolders.some(f => {
-    const typeMatch = addFlowFolderType === 'binder' ? f.type === 'binder'
-      : addFlowFolderType === 'deck' ? (f.type === 'deck' || f.type === 'builder_deck')
-      : f.type === 'list'
-    if (!typeMatch) return false
-    return String(f.name || '').trim().toLowerCase() === addFlowFolderSearch.trim().toLowerCase()
+  const hasExactAddFlowMatch = hasDestinationNamed(addFlowFolders, {
+    type: addFlowFolderType,
+    name: addFlowFolderSearch,
   })
   const latestSetIcon = latestPending?.setCode ? getSetIcon(setIcons, latestPending.setCode) : null
   const pendingTotalQty = pendingCards.reduce((sum, card) => sum + (card.qty || 1), 0)
