@@ -11,7 +11,7 @@ import c from './controls.module.css'
 // meaningful order and forcing one invents data. Only the winner is required — that
 // is the single fact every stats surface actually reads.
 
-export default function EndGameSheet({ players, saving, error, onSave, onClose }) {
+export default function EndGameSheet({ players, saving, error, onSave, onDiscard, onClose }) {
   const [order, setOrder] = useState([])
   const [notes, setNotes] = useState('')
 
@@ -88,6 +88,16 @@ export default function EndGameSheet({ players, saving, error, onSave, onClose }
       )}
 
       <ErrorBox>{error}</ErrorBox>
+
+      {/* The other way a game ends. Kept in the body rather than the footer so
+          it never sits shoulder-to-shoulder with Save result. */}
+      {onDiscard && (
+        <div className={c.discardRow}>
+          <Button variant="danger" size="sm" onClick={onDiscard} disabled={saving}>
+            Discard without saving
+          </Button>
+        </div>
+      )}
     </Sheet>
   )
 }

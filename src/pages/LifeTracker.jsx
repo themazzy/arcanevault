@@ -555,13 +555,9 @@ export default function LifeTrackerPage() {
                     onClick={() => { handleLeave(); close() }}>
                     Leave tracker
                   </button>
-                  {/* Danger is a colour-only modifier — the base action class
-                      carries the row's border, height and typography. */}
-                  <button
-                    className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`}
-                    onClick={() => { setConfirmNew(true); close() }}>
-                    Discard game
-                  </button>
+                  {/* Discarding lives in the End game sheet, next to saving the
+                      result — both are ways to finish, and separating them put a
+                      destructive action a tap away from a layout switch. */}
                 </div>
               )}
             </ResponsiveMenu>
@@ -651,6 +647,7 @@ export default function LifeTrackerPage() {
             saving={saving}
             error={saveError}
             onSave={handleSaveResult}
+            onDiscard={() => { setShowEnd(false); setConfirmNew(true) }}
             onClose={() => { setShowEnd(false); setSaveError('') }}
           />
         )}
@@ -661,7 +658,10 @@ export default function LifeTrackerPage() {
             message="Life totals and the game log are deleted. Nothing is saved to your stats."
             confirmLabel="Discard"
             onConfirm={handleNewGame}
-            onClose={() => setConfirmNew(false)}
+            // Backing out returns to the End game sheet the discard was started
+            // from. The sheet is closed while confirming rather than stacked
+            // under it — it sits above the modal layer and would cover it.
+            onClose={() => { setConfirmNew(false); setShowEnd(true) }}
           />
         )}
       </div>

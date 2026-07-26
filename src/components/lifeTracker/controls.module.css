@@ -531,6 +531,16 @@
   text-overflow: ellipsis;
 }
 
+/* Throwing the game away is the other way out of the end-game sheet, so it lives
+   there — but ruled off from the result controls above it, and centred rather
+   than block, so it never reads as the primary action. */
+.discardRow {
+  display: flex;
+  justify-content: center;
+  padding-top: 13px;
+  border-top: 1px solid var(--s-border0);
+}
+
 /* ── Game log ──────────────────────────────────────────────────────────────── */
 .logList {
   display: flex;
