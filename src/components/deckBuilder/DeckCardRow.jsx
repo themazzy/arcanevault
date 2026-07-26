@@ -11,9 +11,11 @@ import styles from '../../pages/DeckBuilder.module.css'
 import uiStyles from '../UI.module.css'
 import CardImg from '../CardImg'
 
-// Keep in sync with `.deckThumb` in DeckBuilder.module.css. At this size the
-// tier resolves to `small` — the row thumb has no business pulling the 488px
-// image the grid tiles use.
+// Keep in sync with `.deckThumb` in DeckBuilder.module.css. `small` is asked for
+// by name because pickImageTier won't reduce from it (see REDUCIBLE_TIERS) — a
+// rule that protects legibility at grid sizes and is beside the point at 26px,
+// where nothing is readable and the only thing that matters is not pulling the
+// 488px image the grid tiles use.
 const DECK_THUMB_W = 26
 
 // Body of the per-card "..." actions menu (commander toggle, board moves,
@@ -201,7 +203,7 @@ export function DeckCardRow({
     >
       <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={(e) => { if (consumeLongPressClick(e)) return; onOpenDetail?.(dc) }}>
         {dc.image_uri
-          ? <CardImg className={styles.deckThumb} url={dc.image_uri} width={DECK_THUMB_W} loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
+          ? <CardImg className={styles.deckThumb} url={dc.image_uri} width={DECK_THUMB_W} forceTier="small" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
           : <div className={styles.deckThumbPlaceholder} />
         }
         <span className={styles.deckCardName} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>{dc.name}</span>

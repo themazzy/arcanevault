@@ -781,23 +781,34 @@ function isMipAlignedRatio(tierWidth, deviceWidth) {
 // whereas 488->122 is an exact 4:1 off a much richer source and looks better. Fall
 // back to the smallest covering tier only when nothing aligns, which is where odd
 // ratios like DPR 2 land.
-// How far a tier may fall short of the device width before we step up. Without
-// it the choice is a knife edge: the responsive grid stretches columns to fill a
-// row, so `comfortable` paints anywhere from 133 to 161px and the same density
-// flips tiers as the window resizes — 1547px wide lands on 150.9 and misses
-// `small` by five pixels, 2560px lands on 146.7 and misses by less than one.
-//
-// Measured on a low-contrast old-frame card (the case that actually suffers):
-// `small` upscaled 3% still reads better than `normal` reduced 3.2:1, but by a
-// 10% upscale the reduction wins again. 6% sits inside that crossover and covers
-// every width the desktop grid actually produces.
-const UPSCALE_TOLERANCE = 1.06
+// How close a tier's native width must be to the device width to be served at
+// that native size rather than rescaled. Also the slack that stops the choice
+// being a knife edge: the responsive grid stretches columns to fill a row, so
+// `comfortable` paints anywhere from 133 to 161px, and an exact-fit rule flips
+// tiers as the window resizes — 1547px wide lands on 150.9 and misses 146 by
+// five pixels, 2560px lands on 146.7 and misses by less than one.
+const TIER_MATCH_TOLERANCE = 0.06
+
+// Tiers big enough to reduce from. `small` is deliberately absent: Scryfall
+// renders it at 146 with sharpening baked in for that size. At its native width
+// that sharpening resolves card text a reduction from 488 averages away, but
+// rescaled in either direction it degrades into artifacts. A/B'd against 488 on
+// both a low-contrast old frame and a modern one, `small` wins at 146–153 and
+// loses by 128 (a 1.14:1 reduction) and by 161 (a 1.10x upscale) — so it is
+// offered only near native, never as a general-purpose source. Callers that
+// want it for an icon-sized thumb, where bytes matter and legibility does not,
+// should ask for it explicitly.
+const REDUCIBLE_TIERS = ['normal', 'large']
 
 export function pickImageTier(cssWidth, dpr = 1) {
   const deviceWidth = cssWidth * (dpr > 0 ? dpr : 1)
-  const aligned = TIERS_SMALLEST_FIRST.find(t => isMipAlignedRatio(SCRYFALL_TIER_WIDTH[t], deviceWidth))
+  const nearNative = TIERS_SMALLEST_FIRST.find(
+    t => Math.abs(SCRYFALL_TIER_WIDTH[t] / deviceWidth - 1) <= TIER_MATCH_TOLERANCE,
+  )
+  if (nearNative) return nearNative
+  const aligned = REDUCIBLE_TIERS.find(t => isMipAlignedRatio(SCRYFALL_TIER_WIDTH[t], deviceWidth))
   if (aligned) return aligned
-  return TIERS_SMALLEST_FIRST.find(t => SCRYFALL_TIER_WIDTH[t] * UPSCALE_TOLERANCE >= deviceWidth) || 'large'
+  return REDUCIBLE_TIERS.find(t => SCRYFALL_TIER_WIDTH[t] >= deviceWidth) || 'large'
 }
 
 // scryfall.com's own grid serves a `grid` tier that the API doesn't list in

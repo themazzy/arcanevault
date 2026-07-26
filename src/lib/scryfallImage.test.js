@@ -77,9 +77,23 @@ describe('pickImageTier', () => {
   it('serves a mip-aligned tier on a plain 1x display', () => {
     expect(pickImageTier(DENSITY_PX.comfortable, 1)).toBe('small')  // 146 -> 146, 1:1
     expect(pickImageTier(DENSITY_PX.cozy, 1)).toBe('normal')        // 488 -> 244, 2:1
-    // `small` (146) would *cover* a 122 tile, but 146->122 is an off-level
-    // squeeze of an already-small JPEG; 488->122 is an exact 4:1 and sharper.
+    // `small` (146) would *cover* a 122 tile, but reducing the sharpened
+    // thumbnail is worse than a clean 488 -> 122; A/B'd both ways.
     expect(pickImageTier(DENSITY_PX.compact, 1)).toBe('normal')
+  })
+
+  // `small` carries sharpening baked in for 146px. Rescaling it in either
+  // direction turns that into artifacts, so it is offered near native only.
+  // Measured against a reduction from 488 on an old low-contrast frame and a
+  // modern one: small wins at 146-153, loses by 128 and by 161. The compact
+  // grid paints 113-132px, so it must never take small.
+  it('offers small only within the band it was rendered for', () => {
+    for (const painted of [113, 122, 128, 132, 161, 180]) {
+      expect(pickImageTier(painted, 1)).toBe('normal')
+    }
+    for (const painted of [138.4, 146, 150.9, 153.2]) {
+      expect(pickImageTier(painted, 1)).toBe('small')
+    }
   })
 
   it('gives cozy a perfect 1:1 on a retina display', () => {
