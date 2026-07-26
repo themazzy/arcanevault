@@ -420,7 +420,7 @@ const modalStack = []
  * dialogs: pass `trapTab: false` (focus moves on naturally) and
  * `manageFocus: false` (typing focus must stay where it is).
  */
-export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = true, trapTab = true, manageFocus = true } = {}) {
+export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = true, trapTab = true, manageFocus = true, initialFocusRef = null } = {}) {
   const onCloseRef = useRef(onClose)
   const closeOnEscapeRef = useRef(closeOnEscape)
   useLayoutEffect(() => {
@@ -446,7 +446,10 @@ export function useModalKeys(elRef, { active = true, onClose, closeOnEscape = tr
 
     // Move focus into the dialog without auto-selecting a control (least
     // surprising — lands on the container, Tab then enters the content).
-    if (manageFocus) modalEl.focus({ preventScroll: true })
+    // `initialFocusRef` opts a dialog out of that for search-first flows where
+    // typing is the whole point: this effect runs *after* the children's, so a
+    // child's autoFocus would otherwise be taken back by the line below.
+    if (manageFocus) (initialFocusRef?.current || modalEl).focus({ preventScroll: true })
 
     const onKeyDown = (e) => {
       // A modal underneath an open one must ignore keys entirely — otherwise
@@ -495,6 +498,9 @@ export function Modal({
   className = '',
   contentClassName = '',
   sideRails = null,
+  // Focus this control on open instead of the dialog container. For dialogs
+  // that exist to be typed into; leave unset everywhere else.
+  initialFocusRef = null,
 }) {
   const modalRef = useRef(null)
   const modalContentRef = useRef(null)
@@ -507,7 +513,7 @@ export function Modal({
 
   // Keyboard + focus management: Escape closes, Tab is trapped within the
   // dialog, and focus is restored to the previously-focused element on close.
-  useModalKeys(modalRef, { onClose, closeOnEscape })
+  useModalKeys(modalRef, { onClose, closeOnEscape, initialFocusRef })
 
   useEffect(() => {
     const modalEl = modalRef.current

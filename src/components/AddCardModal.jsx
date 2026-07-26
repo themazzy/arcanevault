@@ -6,7 +6,7 @@ import { Modal, Button, ConfirmModal, ErrorBox, ResponsiveMenu, SearchInput } fr
 import { useSettings } from './SettingsContext'
 import { getPrice, formatPrice, getPriceSource } from '../lib/scryfall'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
-import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
+import { toOwnedCardRow, toListItemRow, mergeNonNull, buildOwnedCardUpsertRows } from '../lib/deckBuilderWrites'
 import { removeAcquiredFromWishlists } from '../lib/wishlistSync'
 import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
 import { getDiscardDialogModel } from '../lib/addCardDiscard'
@@ -195,16 +195,21 @@ export default function AddCardModal({
     hasProgressRef.current = hasProgress
   }, [])
   const discardDialog = discardSnapshot ? getDiscardDialogModel(discardSnapshot) : null
+  // Land the caret in the card search on open — the modal exists to be typed
+  // into. Null when AddFlow opens straight into the configure view (a prefilled
+  // or scanner-supplied card), and Modal falls back to the dialog container.
+  const searchInputRef = useRef(null)
 
   return (
     <>
-      <Modal onClose={requestClose}>
+      <Modal onClose={requestClose} initialFocusRef={searchInputRef}>
         {prefillCard?.id
           ? <EditForm card={prefillCard} onClose={onClose} onSaved={onSaved} />
           : <AddFlow userId={userId} onClose={requestClose} onSaved={onSaved}
               folderMode={folderMode} defaultFolderType={defaultFolderType} defaultFolderId={defaultFolderId}
               initialCardName={initialCard?.name || initialCardName}
               initialCard={initialCard}
+              searchInputRef={searchInputRef}
               onProgressChange={handleProgressChange} />
         }
       </Modal>
@@ -226,7 +231,7 @@ export default function AddCardModal({
 }
 
 // ── Add flow ──────────────────────────────────────────────────────────────────
-function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null, initialCard = null, onProgressChange }) {
+function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderType = 'binder', defaultFolderId = null, initialCardName = null, initialCard = null, onProgressChange, searchInputRef = null }) {
   const { price_source } = useSettings()
 
   // Format a printing's non-foil price using the user's price source
@@ -578,27 +583,24 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
         }, new Map()).values()
       )
 
-      const setCodes = [...new Set(aggregated.map(c => c.set_code))]
-      // Existence check via owned_cards_view so set_code/collector_number
-      // resolve via card_prints (post-5d the base table no longer has them).
-      const { data: existingCards, error: existingCardsErr } = await sb.from('owned_cards_view')
-        .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id')
-        .eq('user_id', userId)
-        .in('set_code', setCodes)
-      if (existingCardsErr) { setError(existingCardsErr.message); setSaving(false); return }
+      // Look the existing copies up by the exact prints being saved. Matching on
+      // set_code instead used to return every owned card in those sets, which
+      // PostgREST silently truncates at 1000 rows — a queue spanning a few large
+      // sets pushed the real matches past the cap, so already-owned cards looked
+      // new and their quantities were overwritten instead of added to.
+      const printIds = [...new Set(aggregated.map(c => c.card_print_id).filter(Boolean))]
+      let existingCards = []
+      if (printIds.length) {
+        const { data, error: existingCardsErr } = await sb.from('owned_cards_view')
+          .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id')
+          .eq('user_id', userId)
+          .in('card_print_id', printIds)
+        if (existingCardsErr) { setError(existingCardsErr.message); setSaving(false); return }
+        existingCards = data || []
+      }
 
-      const existingByKey = new Map((existingCards || []).map(card => [getOwnedCardKey(card), card]))
-      // Generate client-side IDs for new cards so the upsert batch has a uniform
-      // shape. PostgREST normalizes the column set across all rows in an upsert;
-      // if some rows have `id` and others don't, the missing ones get sent as
-      // explicit null and violate the cards.id NOT NULL constraint instead of
-      // falling through to gen_random_uuid().
-      const cards = aggregated.map(card => {
-        const existing = existingByKey.get(getOwnedCardKey(card))
-        return existing
-          ? { ...existing, ...card, id: existing.id, qty: (existing.qty || 0) + card.qty }
-          : { ...card, id: crypto.randomUUID() }
-      })
+      const existingByKey = new Map(existingCards.map(card => [getOwnedCardKey(card), card]))
+      const cards = buildOwnedCardUpsertRows(aggregated, existingByKey, getOwnedCardKey)
 
       // Strip denorm cols at the upsert boundary; re-attach input metadata
       // so downstream consumers (onSaved → IDB hydration, UI updates) keep
@@ -639,7 +641,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
         if (!saved.length) {
           const { data: fetchedSaved, error: savedErr } = await sb.from('owned_cards_view')
             .select('id,user_id,name,set_code,collector_number,scryfall_id,foil,qty,condition,language,purchase_price,currency,card_print_id,added_at')
-            .eq('user_id', userId).in('set_code', setCodes)
+            .eq('user_id', userId).in('card_print_id', printIds)
           if (savedErr) { setError(savedErr.message); setSaving(false); return }
           saved = fetchedSaved || []
         }
@@ -722,6 +724,7 @@ function AddFlow({ userId, onClose, onSaved, folderMode = false, defaultFolderTy
         <div className={styles.searchWrap} ref={suggestRef}>
           <div className={styles.searchRow}>
             <input
+              ref={searchInputRef}
               className={styles.searchInput}
               value={query}
               onChange={e => { setQuery(e.target.value); setSelectedName(null) }}

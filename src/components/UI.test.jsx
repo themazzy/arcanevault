@@ -126,6 +126,45 @@ describe('shared UI ref-sensitive behavior', () => {
     expect(latestClose).toHaveBeenCalledOnce()
   })
 
+  it('Modal focuses its dialog container by default, overriding a child autoFocus', () => {
+    render(
+      <Modal onClose={vi.fn()}>
+        <input autoFocus placeholder="Search for a card…" />
+      </Modal>,
+    )
+    // Documents the race initialFocusRef exists to settle: Modal's effect runs
+    // after its children's, so autoFocus on its own is taken back.
+    expect(document.activeElement).toBe(document.querySelector('[role="dialog"]'))
+  })
+
+  it('Modal focuses initialFocusRef instead, beating a child autoFocus race', () => {
+    function SearchModal() {
+      const inputRef = useRef(null)
+      return (
+        <Modal onClose={vi.fn()} initialFocusRef={inputRef}>
+          {/* autoFocus alone loses: Modal's own effect runs after the child's
+              and would pull focus back to the container. */}
+          <input ref={inputRef} autoFocus placeholder="Search for a card…" />
+        </Modal>
+      )
+    }
+    render(<SearchModal />)
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('Search for a card…'))
+  })
+
+  it('falls back to the container when initialFocusRef has nothing mounted', () => {
+    function ConfigureModal() {
+      const missingRef = useRef(null)
+      return (
+        <Modal onClose={vi.fn()} initialFocusRef={missingRef}>
+          <button type="button">Add to Queue</button>
+        </Modal>
+      )
+    }
+    render(<ConfigureModal />)
+    expect(document.activeElement).toBe(document.querySelector('[role="dialog"]'))
+  })
+
   it('ResponsiveMenu closes from the non-passive touch backdrop handler', () => {
     vi.useFakeTimers()
     render(

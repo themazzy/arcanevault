@@ -38,6 +38,39 @@ export function toOwnedCardRow(row) {
   return out
 }
 
+/**
+ * Drop `id` from a cards-upsert payload row — the key must be absent, not
+ * undefined, because toOwnedCardRow copies any key that merely exists and
+ * PostgREST would send it as an explicit null.
+ *
+ * Why no row in a `cards` upsert may carry an id: PostgREST turns the batch
+ * into INSERT … ON CONFLICT DO UPDATE, and DO UPDATE writes *every* column in
+ * the payload. A row whose id doesn't match the row the conflict resolves to
+ * therefore rewrites that row's primary key — which fails outright the moment
+ * anything references it (`deck_allocations_card_id_fkey` / `folder_cards_
+ * card_id_fkey` are both ON UPDATE NO ACTION), and would silently orphan the
+ * placements if they weren't. Leaving the column out entirely keeps the batch
+ * shape uniform (the reason client-side ids were introduced) while letting
+ * inserts fall through to the cards.id gen_random_uuid() default.
+ */
+export function omitId(row) {
+  const out = { ...row }
+  delete out.id
+  return out
+}
+
+/**
+ * Merge incoming owned-card rows against the existing rows found for them,
+ * summing quantities. Never emits `id` — see omitId.
+ */
+export function buildOwnedCardUpsertRows(incoming, existingByKey, keyOf) {
+  return (incoming || []).map(row => {
+    const existing = existingByKey?.get(keyOf(row))
+    if (!existing) return omitId(row)
+    return omitId({ ...existing, ...row, qty: (existing.qty || 0) + (row.qty || 0) })
+  })
+}
+
 export const LIST_ITEM_DB_COLS = new Set([
   'id', 'folder_id', 'user_id', 'card_print_id', 'qty', 'foil', 'added_at',
 ])
@@ -135,22 +168,18 @@ export async function additiveSaveOwnedCards(rows, context = 'Owned card') {
   }
 
   const existingByKey = new Map(existingRows.map(row => [ownedCardKey(row), row]))
-  // Assign client-side IDs to new rows so every row in the upsert batch has the
-  // same shape. PostgREST normalizes the column set across the array; if some
-  // rows include `id` and others don't, the missing ones are sent as null and
-  // bypass the gen_random_uuid() default, violating cards.id NOT NULL.
+  // No row carries an `id` — see omitId for why an upsert must never send one.
   const rowsToSave = incomingRows.map(row => {
     const existing = existingByKey.get(ownedCardKey(row))
     return existing
-      ? {
+      ? omitId({
           ...existing,
           ...row,
-          id: existing.id,
           qty: (existing.qty || 0) + (row.qty || 0),
           purchase_price: existing.purchase_price ?? row.purchase_price ?? 0,
           currency: existing.currency || row.currency || 'EUR',
-        }
-      : { ...row, id: crypto.randomUUID() }
+        })
+      : omitId(row)
   })
 
   // Strip denormalized cols at the upsert boundary (post-5d the schema no

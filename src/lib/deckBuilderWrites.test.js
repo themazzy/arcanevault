@@ -14,7 +14,7 @@ vi.mock('./cardPrints', () => ({
 }))
 
 const { sb } = await import('./supabase')
-const { additiveSaveOwnedCards, ownedCardKey, toDeckCardRow, toCardPrintSource } = await import('./deckBuilderWrites')
+const { additiveSaveOwnedCards, ownedCardKey, toDeckCardRow, toCardPrintSource, buildOwnedCardUpsertRows } = await import('./deckBuilderWrites')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -133,6 +133,7 @@ describe('additiveSaveOwnedCards (HI-005)', () => {
   })
 
   it('sums qty into existing row when one is found', async () => {
+    const upsertCalls = []
     sb.from.mockImplementation(() => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -148,8 +149,17 @@ describe('additiveSaveOwnedCards (HI-005)', () => {
         }],
         error: null,
       }),
+      // Stands in for ON CONFLICT DO UPDATE: the conflict resolves to the
+      // existing row, so the returned row carries that row's id whether or not
+      // the payload mentioned one.
       upsert: vi.fn(function (rows) {
-        return { select: vi.fn().mockResolvedValue({ data: rows, error: null }) }
+        upsertCalls.push(rows)
+        return {
+          select: vi.fn().mockResolvedValue({
+            data: rows.map(row => ({ ...row, id: 'existing-1' })),
+            error: null,
+          }),
+        }
       }),
     }))
 
@@ -157,7 +167,60 @@ describe('additiveSaveOwnedCards (HI-005)', () => {
       { card_print_id: 'cp-1', user_id: 'user-A', qty: 2, foil: false },
     ])
     expect(result[0].qty).toBe(6) // 4 existing + 2 new
-    expect(result[0].id).toBe('existing-1') // preserves existing id
+    expect(result[0].id).toBe('existing-1') // still points at the existing card
     expect(result[0].purchase_price).toBe(1.50) // preserves existing price
+    // The payload must not carry an id: DO UPDATE writes every column it is
+    // given, so an id there rewrites the primary key of a row that
+    // deck_allocations/folder_cards reference (both ON UPDATE NO ACTION).
+    expect(upsertCalls[0][0]).not.toHaveProperty('id')
+  })
+
+  it('never sends an id for a brand-new row either', async () => {
+    const upsertCalls = []
+    sb.from.mockImplementation(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ data: [], error: null }),
+      upsert: vi.fn(function (rows) {
+        upsertCalls.push(rows)
+        return { select: vi.fn().mockResolvedValue({ data: rows, error: null }) }
+      }),
+    }))
+
+    await additiveSaveOwnedCards([{ card_print_id: 'cp-9', user_id: 'user-A', qty: 1, foil: false }])
+
+    expect(upsertCalls[0][0]).not.toHaveProperty('id')
+  })
+})
+
+describe('buildOwnedCardUpsertRows', () => {
+  const keyOf = row => `${row.card_print_id}|${row.foil ? 1 : 0}`
+
+  it('omits id for new rows and for rows merged onto an existing card', () => {
+    const existingByKey = new Map([['cp-1|0', {
+      id: 'existing-1', user_id: 'u', card_print_id: 'cp-1', foil: false, qty: 4, purchase_price: 2,
+    }]])
+    const rows = buildOwnedCardUpsertRows([
+      { user_id: 'u', card_print_id: 'cp-1', foil: false, qty: 2 },
+      { user_id: 'u', card_print_id: 'cp-2', foil: false, qty: 1 },
+    ], existingByKey, keyOf)
+
+    expect(rows[0]).not.toHaveProperty('id')
+    expect(rows[1]).not.toHaveProperty('id')
+    expect(rows[0].qty).toBe(6)               // 4 existing + 2 new
+    expect(rows[0].purchase_price).toBe(2)    // existing metadata carried over
+    expect(rows[1].qty).toBe(1)
+  })
+
+  it('treats a missing existing map as all-new', () => {
+    const rows = buildOwnedCardUpsertRows(
+      [{ card_print_id: 'cp-1', foil: false, qty: 3, id: 'stale' }], undefined, keyOf,
+    )
+    expect(rows[0]).not.toHaveProperty('id')
+    expect(rows[0].qty).toBe(3)
+  })
+
+  it('returns [] for empty input', () => {
+    expect(buildOwnedCardUpsertRows(null, new Map(), keyOf)).toEqual([])
   })
 })
