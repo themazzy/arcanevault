@@ -67,6 +67,10 @@
   }
   .overlay[data-flip='true'] .sheet { border-radius: var(--radius-xl); }
   .sheet[data-size='lg'] { width: min(100%, 680px); }
+  /* For sheets that lay their content out in columns to stay off the scrollbar —
+   * the width buys rows back as columns, and buys the controls in them room to be
+   * tapped without looking. */
+  .sheet[data-size='xl'] { width: min(100%, 1100px); }
 }
 
 .header {
@@ -92,6 +96,11 @@
   margin: 3px 0 0;
   font-size: var(--font-sm);
   color: var(--text-dim);
+}
+
+.aside {
+  flex: 0 0 auto;
+  align-self: center;
 }
 
 .close {

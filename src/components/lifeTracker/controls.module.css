@@ -165,6 +165,202 @@
 
 .stepValue[data-alarm='true'] { color: var(--red-bright); }
 
+/* ── Commander damage ──────────────────────────────────────────────────────── */
+/* One card per opponent, one bar per commander inside it. The grid is what keeps
+ * a full table off the scrollbar: five opponents with partners is ten controls,
+ * which only fits without scrolling if the sheet spends its width on columns. */
+.foeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 264px), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.foeCard {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-md);
+  background: var(--s-subtle);
+}
+
+.foeHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.foeName {
+  min-width: 0;
+  font-size: var(--font-base);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The bar is the control, the way a seat is: two panes split it down the middle,
+ * left removes and right adds. Same gesture as the table it opens over, and it
+ * turns a 58px button into half a card — this is tapped with a board in the other
+ * hand, and the width is free. */
+.dmgBar {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-height: 66px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  /* A step up from the card it sits in — --s-subtle and --s2 are the same value
+   * on dark themes, so the bar would vanish into its own card. */
+  background: var(--s3);
+  overflow: hidden;
+  transition: border-color 0.16s ease;
+}
+
+.dmgBar[data-alarm='true'] { border-color: var(--red-bright); }
+
+.dmgPane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  /* A hold must not scroll the sheet, select text, or raise a callout. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: background-color 0.12s ease;
+}
+
+.dmgPaneDown { justify-content: flex-start; }
+.dmgPaneUp { justify-content: flex-end; }
+
+.dmgGlyph {
+  opacity: 0.45;
+  transition: opacity 0.12s ease;
+}
+
+/* Nothing left to take: the pane stays in place so the bar keeps its shape, but
+ * it reads as spent rather than merely unlit. */
+.dmgPane:disabled {
+  cursor: default;
+  color: var(--text-faint);
+}
+
+.dmgPane:disabled .dmgGlyph { opacity: 0.15; }
+
+.dmgPane[data-active='true'] { background: var(--s-medium); }
+.dmgPane[data-active='true'] .dmgGlyph { opacity: 1; }
+
+.dmgPane:focus-visible { outline: 2px solid var(--border-hi); outline-offset: -3px; }
+
+@media (hover: hover) and (pointer: fine) {
+  .dmgPane:not(:disabled):hover { background: var(--s-subtle); }
+  .dmgPane:not(:disabled):hover .dmgGlyph { opacity: 0.8; }
+}
+
+/* Transparent to pointers, so the numeral belongs to both panes instead of
+ * splitting them with a dead strip. */
+.dmgReadout {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.dmgLabel {
+  composes: labelSm from '../../styles/typography.module.css';
+  color: var(--text-faint);
+}
+
+.dmgLabel[data-alarm='true'] { color: var(--red-bright); }
+
+.dmgValue {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text);
+}
+
+.dmgBar[data-alarm='true'] .dmgValue { color: var(--red-bright); }
+
+/* The life total the sheet is quietly changing. It sits in the header because the
+ * sheet covers the seat it belongs to — without it you are removing life from a
+ * number you cannot see. */
+.lifeReadout {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-md);
+  background: var(--s-subtle);
+}
+
+.lifeValue {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text);
+}
+
+.lifeUnit {
+  composes: labelSm from '../../styles/typography.module.css';
+  color: var(--text-faint);
+}
+
+/* Same running total as the seat panel's, in the sheet's own palette rather than
+ * the seat's fixed dark one — this surface follows the theme. */
+.deltaPill {
+  position: absolute;
+  top: -11px;
+  right: -7px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: var(--font-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  animation: deltaPillIn 0.16s ease-out;
+}
+
+.deltaPill[data-sign='down'] {
+  color: var(--red-bright);
+  border-color: color-mix(in srgb, var(--red-bright) 45%, transparent);
+  background: color-mix(in srgb, var(--red-bright) 22%, var(--bg2));
+}
+
+.deltaPill[data-sign='up'] {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 45%, transparent);
+  background: color-mix(in srgb, var(--green) 22%, var(--bg2));
+}
+
+@keyframes deltaPillIn {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* ── Art picker ────────────────────────────────────────────────────────────── */
 .artRow {
   display: flex;

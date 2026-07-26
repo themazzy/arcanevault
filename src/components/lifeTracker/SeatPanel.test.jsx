@@ -181,8 +181,43 @@ describe('running total', () => {
     act(() => { render3(35) })
     expect(screen.getByText('-5')).toBeTruthy()
 
-    act(() => { vi.advanceTimersByTime(1700) })
+    // Still up long enough to look back from the board and read it.
+    act(() => { vi.advanceTimersByTime(2100) })
+    expect(screen.getByText('-5')).toBeTruthy()
+
+    act(() => { vi.advanceTimersByTime(200) })
     expect(screen.queryByText('-5')).toBeNull()
+  })
+
+  it('survives the blow that kills the seat', () => {
+    vi.useFakeTimers()
+    const { rerender } = setup({ life: 3 })
+    act(() => {
+      rerender(
+        <SeatPanel
+          player={player({ life: 0 })} opponents={opponents} rotation={0} area="a"
+          commander dead deathText="Burned down by Ada" onLife={vi.fn()}
+          onOpenSeat={vi.fn()} onOpenDamage={vi.fn()}
+        />,
+      )
+    })
+    // The killing blow is the one you most want to read back.
+    expect(screen.getByText('-3')).toBeTruthy()
+    expect(screen.getByText('Burned down by Ada')).toBeTruthy()
+  })
+
+  it('does not hang off the numeral, which moves when a seat goes out', () => {
+    const { rerender } = setup({ life: 40 })
+    act(() => {
+      rerender(
+        <SeatPanel
+          player={player({ life: 37 })} opponents={opponents} rotation={0} area="a"
+          commander dead={false} onLife={vi.fn()} onOpenSeat={vi.fn()} onOpenDamage={vi.fn()}
+        />,
+      )
+    })
+    // Anchored to the life band, not to the live region that holds the total.
+    expect(screen.getByRole('status').contains(screen.getByText('-3'))).toBe(false)
   })
 })
 
@@ -200,6 +235,21 @@ describe('status', () => {
     expect(screen.getByText('Split in half by Garruk')).toBeTruthy()
     // The total is still readable — that was the problem with the old overlay.
     expect(screen.getByRole('status').getAttribute('aria-label')).toBe('Jan: 0 life')
+  })
+
+  it('opens the flavour row only once the seat is out, so the total can glide', () => {
+    const { container, rerender } = setup({ life: 40 }, { deathText: 'Split in half by Garruk' })
+    const centre = () => container.querySelector('[data-out]')
+    expect(centre()).toBeNull()
+
+    rerender(
+      <SeatPanel
+        player={player({ life: 0 })} opponents={opponents} rotation={0} area="a"
+        commander dead deathText="Split in half by Garruk"
+        onLife={vi.fn()} onOpenSeat={vi.fn()} onOpenDamage={vi.fn()}
+      />,
+    )
+    expect(centre()).toBeTruthy()
   })
 
   it('does not show flavour text for a living player', () => {
@@ -232,18 +282,48 @@ describe('status', () => {
 })
 
 describe('commander damage rail', () => {
-  it('shows one pip per opponent and opens the damage sheet', () => {
+  const rail = () => screen.getByRole('button', { name: /commander damage to jan/i })
+  const pipText = () => [...rail().querySelectorAll('span span')].map(p => p.textContent)
+
+  it('shows one cell per opponent and opens the damage sheet', () => {
     const { onOpenDamage } = setup({ dmg: { 1: [12, 0] } })
-    const rail = screen.getByRole('button', { name: /commander damage dealt to jan/i })
-    expect(rail.textContent).toContain('12')
-    fireEvent.click(rail)
+    expect(pipText()).toEqual(['12', '0'])
+    fireEvent.click(rail())
     expect(onOpenDamage).toHaveBeenCalledTimes(1)
   })
 
-  it('sums a partner pair into one pip', () => {
-    setup({ dmg: { 1: [8, 5] } })
-    const rail = screen.getByRole('button', { name: /commander damage dealt to jan/i })
-    expect(rail.textContent).toContain('13')
+  it('gives each partner commander its own cell instead of summing the pair', () => {
+    // 8 + 5 is not 13 damage from a commander: they are two clocks to 21.
+    setup({ dmg: { 1: [8, 5] } }, {
+      opponents: [{ id: 1, name: 'Ada', color: '#3d8fd9', hasPartner: true }],
+    })
+    expect(pipText()).toEqual(['8', '5'])
+    expect(rail().textContent).not.toContain('13')
+  })
+
+  it('only flags lethal when a single commander reaches 21', () => {
+    const partnered = [{ id: 1, name: 'Ada', color: '#3d8fd9', hasPartner: true }]
+    const { rerender } = setup({ dmg: { 1: [14, 9] } }, { opponents: partnered })
+    expect(rail().dataset.alarm).toBeUndefined()
+
+    rerender(
+      <SeatPanel
+        player={player({ dmg: { 1: [21, 9] } })} opponents={partnered} rotation={0} area="a"
+        commander dead={false} onLife={vi.fn()} onOpenSeat={vi.fn()} onOpenDamage={vi.fn()}
+      />,
+    )
+    expect(rail().dataset.alarm).toBe('true')
+  })
+
+  it('reads the pair out separately to assistive tech', () => {
+    setup({ dmg: { 1: [8, 5] } }, {
+      opponents: [
+        { id: 1, name: 'Ada', color: '#3d8fd9', hasPartner: true },
+        { id: 2, name: 'Lee', color: '#4fae63', hasPartner: false },
+      ],
+    })
+    expect(rail().getAttribute('aria-label')).toContain('Ada 8 and 5')
+    expect(rail().getAttribute('aria-label')).toContain('Lee 0')
   })
 
   it('is hidden outside commander formats', () => {

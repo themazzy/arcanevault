@@ -266,13 +266,28 @@
   }
 }
 
+/* The numeral and the epitaph beneath it. The second row is an accordion: 0fr
+ * while the seat is alive, 1fr once it is out. .content centres this box rather
+ * than stretching it, so the row opening is what lifts the numeral — animating
+ * the row means the total glides to its new place instead of teleporting there
+ * the instant the flavour line mounts.
+ *
+ * Deliberately does not clip: the clip that used to live here (to stop long
+ * flavour text pushing the total off centre) belongs to .deathSlot now, and its
+ * old position also hid the ±N pill. */
 .centre {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
+  display: grid;
+  grid-template-rows: auto 0fr;
+  justify-items: center;
   min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  transition: grid-template-rows 0.5s cubic-bezier(0.16, 0.84, 0.28, 1);
+}
+
+.centre[data-out='true'] { grid-template-rows: auto 1fr; }
+
+.deathSlot {
   min-height: 0;
   max-width: 100%;
   overflow: hidden;
@@ -296,6 +311,9 @@
  * the same 11.5px. */
 .deathText {
   max-width: 96%;
+  /* The gap under the numeral lives inside the clipped slot, so it collapses with
+   * the row rather than holding 4px open on a living seat. */
+  padding-top: 4px;
   font-family: var(--font-serif);
   font-style: italic;
   font-size: clamp(0.62rem, 7cqi, 1.4rem);
@@ -308,6 +326,25 @@
   -webkit-line-clamp: 3;
   line-clamp: 3;
   overflow: hidden;
+  /* The one scripted moment on the panel. A seat goes out once per game, and the
+   * line settles out from under the total rather than appearing there — the total
+   * dropping to 0 and the epitaph arriving read as one event instead of two. */
+  animation: deathIn 0.52s cubic-bezier(0.16, 0.84, 0.28, 1) both;
+}
+
+@keyframes deathIn {
+  from {
+    opacity: 0;
+    transform: translateY(-9px);
+    letter-spacing: 0.14em;
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    letter-spacing: normal;
+    filter: none;
+  }
 }
 
 /* Line budget follows the height actually available, so the tall narrow cells of a
@@ -340,25 +377,35 @@
   text-shadow: none;
 }
 
-/* The running total of a burst of taps, so "−7" is legible as one action. */
+/* The running total of a burst of taps, so "−7" is legible as one action.
+ *
+ * Out of flow, but anchored to .content's middle row rather than to the numeral
+ * inside it: an absolutely-positioned grid child takes its named area as its
+ * containing block, so the pill holds one fixed spot at the top of the life band
+ * whatever the numeral below it is doing. It also means the pill takes no part in
+ * grid auto-placement, so the three rows still fall where they did. */
 .delta {
   position: absolute;
+  grid-row: 2;
+  grid-column: 1;
+  top: 0;
   left: 50%;
-  bottom: 100%;
+  z-index: 2;
   transform: translateX(-50%);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-size: clamp(0.8rem, 13cqmin, 2rem);
   line-height: 1;
-  padding: 2px 7px;
+  padding: 5px 12px;
   border-radius: var(--radius-pill);
   white-space: nowrap;
   animation: deltaIn 0.16s ease-out;
 }
 
-.delta[data-sign='down'] { color: #ffb0a8; background: rgba(120, 22, 22, 0.62); }
-.delta[data-sign='up']   { color: #b6ecc0; background: rgba(20, 88, 40, 0.62); }
+/* Opaque enough to read over card art, which is what sits behind it half the time. */
+.delta[data-sign='down'] { color: #ffc0b8; background: rgba(126, 24, 24, 0.88); }
+.delta[data-sign='up']   { color: #bdf2c7; background: rgba(20, 92, 42, 0.88); }
 
 @keyframes deltaIn {
   from { opacity: 0; transform: translateX(-50%) translateY(4px); }
@@ -403,27 +450,49 @@
   color: #ffcfc8;
 }
 
-/* Commander damage: one pip per opponent, in seat order, so a glance says who is
- * close to lethal without opening anything. */
+/* Commander damage: one capsule per opponent, in seat order, so a glance says who
+ * is close to lethal without opening anything. The capsule is divided into one
+ * cell per commander, because commander damage is counted per commander — a
+ * partner pair is two independent clocks to 21, and the old rail summed them,
+ * which read 21 (lethal) for a pair that had dealt a harmless 12 and 9.
+ *
+ * Sized in cqmin so a two-up seat gets a generous rail, with a floor that keeps
+ * the numbers legible in the narrow cells of a six-up phone table. */
 .rail {
   pointer-events: auto;
+  position: relative;
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 3px;
-  height: 19px;
-  padding: 0 5px;
-  border: 1px solid var(--seat-line);
+  justify-content: center;
+  gap: 4px;
+  min-height: clamp(26px, 10cqmin, 36px);
+  padding: 3px 6px;
+  border: 1px solid var(--seat-line-hi);
   border-radius: var(--radius-pill);
-  background: rgba(9, 9, 12, 0.4);
+  background: rgba(9, 9, 12, 0.52);
   color: var(--seat-ink-dim);
   cursor: pointer;
   transition: border-color 0.16s ease, background-color 0.16s ease;
 }
 
+/* This is the smallest target on a panel that is otherwise operated by half-panel
+ * taps, and the one a thumb misses on a phone. The hit area is grown past the
+ * pill rather than the pill itself, so a crowded seat keeps its layout and still
+ * answers a ~46px thumb. Upwards, where a seat has room to spare; barely
+ * downwards, where the seat's own edge would clip it anyway. */
+.rail::after {
+  content: '';
+  position: absolute;
+  inset: -12px -8px -4px;
+}
+
 .rail[data-alarm='true'] {
-  border-color: rgba(214, 90, 78, 0.75);
+  border-color: rgba(226, 59, 44, 0.85);
   color: #ffcfc8;
 }
+
+.railWarn { flex: 0 0 auto; }
 
 .rail:focus-visible {
   outline: 2px solid var(--seat-line-hi);
@@ -437,29 +506,65 @@
   }
 }
 
+/* One opponent. Their colour rings the whole capsule, so a partner pair still
+ * reads as one player at a glance even when its two cells differ. */
+.foe {
+  display: inline-flex;
+  align-items: stretch;
+  /* Same pill as the rail around it — the capsules read as beads on the rail
+   * rather than tiles sitting in a slot. The pips inherit the shape by being
+   * clipped to it, so a partner pair keeps one continuous outline. */
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--opc) 50%, transparent);
+}
+
 .pip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 15px;
-  height: 13px;
-  padding: 0 2px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--opc) 22%, transparent);
-  color: var(--seat-ink-faint);
+  /* A shade wider than the flat-cornered version needed: the digits have to clear
+   * the capsule's curve at both ends. */
+  min-width: clamp(23px, 8.5cqmin, 32px);
+  height: clamp(19px, 7.5cqmin, 27px);
+  padding: 0 5px;
+  background: color-mix(in srgb, var(--opc) 26%, rgba(9, 9, 12, 0.62));
+  color: var(--seat-ink-dim);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  font-size: clamp(0.48rem, 4cqmin, 0.6rem);
+  font-size: clamp(0.68rem, 5.2cqmin, 0.95rem);
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
 }
 
+/* The divider between a partner pair's two cells. Light rather than dark, so the
+ * same hairline survives both the untouched cell and the filled one. */
+.pip + .pip { border-left: 1px solid var(--seat-line-hi); }
+
+/* Damage dealt reads as the opponent's own colour at full strength — the seat is
+ * dark enough that a solid fill is the loudest thing on the panel after the life
+ * total, which is the point: the pip is a warning, not a legend entry. */
 .pip[data-hit='true'] {
-  background: color-mix(in srgb, var(--opc) 70%, transparent);
-  color: #16161a;
+  background: var(--opc);
+  color: #14141a;
+  font-weight: 800;
 }
 
 .pip[data-lethal='true'] {
-  background: #c0392b;
+  background: #e23b2c;
   color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+/* A six-up table with partners on every seat can put ten cells in one rail. The
+ * rail wraps rather than overflows, and in the shortest cells the cells give back
+ * the height — the tap target does not shrink with them, it is the ::after. */
+@container (max-height: 120px) {
+  .rail { min-height: 22px; gap: 3px; padding: 2px 4px; }
+  .pip {
+    min-width: 20px;
+    height: 16px;
+    padding: 0 4px;
+    font-size: 0.62rem;
+  }
 }

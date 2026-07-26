@@ -1,6 +1,8 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo } from 'react'
 import { AddIcon, ChevronDownIcon, RemoveIcon, WarningIcon } from '../../icons'
 import { COUNTER_DEFS, LETHAL_CMD_DMG, LETHAL_POISON, maxCmdDmg } from '../../lib/lifeGame'
+import useHoldRepeat from './useHoldRepeat'
+import useLifeDelta from './useLifeDelta'
 import styles from './SeatPanel.module.css'
 
 // A seat is one player's whole control surface, and the surface *is* the button:
@@ -9,19 +11,19 @@ import styles from './SeatPanel.module.css'
 // a target the size of half a panel survives that, a 44px button does not. It also
 // gives the life numeral the entire panel to be large in.
 
-const HOLD_DELAY_MS = 420   // deliberate hold, not an accidental long tap
-const HOLD_TICK_MS = 130
-const RAMP_TO_5_TICKS = 9   // ≈1.6s held
-const RAMP_TO_10_TICKS = 18 // ≈2.8s held
+// Commander damage is tracked per commander, so a partner pair is two separate
+// clocks to 21 and never one combined total. The rail reads out the same slots
+// the damage sheet edits.
+function damageSlots(player, opponent) {
+  const pair = player.dmg?.[opponent.id] || [0, 0]
+  return opponent.hasPartner ? [pair[0] || 0, pair[1] || 0] : [pair[0] || 0]
+}
 
-// How long the running total stays up after the last tap. Long enough to read
-// "−7" after a combat step, short enough not to hide the life total.
-const DELTA_LINGER_MS = 1700
-
-function stepForTick(ticks) {
-  if (ticks > RAMP_TO_10_TICKS) return 10
-  if (ticks > RAMP_TO_5_TICKS) return 5
-  return 1
+function damageLabel(player, opponents) {
+  const dealt = opponents
+    .map(o => `${o.name} ${damageSlots(player, o).join(' and ')}`)
+    .join(', ')
+  return `Commander damage to ${player.name}: ${dealt}. Open to edit.`
 }
 
 function SeatPanel({
@@ -44,87 +46,14 @@ function SeatPanel({
   onSwapPointerUp,
   onSwapActivate,
 }) {
-  const [pressed, setPressed] = useState(null) // 'down' | 'up' | null
-  const [delta, setDelta] = useState(0)
-
-  const hold = useRef({ timeout: null, interval: null, ticks: 0 })
-  const deltaTimer = useRef(null)
-  const prevLife = useRef(player.life)
-
-  // The floating total is derived from life itself, so commander damage and
-  // counter-driven changes surface the same way a direct tap does.
-  useEffect(() => {
-    const diff = player.life - prevLife.current
-    prevLife.current = player.life
-    if (diff === 0) return
-    setDelta(prev => prev + diff)
-    clearTimeout(deltaTimer.current)
-    deltaTimer.current = setTimeout(() => setDelta(0), DELTA_LINGER_MS)
-  }, [player.life])
-
-  const stopHold = useCallback(() => {
-    const h = hold.current
-    if (h.timeout) clearTimeout(h.timeout)
-    if (h.interval) clearInterval(h.interval)
-    h.timeout = null
-    h.interval = null
-    h.ticks = 0
-  }, [])
-
-  useEffect(() => () => {
-    clearTimeout(deltaTimer.current)
-    const h = hold.current
-    if (h.timeout) clearTimeout(h.timeout)
-    if (h.interval) clearInterval(h.interval)
-  }, [])
-
-  const startHold = useCallback((dir) => {
-    const h = hold.current
-    h.ticks = 0
-    h.timeout = setTimeout(() => {
-      h.interval = setInterval(() => {
-        h.ticks += 1
-        onLife(dir * stepForTick(h.ticks))
-      }, HOLD_TICK_MS)
-    }, HOLD_DELAY_MS)
-  }, [onLife])
-
-  const handlePointerDown = (dir) => (e) => {
-    if (e.button > 0) return
-    // Capture keeps pointerup on this element even if the finger slides off,
-    // so a hold can never get stuck repeating.
-    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* not critical */ }
-    setPressed(dir > 0 ? 'up' : 'down')
-    onLife(dir)
-    startHold(dir)
-  }
-
-  const handlePointerEnd = () => {
-    stopHold()
-    setPressed(null)
-  }
-
-  // A button activated from the keyboard or assistive tech fires click with
-  // detail 0 and no pointerdown, so this is the only path that needs it.
-  const handleClick = (dir) => (e) => {
-    if (e.detail === 0) onLife(dir)
-  }
+  const delta = useLifeDelta(player.life)
+  const { pressed, pressProps } = useHoldRepeat(onLife)
 
   const poison = player.counters?.poison ?? 0
   const worstDamage = maxCmdDmg(player)
   const activeCounters = COUNTER_DEFS.filter(c => (player.counters?.[c.key] ?? 0) > 0)
   const tax = player.tax || [0, 0]
   const showTax = commander && (tax[0] > 0 || tax[1] > 0)
-
-  const halfProps = (dir) => ({
-    type: 'button',
-    onPointerDown: handlePointerDown(dir),
-    onPointerUp: handlePointerEnd,
-    onPointerCancel: handlePointerEnd,
-    onLostPointerCapture: handlePointerEnd,
-    onClick: handleClick(dir),
-    onContextMenu: (e) => e.preventDefault(),
-  })
 
   // data-seat-index lives on the cell, not the seat: the page hit-tests with
   // closest() so an ancestor works, and a cell is never transformed, so its
@@ -168,15 +97,15 @@ function SeatPanel({
           />
         ) : (
           <>
-            <button {...halfProps(-1)}
+            <button {...pressProps(-1)}
               className={`${styles.half} ${styles.halfDown}`}
-              data-active={pressed === 'down' ? 'true' : undefined}
+              data-active={pressed === -1 ? 'true' : undefined}
               aria-label={`Lose life — ${player.name}`}>
               <RemoveIcon size={15} className={styles.halfGlyph} />
             </button>
-            <button {...halfProps(1)}
+            <button {...pressProps(1)}
               className={`${styles.half} ${styles.halfUp}`}
-              data-active={pressed === 'up' ? 'true' : undefined}
+              data-active={pressed === 1 ? 'true' : undefined}
               aria-label={`Gain life — ${player.name}`}>
               <AddIcon size={15} className={styles.halfGlyph} />
             </button>
@@ -191,17 +120,27 @@ function SeatPanel({
             <ChevronDownIcon size={10} className={styles.nameChevron} />
           </button>
 
-          <div className={styles.centre}>
+          {/* Pinned to the life band rather than hung off the numeral. The numeral
+              moves when a seat goes out and the epitaph claims its space, and a
+              readout that rides along with it slides under the name row — or off
+              the panel — exactly on the blow you most want to read. */}
+          {delta !== 0 && (
+            <span className={styles.delta} data-sign={delta > 0 ? 'up' : 'down'} aria-hidden="true">
+              {delta > 0 ? `+${delta}` : delta}
+            </span>
+          )}
+
+          <div className={styles.centre} data-out={dead && deathText ? 'true' : undefined}>
             <div className={styles.lifeWrap} role="status" aria-live="polite"
               aria-label={`${player.name}: ${player.life} life`}>
               <span className={styles.life}>{player.life}</span>
-              {delta !== 0 && (
-                <span className={styles.delta} data-sign={delta > 0 ? 'up' : 'down'} aria-hidden="true">
-                  {delta > 0 ? `+${delta}` : delta}
-                </span>
-              )}
             </div>
-            {dead && deathText && <span className={styles.deathText}>{deathText}</span>}
+            {/* Always mounted, collapsed to nothing while the seat is alive: the
+                epitaph opens this row from 0fr, which is what gives the numeral a
+                glide up instead of a jump. */}
+            <div className={styles.deathSlot}>
+              {dead && deathText && <span className={styles.deathText}>{deathText}</span>}
+            </div>
           </div>
 
           <div className={styles.footRow}>
@@ -226,21 +165,21 @@ function SeatPanel({
             {commander && opponents.length > 0 && (
               <button className={styles.rail} onClick={onOpenDamage}
                 data-alarm={worstDamage >= LETHAL_CMD_DMG ? 'true' : undefined}
-                aria-label={`Commander damage dealt to ${player.name}`}>
-                {worstDamage >= LETHAL_CMD_DMG && <WarningIcon size={10} />}
-                {opponents.map(o => {
-                  const pair = player.dmg?.[o.id] || [0, 0]
-                  const total = (pair[0] || 0) + (pair[1] || 0)
-                  const worst = Math.max(pair[0] || 0, pair[1] || 0)
-                  return (
-                    <span key={o.id} className={styles.pip}
-                      style={{ '--opc': o.color }}
-                      data-hit={total > 0 ? 'true' : undefined}
-                      data-lethal={worst >= LETHAL_CMD_DMG ? 'true' : undefined}>
-                      {total}
-                    </span>
-                  )
-                })}
+                aria-label={damageLabel(player, opponents)}>
+                {worstDamage >= LETHAL_CMD_DMG && (
+                  <WarningIcon size={12} className={styles.railWarn} />
+                )}
+                {opponents.map(o => (
+                  <span key={o.id} className={styles.foe} style={{ '--opc': o.color }}>
+                    {damageSlots(player, o).map((value, slot) => (
+                      <span key={slot} className={styles.pip}
+                        data-hit={value > 0 ? 'true' : undefined}
+                        data-lethal={value >= LETHAL_CMD_DMG ? 'true' : undefined}>
+                        {value}
+                      </span>
+                    ))}
+                  </span>
+                ))}
               </button>
             )}
 

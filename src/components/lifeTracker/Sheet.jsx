@@ -17,6 +17,9 @@ import styles from './Sheet.module.css'
 export default function Sheet({
   title,
   subtitle,
+  // A readout that belongs beside the title rather than in the body — the life
+  // total a damage sheet is about, for instance.
+  aside,
   rotation = 0,
   onClose,
   footer,
@@ -51,6 +54,7 @@ export default function Sheet({
             <h2 className={styles.title}>{title}</h2>
             {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
           </div>
+          {aside && <div className={styles.aside}>{aside}</div>}
           <button className={styles.close} onClick={onClose} aria-label="Close">
             <CloseIcon size={14} />
           </button>
