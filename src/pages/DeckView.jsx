@@ -13,6 +13,7 @@ import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { Modal, ResponsiveMenu, SearchInput } from '../components/UI'
 import { CardBrowserContent } from '../components/CardBrowserViews'
+import CardImg from '../components/CardImg'
 import { CardDetail } from '../components/CardComponents'
 import { BuilderIcon, CheckIcon, ChevronDownIcon, GridViewIcon, SearchIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
@@ -22,6 +23,10 @@ import { deckBracketBadge } from '../lib/commanderBracket'
 import { scryfallCardDetailUrls } from '../lib/cardDetailUrls'
 import { useComboCardImage } from '../hooks/useComboCardImage'
 import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
+
+// Keep in sync with `.hoverPreview` in DeckView.module.css — CardImg picks the
+// image tier from the width the preview actually paints at.
+const HOVER_PREVIEW_W = 200
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common']
 const RARITY_GROUP_ORDER = ['Mythic', 'Rare', 'Uncommon', 'Common', 'Unknown']
@@ -1006,9 +1011,9 @@ export default function DeckViewPage() {
 
         {/* Floating hover preview */}
         {hoverImg && (
-          <img
-            src={hoverImg}
-            alt=""
+          <CardImg
+            url={hoverImg}
+            width={HOVER_PREVIEW_W}
             className={styles.hoverPreview}
             style={{
               left: hoverPos.x + 18,

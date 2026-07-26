@@ -14,6 +14,7 @@ import CardArtPicker from '../components/CardArtPicker'
 import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
+import CardImg from '../components/CardImg'
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
@@ -35,6 +36,10 @@ import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferen
 import { useAllFolders } from '../hooks/useAllFolders'
 
 const CAN_HOVER = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover) and (pointer: fine)').matches
+
+// Keep in sync with `.floatingImg` in DeckBrowser.module.css — CardImg picks the
+// image tier from the width the preview actually paints at.
+const FLOATING_PREVIEW_W = 220
 
 function isGroupFolder(folder) {
   return parseDeckMeta(folder?.description || '{}').isGroup === true
@@ -1539,7 +1544,7 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
       {hoverImg && (
         <div className={styles.floatingPreview}
           style={{ left: hoverPos.x + 18, top: Math.max(8, hoverPos.y - 160), pointerEvents: 'none' }}>
-          <img className={styles.floatingImg} src={hoverImg} alt="" />
+          <CardImg className={styles.floatingImg} url={hoverImg} width={FLOATING_PREVIEW_W} />
         </div>
       )}
 

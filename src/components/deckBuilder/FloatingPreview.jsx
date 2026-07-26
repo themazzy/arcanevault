@@ -1,10 +1,12 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import styles from '../../pages/DeckBuilder.module.css'
+import CardImg from '../CardImg'
 
 // .floatingImg is a fixed 300px-wide card render at MTG's 63:88mm aspect ratio,
 // so the actual box height (~419px) is taller than it looks from the width alone.
-const PREVIEW_HEIGHT = 300 * (88 / 63)
+const PREVIEW_WIDTH = 300
+const PREVIEW_HEIGHT = PREVIEW_WIDTH * (88 / 63)
 const PREVIEW_MARGIN = 16
 
 export function computeFloatingPreviewPos(x, y, imageCount) {
@@ -77,7 +79,10 @@ export const FloatingPreview = forwardRef(function FloatingPreview(_props, ref) 
     <div ref={elRef} className={styles.floatingPreview} style={{ left, top, opacity: visible ? 1 : 0 }}>
       <div className={styles.floatingPreviewStack}>
         {imageUris.map((uri, index) => (
-          <img key={`${uri}:${index}`} className={styles.floatingImg} src={uri} alt="" />
+          // Callers hand over whatever tier they had (a 'small' row thumb, a
+          // 'large' face image); CardImg re-tiers each to what 300px actually
+          // needs, so no call site has to think about it.
+          <CardImg key={`${uri}:${index}`} className={styles.floatingImg} url={uri} width={PREVIEW_WIDTH} />
         ))}
       </div>
     </div>

@@ -1,12 +1,12 @@
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { getImageUri, getPriceWithMeta, formatPriceMeta, getScryfallKey, resolveTileImage } from '../lib/scryfall'
+import { getImageUri, getPriceWithMeta, formatPriceMeta, getScryfallKey } from '../lib/scryfall'
+import CardImg from './CardImg'
 import { FolderTypeIcon } from '../icons'
 import { FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../lib/folderTagColors'
 import { Badge } from './UI'
 import styles from './VirtualCardGrid.module.css'
 import { useLongPress } from '../hooks/useLongPress'
-import { useDevicePixelRatio } from '../hooks/useDevicePixelRatio'
 import {
   GRID_IMG_BORDER_PX,
   MOBILE_CARD_GRID_BREAKPOINT,
@@ -59,10 +59,8 @@ function FolderTags({ folders }) {
   )
 }
 
-function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, totalQty, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, priceSource, showPrice, cardFolders, imageWidth, dpr }) {
-  const [webpFailed, setWebpFailed] = useState(false)
-  const { src, fallback } = resolveTileImage(getImageUri(sfCard, 'normal'), imageWidth, dpr, 'normal')
-  const img = webpFailed && fallback ? fallback : src
+function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, totalQty, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, priceSource, showPrice, cardFolders, imageWidth }) {
+  const img = getImageUri(sfCard, 'normal')
   const displayQty = card._folder_qty ?? card.qty ?? 1
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })
   const buyPrice = parseFloat(card.purchase_price) || null
@@ -109,7 +107,7 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
     >
       <div className={`${styles.imgContainer}${isSelected ? ' ' + styles.imgSelected : ''}`}>
         {img
-          ? <img className={styles.img} src={img} alt={card.name} loading="lazy" decoding="async" onError={fallback && !webpFailed ? () => setWebpFailed(true) : undefined} {...NON_DRAGGABLE_IMG_PROPS} />
+          ? <CardImg className={styles.img} url={img} width={imageWidth} alt={card.name} loading="lazy" decoding="async" {...NON_DRAGGABLE_IMG_PROPS} />
           : <div className={styles.imgPlaceholder}>{card.name}</div>
         }
         {card.foil && <Badge variant="foil">Foil</Badge>}
@@ -159,7 +157,6 @@ export default function VirtualCardGrid({
   onScroll,
 }) {
   const parentRef = useRef(null)
-  const dpr = useDevicePixelRatio()
   const densitySpec = getCardGridDensity(density)
   const [cols, setCols] = useState(4)
   const [cardWidth, setCardWidth] = useState(densitySpec.px + GRID_IMG_BORDER_PX)
@@ -270,7 +267,6 @@ export default function VirtualCardGrid({
                     showPrice={showPrice}
                     cardFolders={cardFolders}
                     imageWidth={Math.max(1, cardWidth - GRID_IMG_BORDER_PX)}
-                    dpr={dpr}
                   />
                 )
               })}

@@ -97,22 +97,36 @@ describe('pickImageTier', () => {
     }
   })
 
-  it('never picks a tier smaller than the tile needs, at any ratio', () => {
+  // A tier may fall a few percent short rather than step up (see
+  // UPSCALE_TOLERANCE), but never further — that is the line between an
+  // imperceptible stretch and the mush this selection exists to prevent.
+  it('never upscales a tile by more than the tolerance, at any ratio', () => {
     for (const dpr of [0.8, 1, 1.25, 1.5, 2, 2.625, 3, 4]) {
       for (const px of Object.values(DENSITY_PX)) {
         const width = SCRYFALL_TIER_WIDTH[pickImageTier(px, dpr)]
         const needed = px * dpr
         // `large` is the ceiling; beyond it there is nothing bigger to pick.
-        if (needed <= SCRYFALL_TIER_WIDTH.large) expect(width).toBeGreaterThanOrEqual(needed)
+        if (needed <= SCRYFALL_TIER_WIDTH.large) expect(width * 1.06).toBeGreaterThanOrEqual(needed)
         else expect(width).toBe(SCRYFALL_TIER_WIDTH.large)
       }
     }
   })
 
-  it('falls back to the smallest covering tier when nothing aligns', () => {
-    expect(pickImageTier(147, 1)).toBe('normal')  // 146 can't cover, 488/147 isn't a power of 2
-    expect(pickImageTier(489, 1)).toBe('large')   // past `normal` entirely
-    expect(pickImageTier(146, 2)).toBe('normal')  // 292: no aligned tier exists
+  it('holds a tier that falls just short instead of stepping up', () => {
+    expect(pickImageTier(147, 1)).toBe('small')   // 0.7% over 146 — not worth a 3.3:1 reduction
+    expect(pickImageTier(489, 1)).toBe('normal')  // 0.2% over 488
+    expect(pickImageTier(146, 2)).toBe('normal')  // 292: twice the tier, far past the tolerance
+  })
+
+  // The exact widths the desktop collection grid paints at common window sizes.
+  // These straddle 146 by a few pixels, which is what made the same grid flip
+  // between a sharpened thumbnail and a soft reduction as the window resized.
+  it('keeps the comfortable grid on one tier across window widths', () => {
+    for (const painted of [138.4, 143.8, 146.7, 150.9, 153.2]) {
+      expect(pickImageTier(painted, 1)).toBe('small')
+    }
+    // Far enough over to be a real upscale — the reduction is better there.
+    expect(pickImageTier(160.8, 1)).toBe('normal')
   })
 
   it('treats a missing or nonsense ratio as 1x', () => {

@@ -5,7 +5,8 @@ import uiStyles from '../UI.module.css'
 import { CheckIcon, DeleteIcon, WarningIcon, ChevronDownIcon, LightningIcon, ExternalLinkIcon, CloseIcon } from '../../icons'
 import { useCardSearch } from '../../hooks/useCardSearch'
 import { getLocalCards, getLocalCardPrints, getLocalFolders, getAllLocalFolderCards } from '../../lib/db'
-import { getInstantCache, getScryfallKey, getPrice, formatPrice, scryfallImageAtSize } from '../../lib/scryfall'
+import { getInstantCache, getScryfallKey, getPrice, formatPrice } from '../../lib/scryfall'
+import CardImg from '../CardImg'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
@@ -264,11 +265,24 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 // to nothing in some engines, which left the bars invisible.
 const CURVE_BAR_MAX_PX = 96
 
+// Painted widths of the two card previews, so CardImg can pick the tier each
+// actually needs. Keep in sync with cardPreviewStyle (hover) and
+// `.previewLightboxImg`'s max-width in the stylesheet (touch).
+const HOVER_PREVIEW_W = 340
+const LIGHTBOX_PREVIEW_W = 460
+
+// Keep in sync with `.grid`'s minmax in BuildAssistant.module.css. Phones use a
+// 104px column, which lands on the same tier at the pixel ratios phones have.
+const TILE_IMAGE_W = 132
+
 // One card tile: image + name + sub-meta + add action(s).
 function CardTile({ name, sfCard, fallbackImg, displayImg, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, previewProps, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
-  // and any owned card whose cache entry has no image.
+  // and any owned card whose cache entry has no image. These three sources don't
+  // agree on a tier (card_prints rows carry only `normal`, cached entries carry
+  // `small`), so CardImg forces one below — a grid of mixed tiers renders as a
+  // patchwork of resolutions.
   const img = displayImg || cardImageUrl(sfCard) || fallbackImg || null
   // previewProps carries the hover/tap handlers for the large-image preview;
   // it's empty ({}) when the card has no art to enlarge. No special cursor — the
@@ -277,7 +291,7 @@ function CardTile({ name, sfCard, fallbackImg, displayImg, pips, inclusion, tag,
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
       <div className={styles.tileArt} {...(previewProps || {})}>
         {img
-          ? <img src={img} alt={name} loading="lazy" className={styles.tileImg} />
+          ? <CardImg url={img} width={TILE_IMAGE_W} alt={name} loading="lazy" className={styles.tileImg} />
           : <div className={styles.tileNoImg}>{name}</div>}
         {inclusion > 0
           ? <span className={styles.tileIncl}>{inclusion}%</span>
@@ -2041,7 +2055,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             previewProps={previewHandlers({
                               name: cand.name,
                               scryfall_id: cand.sfCard?.id || cand.card?.scryfall_id || null,
-                              img: scryfallImageAtSize(imageEnFor(cand.name), 'large') || cardImageUrl(cand.sfCard),
+                              img: imageEnFor(cand.name) || cardImageUrl(cand.sfCard),
                             })}
                             onAdd={() => handleAdd(cand, cand.name)}
                             onUndo={() => handleUndoAdd(cand.name)}
@@ -2132,13 +2146,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               previewProps={previewHandlers({
                                 name: cand.name,
                                 scryfall_id: owned ? (cand.sfCard?.id || cand.card?.scryfall_id || null) : null,
-                                // Tile art is a 146px thumbnail; re-tier the Scryfall
-                                // URL up to 'large' (672px) for the enlarged preview
-                                // so it isn't an upscaled thumbnail. EDHREC fallback
-                                // URLs aren't cards.scryfall.io, so they pass through.
+                                // Whatever tier these URLs carry, CardImg re-tiers
+                                // them to the preview's painted width. EDHREC
+                                // fallback URLs aren't cards.scryfall.io, so they
+                                // pass through untouched.
                                 img: owned
-                                  ? (scryfallImageAtSize(imageEnFor(cand.name), 'large') || cardImageUrl(cand.sfCard))
-                                  : (scryfallImageAtSize(imageEnFor(cand.name), 'large') || cand.image || null),
+                                  ? (imageEnFor(cand.name) || cardImageUrl(cand.sfCard))
+                                  : (imageEnFor(cand.name) || cand.image || null),
                               })}
                               onAdd={() => handleAdd(cand, cand.name)}
                               onUndo={() => handleUndoAdd(cand.name)}
@@ -2355,7 +2369,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               // These cards ARE in the deck (just not in the
                               // binders), but their cache entry may lack art —
                               // the enriched cheapest-English art is the fallback.
-                              img: scryfallImageAtSize(imageEnFor(m.name), 'large'),
+                              img: imageEnFor(m.name),
                             })}
                           >
                             {m.name}
@@ -2716,7 +2730,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         if (!img) return null
         const node = hoverCapable ? (
           <div className={styles.hoverPreview} style={cardPreviewStyle(preview.x, preview.y)}>
-            <img src={img} alt={preview.name} className={styles.hoverPreviewImg} />
+            <CardImg url={img} width={HOVER_PREVIEW_W} alt={preview.name} className={styles.hoverPreviewImg} />
           </div>
         ) : (
           <div className={styles.previewLightbox} onClick={() => setPreview(null)} role="dialog" aria-modal="true" aria-label={`${preview.name} enlarged`}>
@@ -2730,7 +2744,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   <CloseIcon size={14} /> Close
                 </Button>
               </div>
-              <img src={img} alt={preview.name} className={styles.previewLightboxImg} />
+              <CardImg url={img} width={LIGHTBOX_PREVIEW_W} alt={preview.name} className={styles.previewLightboxImg} />
             </div>
           </div>
         )
@@ -2755,7 +2769,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 // Fixed-position style for the hover preview: sits beside the cursor, flips to
 // the other side / clamps so a 240×336 card image never spills off-screen.
 function cardPreviewStyle(x, y) {
-  const W = 340, H = 476, pad = 12, off = 22
+  const W = HOVER_PREVIEW_W, H = 476, pad = 12, off = 22
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
   const vh = typeof window !== 'undefined' ? window.innerHeight : 800
   let left = x + off

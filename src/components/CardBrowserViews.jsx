@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Badge, Button, ResponsiveMenu } from './UI'
-import { getPrice, formatPrice, getScryfallKey, getImageUri, scryfallImageAtSize, resolveTileImage } from '../lib/scryfall'
+import { getPrice, formatPrice, getScryfallKey, getImageUri, scryfallImageAtSize } from '../lib/scryfall'
+import CardImg from './CardImg'
 import { useLongPress } from '../hooks/useLongPress'
-import { useDevicePixelRatio } from '../hooks/useDevicePixelRatio'
 import { lastInputWasTouch } from '../lib/inputType'
 import { countActive } from './CardComponents'
 import uiStyles from './UI.module.css'
@@ -566,8 +566,8 @@ function TableView({ cards, sfMap, priceSource, groups, groupOrder, groupBy, onS
   )
 }
 
-function StackCard({ card, sf, idx, isPushedDown, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHoverPreview, onHoverPreviewEnd, onPinPreview, onHoverStart, onHoverEnd, onEnterSelectMode }) {
-  const img = getBrowserCardImage(card, sf)
+function StackCard({ card, sf, idx, isPushedDown, priceSource, stackWidth, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onHoverPreview, onHoverPreviewEnd, onPinPreview, onHoverStart, onHoverEnd, onEnterSelectMode }) {
+  const img = getBrowserCardImage(card, sf, 'normal')
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
@@ -650,7 +650,7 @@ function StackCard({ card, sf, idx, isPushedDown, priceSource, selectMode, isSel
       )}
       <div className={styles.stackImgWrap}>
         {img
-          ? <img src={img} alt={card.name} className={styles.stackCardImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
+          ? <CardImg url={img} width={stackWidth} alt={card.name} className={styles.stackCardImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
           : <div className={styles.stackCardPlaceholder}>{card.name}</div>}
         {totalQty > 1 && !isSelected && <div className={styles.stackQty}>×{totalQty}</div>}
         {card.foil && <div className={styles.stackFoil}><Badge variant="foil">Foil</Badge></div>}
@@ -722,6 +722,7 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
                     stackIdx={idx}
                     isPushedDown={isPushedDown}
                     priceSource={priceSource}
+                    stackWidth={stackWidth}
                     selectMode={selectMode}
                     isSelected={selectedCards?.has(key)}
                     onSelect={onSelect}
@@ -746,7 +747,7 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
           className={`${styles.stackHoverPreview}${pinnedPreview ? ` ${styles.stackHoverPreviewPinned}` : ''}`}
           style={{ top: `${displayPreview.top}px`, left: `${displayPreview.left}px`, width: `${displayPreview.width}px` }}
         >
-          <img src={displayPreview.img} alt="" className={styles.stackHoverPreviewImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
+          <CardImg url={displayPreview.img} width={displayPreview.width} className={styles.stackHoverPreviewImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} />
         </div>,
         document.body,
       )}
@@ -755,11 +756,8 @@ function StacksView({ groups, groupOrder, sfMap, priceSource, onSelect, selectMo
 }
 
 function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onToggleSelect, onAdjustQty, splitState, onEnterSelectMode, density }) {
-  const dpr = useDevicePixelRatio()
   const spec = getCardGridDensity(density)
-  const [webpFailed, setWebpFailed] = useState(false)
-  const { src, fallback } = resolveTileImage(getBrowserCardImage(card, sf, 'normal'), spec.px, dpr, 'normal')
-  const img = webpFailed && fallback ? fallback : src
+  const img = getBrowserCardImage(card, sf, 'normal')
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
   const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
@@ -793,7 +791,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
         </div>
       )}
       <div className={styles.gridImgWrap}>
-        {img ? <img src={img} alt={card.name} className={styles.gridImg} loading="lazy" onError={fallback && !webpFailed ? () => setWebpFailed(true) : undefined} {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
+        {img ? <CardImg url={img} width={spec.px} alt={card.name} className={styles.gridImg} loading="lazy" {...NON_DRAGGABLE_IMG_PROPS} /> : <div className={styles.gridImgPlaceholder}>{card.name}</div>}
         {totalQty > 1 && !isSelected && <div className={styles.gridQty}>×{totalQty}</div>}
         {card.foil && <div className={styles.gridFoil}><Badge variant="foil">Foil</Badge></div>}
         {selectMode && isSelected && totalQty > 1 && (
@@ -838,8 +836,15 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
 //
 // Only the 488 tier has a WebP (`grid`); 672/146 are JPEG-only, and JPEG's extra
 // high-frequency detail shimmers even at a near-exact 4:1 — 672 at ~168 was tried
-// and is visibly worse than 488-WebP off-level, so the tier matters more than
-// hitting the level dead-on.
+// and is visibly worse than 488-WebP off-level, so among *downscales* the tier
+// matters more than hitting the level dead-on.
+//
+// That does not extend to `small`, and the grids used to force `normal` on the
+// assumption that it did. Scryfall renders `small` at 146 with sharpening applied
+// at that size, so at a 1:1 fit it resolves low-contrast card text (old frames
+// print ~37 RMS in the text box, against ~60 for a modern one) that a 3.3:1
+// browser reduction of the 488 averages away. Let pickImageTier choose: it takes
+// `small` only where it lands 1:1 and stays on 488-WebP everywhere else.
 //
 // `px` is the width of the *image*, which is what the browser scales. The grid
 // column has to carry the wrap's border on top — see GRID_IMG_BORDER_PX.

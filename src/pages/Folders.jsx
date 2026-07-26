@@ -16,6 +16,7 @@ import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import CardArtPicker from '../components/CardArtPicker'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
+import CardImg from '../components/CardImg'
 import DeckBrowser from './DeckBrowser'
 import styles from './Folders.module.css'
 import { CloseIcon, CheckIcon, AddIcon, ChevronLeftIcon, SettingsIcon, DeleteIcon, EditIcon, BinderIcon, DeckIcon, ImageIcon, ImportIcon, ExportIcon, RemoveIcon, SearchIcon, ShareIcon, SortIcon, StacksViewIcon } from '../icons'
@@ -75,6 +76,11 @@ function SortDropdown({ value, onChange, options, compact = false }) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Keep in sync with `.floatingImg` in Folders.module.css — CardImg picks the
+// image tier from the width the preview actually paints at.
+const FLOATING_PREVIEW_W = 220
+
 const SORT_OPTIONS = [
   ['name',       'Name A→Z'],
   ['name_desc',  'Name Z→A'],
@@ -1159,7 +1165,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
       {hoverImg && (
         <div className={styles.floatingPreview}
           style={{ left: hoverPos.x + 18, top: Math.max(8, hoverPos.y - 160), pointerEvents: 'none' }}>
-          <img className={styles.floatingImg} src={hoverImg} alt="" />
+          <CardImg className={styles.floatingImg} url={hoverImg} width={FLOATING_PREVIEW_W} />
         </div>
       )}
       {showAddCard && user && (

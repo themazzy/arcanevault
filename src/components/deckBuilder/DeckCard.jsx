@@ -4,7 +4,7 @@ import { EditMenu } from './DeckCardRow'
 import { bindTouchContextMenu, consumeLongPressClick } from '../../lib/touchContextMenu'
 import styles from '../../pages/DeckBuilder.module.css'
 import { normalizeBoard } from '../../lib/deckBuilderHelpers'
-import { scryfallImageAtSize } from '../../lib/scryfall'
+import CardImg from '../CardImg'
 
 function attractionQtyLocked(dc) {
   return normalizeBoard(dc?.board) === 'attraction' && dc?.qty >= 1
@@ -13,7 +13,7 @@ function attractionQtyLocked(dc) {
 // Grid-view tile for a deck card. Quantity stays directly accessible because
 // it is a frequent deck-building action; less common actions live in the menu.
 function DeckCardGrid({
-  dc, legalityWarnings, warningTitle, isWarningTarget,
+  dc, legalityWarnings, warningTitle, isWarningTarget, tileWidth,
   canHover, lastInputWasTouch,
   priceLabel, ownership,
   isEDH, formatId, builderSfMap,
@@ -43,7 +43,7 @@ function DeckCardGrid({
         onMouseMove={canHover ? e => onHoverMove(e.clientX, e.clientY) : undefined}
       >
         {dc.image_uri
-          ? <img src={scryfallImageAtSize(dc.image_uri, 'small')} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
+          ? <CardImg url={dc.image_uri} width={tileWidth} alt={dc.name} className={styles.visualCardImg} loading="lazy" />
           : <div className={styles.visualCardPlaceholder}>{dc.name}</div>}
         {dc.qty > 1 && <span className={styles.visualCardQty}>x{dc.qty}</span>}
         {dc.foil && <span className={styles.visualCardFoil} title="Foil">*</span>}
@@ -128,8 +128,12 @@ function DeckCardStack({
       onMouseMove={canHover ? e => onHoverMove(e.clientX, e.clientY) : undefined}
     >
       <div className={styles.stackImgWrap}>
+        {/* Stack columns are 138-200px (--stack-col-w, CSS-only), and every
+            device those widths occur on resolves to `normal` anyway — 200 at
+            DPR 1, and the 138 mobile value only exists at DPR 2+. Pinning the
+            tier beats inventing a width the component can't actually measure. */}
         {dc.image_uri
-          ? <img src={dc.image_uri} alt={dc.name} className={styles.stackCardImg} loading="lazy" />
+          ? <CardImg url={dc.image_uri} forceTier="normal" alt={dc.name} className={styles.stackCardImg} loading="lazy" />
           : <div className={styles.stackCardPlaceholder}>{dc.name}</div>}
         {legalityWarnings.length > 0 && <span className={styles.stackWarn} title={warningTitle}>!</span>}
         {dc.qty > 1 && <span className={styles.stackQty}>×{dc.qty}</span>}

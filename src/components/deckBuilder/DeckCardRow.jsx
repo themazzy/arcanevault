@@ -9,6 +9,12 @@ import { consumeLongPressClick } from '../../lib/touchContextMenu'
 import { formatAttractionLights, isAttractionCard } from '../../lib/attractions'
 import styles from '../../pages/DeckBuilder.module.css'
 import uiStyles from '../UI.module.css'
+import CardImg from '../CardImg'
+
+// Keep in sync with `.deckThumb` in DeckBuilder.module.css. At this size the
+// tier resolves to `small` — the row thumb has no business pulling the 488px
+// image the grid tiles use.
+const DECK_THUMB_W = 26
 
 // Body of the per-card "..." actions menu (commander toggle, board moves,
 // foil toggle, version change, category picker). Rendered inside a
@@ -195,7 +201,7 @@ export function DeckCardRow({
     >
       <div className={styles.deckCardLeft} style={{ cursor: 'pointer' }} onClick={(e) => { if (consumeLongPressClick(e)) return; onOpenDetail?.(dc) }}>
         {dc.image_uri
-          ? <img className={styles.deckThumb} src={dc.image_uri} alt="" loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
+          ? <CardImg className={styles.deckThumb} url={dc.image_uri} width={DECK_THUMB_W} loading="lazy" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove} />
           : <div className={styles.deckThumbPlaceholder} />
         }
         <span className={styles.deckCardName} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>{dc.name}</span>

@@ -202,12 +202,13 @@ function DisplayPrintingMeta({ card, priceSource }) {
 
 const SearchResultRow = memo(function SearchResultRow({ card, priceSource, ownedQty, onAdd, addFeedback, onOpenDetail, onHoverEnter, onHoverLeave, onHoverMove, legalityWarnings = [] }) {
   const img = getCardImageUri(card, 'small')
-  const largeUri = img ? img.replace('/small/', '/normal/') : null
   const warningTitle = legalityWarnings.map(w => w.text).join('\n')
   const warningText = legalityWarnings.map(w => w.text).join(' ')
-  const hoverableProps = CAN_HOVER && !lastInputWasTouch && largeUri
+  // The preview re-tiers whatever URL it gets (see FloatingPreview), so the
+  // thumb's own URL is all we need to hand it.
+  const hoverableProps = CAN_HOVER && !lastInputWasTouch && img
     ? {
-        onMouseEnter: e => onHoverEnter?.(largeUri, e),
+        onMouseEnter: e => onHoverEnter?.(img, e),
         onMouseMove: e => onHoverMove?.(e),
         onMouseLeave: () => onHoverLeave?.(),
       }
@@ -538,11 +539,11 @@ function RecRow({ rec, imageUri, displayPrinting, priceSource, ownedQty, onAdd, 
     ? Math.round((rec.inclusion / rec.potentialDecks) * 100)
     : (rec.inclusion ?? 0)
   const synergyPct = Math.round((rec.synergy ?? 0) * 100)
-  // Scryfall CDN URLs have the size in the path - swap small -> normal for hover preview
-  const largeUri = imageUri ? imageUri.replace('/small/', '/normal/') : null
-  const hoverableProps = CAN_HOVER && !lastInputWasTouch && largeUri
+  // The preview re-tiers whatever URL it gets (see FloatingPreview), so the
+  // thumb's own URL is all we need to hand it.
+  const hoverableProps = CAN_HOVER && !lastInputWasTouch && imageUri
     ? {
-        onMouseEnter: e => onHoverEnter?.(largeUri, e),
+        onMouseEnter: e => onHoverEnter?.(imageUri, e),
         onMouseMove: e => onHoverMove?.(e),
         onMouseLeave: () => onHoverLeave?.(),
       }
@@ -6211,6 +6212,7 @@ export default function DeckBuilderPage() {
                     legalityWarnings={legalityWarnings}
                     warningTitle={warningTitle}
                     isWarningTarget={warningTarget?.id === String(dc.id)}
+                    tileWidth={visualCardMinWidth}
                     compactVisibleColumns={compactVisibleColumns}
                     canHover={CAN_HOVER}
                     lastInputWasTouch={lastInputWasTouch}

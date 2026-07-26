@@ -781,11 +781,23 @@ function isMipAlignedRatio(tierWidth, deviceWidth) {
 // whereas 488->122 is an exact 4:1 off a much richer source and looks better. Fall
 // back to the smallest covering tier only when nothing aligns, which is where odd
 // ratios like DPR 2 land.
+// How far a tier may fall short of the device width before we step up. Without
+// it the choice is a knife edge: the responsive grid stretches columns to fill a
+// row, so `comfortable` paints anywhere from 133 to 161px and the same density
+// flips tiers as the window resizes — 1547px wide lands on 150.9 and misses
+// `small` by five pixels, 2560px lands on 146.7 and misses by less than one.
+//
+// Measured on a low-contrast old-frame card (the case that actually suffers):
+// `small` upscaled 3% still reads better than `normal` reduced 3.2:1, but by a
+// 10% upscale the reduction wins again. 6% sits inside that crossover and covers
+// every width the desktop grid actually produces.
+const UPSCALE_TOLERANCE = 1.06
+
 export function pickImageTier(cssWidth, dpr = 1) {
   const deviceWidth = cssWidth * (dpr > 0 ? dpr : 1)
   const aligned = TIERS_SMALLEST_FIRST.find(t => isMipAlignedRatio(SCRYFALL_TIER_WIDTH[t], deviceWidth))
   if (aligned) return aligned
-  return TIERS_SMALLEST_FIRST.find(t => SCRYFALL_TIER_WIDTH[t] >= deviceWidth) || 'large'
+  return TIERS_SMALLEST_FIRST.find(t => SCRYFALL_TIER_WIDTH[t] * UPSCALE_TOLERANCE >= deviceWidth) || 'large'
 }
 
 // scryfall.com's own grid serves a `grid` tier that the API doesn't list in

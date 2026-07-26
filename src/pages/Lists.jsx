@@ -19,6 +19,7 @@ import ImportModal from '../components/ImportModal'
 import ExportModal from '../components/ExportModal'
 import CardArtPicker from '../components/CardArtPicker'
 import { CardBrowserViewControls, CardBrowserContent } from '../components/CardBrowserViews'
+import CardImg from '../components/CardImg'
 import styles from './Folders.module.css'
 import { CloseIcon, CheckIcon, AddIcon, BinderIcon, ChevronLeftIcon, CollectionIcon, DeleteIcon, EditIcon, ExportIcon, ImageIcon, ImportIcon, RemoveIcon, SearchIcon, SettingsIcon, SortIcon, StacksViewIcon, WishlistsIcon } from '../icons'
 import uiStyles from '../components/UI.module.css'
@@ -29,6 +30,11 @@ import { parseFolderBgUrl, withFolderBgUrl } from '../lib/folderBackground'
 import { ensureCardPrints, getCardPrint } from '../lib/cardPrints'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Keep in sync with `.floatingImg` in Folders.module.css (shared by wishlists) —
+// CardImg picks the image tier from the width the preview actually paints at.
+const FLOATING_PREVIEW_W = 220
+
 function parseFolderDesc(description) {
   try { return JSON.parse(description || '{}') } catch { return {} }
 }
@@ -793,7 +799,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
       {hoverImg && (
         <div className={styles.floatingPreview}
           style={{ left: hoverPos.x + 18, top: Math.max(8, hoverPos.y - 160), pointerEvents: 'none' }}>
-          <img className={styles.floatingImg} src={hoverImg} alt="" />
+          <CardImg className={styles.floatingImg} url={hoverImg} width={FLOATING_PREVIEW_W} />
         </div>
       )}
 
