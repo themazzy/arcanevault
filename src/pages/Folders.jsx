@@ -30,7 +30,7 @@ import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFo
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
-import { getLinkedDeckIds, getSyncState, unlinkPairedDeck } from '../lib/deckSync'
+import { getLinkedDeckIds, getSyncState, renameFolder, unlinkPairedDeck } from '../lib/deckSync'
 import { trackActivity } from '../lib/activity'
 import { useLibraryBrowserPreferences } from '../hooks/useLibraryBrowserPreferences'
 
@@ -584,9 +584,15 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     if (!folder || !trimmed || trimmed === folderName) return
     const prev = folderName
     setFolderName(trimmed)
-    const { error } = await sb.from('folders').update({ name: trimmed }).eq('id', folder.id)
-    if (error) { setFolderName(prev); toast.error('Rename failed.') }
-    else { folder.name = trimmed; toast.success(`${noun} renamed.`) }
+    try {
+      // Renames both halves of a linked deck pair; a no-op extra for binders.
+      await renameFolder(folder.id, trimmed)
+      folder.name = trimmed
+      toast.success(`${noun} renamed.`)
+    } catch (err) {
+      setFolderName(prev)
+      toast.error(err?.message || 'Rename failed.')
+    }
   }
 
   // Viewport scrollbar width exposed as --sbw so CSS can park the scrollbar
@@ -1860,9 +1866,10 @@ export default function FoldersPage({ type }) {
     await invalidateFolderIndexCaches({ includeCards: true })
   }
 
-  const renameFolder = useCallback(async (folder, newName) => {
+  const renameFolderRow = useCallback(async (folder, newName) => {
     if (isTradeBinder(folder)) return // the For Trade binder name is protected
-    await sb.from('folders').update({ name: newName }).eq('id', folder.id)
+    // Renames both halves of a linked deck pair; a no-op extra for binders.
+    await renameFolder(folder.id, newName)
     setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, name: newName } : f))
     await invalidateFolderIndexCaches({ includePlacements: false })
   }, [invalidateFolderIndexCaches])
@@ -2247,7 +2254,7 @@ export default function FoldersPage({ type }) {
           onEnterSelectMode={() => setSelectMode(true)}
           onOpenFolder={setActiveFolder}
           onDeleteGroup={deleteGroup}
-          onRenameGroup={renameFolder}
+          onRenameGroup={renameFolderRow}
           onDeleteFolder={handleDeleteClick}
           onEditBg={setBgTarget}
           onClearBg={(f) => saveFolderBg(f, null)}
@@ -2274,7 +2281,7 @@ export default function FoldersPage({ type }) {
                 onDelete={() => handleDeleteClick(folder)}
                 onEditBg={() => setBgTarget(folder)}
                 onClearBg={() => saveFolderBg(folder, null)}
-                onRename={(name) => renameFolder(folder, name)}
+                onRename={(name) => renameFolderRow(folder, name)}
                 selectMode={selectMode}
                 selected={selectedIds.has(folder.id)}
                 onToggleSelect={() => toggleSelected(folder.id)}

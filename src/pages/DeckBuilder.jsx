@@ -64,6 +64,7 @@ import {
   linkDeckPair,
   patchDeckMeta,
   persistLinkedSyncSnapshot,
+  renameFolder,
   setLinkedDeckBracket,
   setLinkedDeckVisibility,
   reconcileCleanPair,
@@ -2799,11 +2800,18 @@ export default function DeckBuilderPage() {
   }
 
   async function saveNameBlur() {
-    if (!deckName.trim()) return
+    const trimmed = deckName.trim()
+    if (!trimmed) return
     setSaving(true)
     try {
-      await sbExec(sb.from('folders').update({ name: deckName.trim() }).eq('id', deckId), { label: 'Rename failed' })
-    } catch {} finally {
+      // renameFolder, not a folders update: a linked pair is two rows, and the
+      // /builder index + /decks read the collection half.
+      await renameFolder(deckId, trimmed)
+      queryClient.invalidateQueries({ queryKey: ['folders', user?.id] })
+    } catch (err) {
+      showToast(`Rename failed: ${err?.message || 'network error'}`, { tone: 'error', duration: 4000 })
+      console.error('[DeckBuilder] rename failed:', err)
+    } finally {
       setSaving(false)
     }
   }

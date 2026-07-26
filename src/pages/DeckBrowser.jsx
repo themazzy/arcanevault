@@ -18,7 +18,7 @@ import CardImg from '../components/CardImg'
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
-import { buildPairSnapshot, buildSyncDiff, getSyncState, isUniqueNameConflict, linkDeckPair, markLinkedPairUnsynced, reconcileCleanPair, resolveBuilderNameConflict, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
+import { buildPairSnapshot, buildSyncDiff, getSyncState, isUniqueNameConflict, linkDeckPair, markLinkedPairUnsynced, reconcileCleanPair, renameFolder, resolveBuilderNameConflict, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import { useVisibleOrder, useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import { parseFolderBgUrl } from '../lib/folderBackground'
@@ -186,13 +186,14 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
     if (!trimmed || trimmed === deckName) return
     const prev = deckName
     setDeckName(trimmed)
-    const { error } = await sb.from('folders').update({ name: trimmed }).eq('id', folder.id)
-    if (error) {
-      setDeckName(prev)
-      toast.error('Rename failed.')
-    } else {
+    try {
+      // Renames both halves of a linked pair — see renameFolder.
+      await renameFolder(folder.id, trimmed)
       folder.name = trimmed
       toast.success('Deck renamed.')
+    } catch (err) {
+      setDeckName(prev)
+      toast.error(err?.message || 'Rename failed.')
     }
   }
 

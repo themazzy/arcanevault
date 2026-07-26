@@ -105,6 +105,25 @@ export async function setLinkedDeckBracket(deckId, bracket, manual = false) {
   return data
 }
 
+/**
+ * Rename a folder. For a linked deck pair the name is written to both rows —
+ * a plain `folders.update({ name })` renames one half, which leaves the other
+ * surface (notably the /builder index, which renders the collection side of a
+ * pair) showing the old name. Safe for binders and wishlists too: propagation
+ * only ever applies to deck pairs.
+ *
+ * Returns `{ folder_id, name, counterpart_id }`; `name` is the server's
+ * trimmed, 100-char-capped value.
+ */
+export async function renameFolder(folderId, name) {
+  const { data, error } = await sb.rpc('rename_folder', {
+    p_folder_id: folderId,
+    p_name: name,
+  })
+  if (error) throw error
+  return data
+}
+
 export function getLinkedDeckIds(folderOrMeta) {
   const meta = folderOrMeta?.description != null ? parseDeckMeta(folderOrMeta.description) : (folderOrMeta || {})
   return {

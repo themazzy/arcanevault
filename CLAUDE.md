@@ -225,6 +225,8 @@ Key helpers in `src/lib/deckSync.js`:
 
 In `Builder.jsx`, clicking a collection deck that has `linked_builder_id` navigates to the builder version at `/builder/<linked_builder_id>` instead of the collection deck view.
 
+**A pair is two `folders` rows, so anything shown for "the deck" must be written to both.** Never `sb.from('folders').update({ name })` a deck directly — use `renameFolder(folderId, name)` from `deckSync.js` (the `rename_folder` RPC), which resolves the counterpart and renames both rows. It accepts any folder type, so binders and wishlists can use it too; propagation only applies to deck pairs. This bites asymmetrically and looks like "rename works one way": the /builder index renders the *collection* side of a linked pair, so renaming from the collection side appeared to propagate while renaming from DeckBuilder appeared to do nothing. The same rule already applies to visibility (`set_linked_deck_visibility`) and bracket (`set_linked_deck_bracket`).
+
 Format legality and commander color identity checks are in `src/lib/deckLegality.js` via `getCardLegalityWarnings({ card, formatId, formatLabel, isEDH, commanderColorIdentity })`.
 
 ### Wishlist Rules
