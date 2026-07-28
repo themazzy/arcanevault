@@ -73,10 +73,26 @@ The web app is deployed to **https://deckloom.app/** via GitHub Actions (`.githu
 |---|---|
 | `public/404.html` | Catches 404s from direct URL access; encodes the path as a query param and redirects to `index.html`. Auto-detects custom domain vs `*.github.io` subpath via `pathSegmentsToKeep`. |
 | `index.html` (redirect script) | Decodes the query param from `404.html` and restores the correct route via `history.replaceState` |
-| `public/CNAME` | Maps the GitHub Pages site to `deckloom.app` |
+| `public/CNAME` | Contains `deckloom.app`; Vite copies it to `dist/`, so every deploy reasserts the custom domain. The Actions deploy (`actions/deploy-pages@v4`) reads the domain from repo Settings → Pages, but an artifact without a CNAME can clear that setting — and no custom domain means no TLS cert renewal. This file was missing until 2026-07-28 |
 | `vite.config.js` | `base: '/'` — assets serve from root (custom domain), not a subpath |
 
 `BrowserRouter` in `src/App.jsx` uses the default basename (`/`); do **not** add `basename="/arcanevault"` back — it's a legacy artifact from the old `themazzy.github.io/arcanevault/` URL.
+
+### Cloudflare SSL/TLS mode must stay "Full" — never "Full (strict)"
+
+DNS for `deckloom.app` is proxied through Cloudflare, with GitHub Pages as the origin. The origin's Let's Encrypt cert is renewed by GitHub via an HTTP-01 ACME challenge served at `/.well-known/acme-challenge/` **on the origin**.
+
+**Full (strict) deadlocks this.** Strict refuses to connect to an origin whose cert is expired — including for the challenge path — so the cert can never be renewed, so strict keeps refusing. It does not recover on its own. This happened on 2026-07-27: the cert expired at 20:34 UTC and every visitor got **526 Origin SSL Certificate Invalid** for ~20 hours until the mode was switched to Full.
+
+Only return to strict if an uptime monitor exists, or the same deadlock recurs every ~90 days. The risk of Full here is low: the Cloudflare→origin leg carries only the public static bundle — all authenticated traffic goes browser→Supabase over a separate TLS connection that never touches Pages. Browser→Cloudflare TLS is unaffected either way.
+
+Diagnosing a suspected outage:
+```bash
+curl -sI https://deckloom.app/                       # 526 = origin cert rejected
+echo | openssl s_client -connect 185.199.108.153:443 -servername deckloom.app \
+  | openssl x509 -noout -dates                       # origin cert validity
+```
+Cloudflare → Analytics & Logs shows the error-status breakdown. Ignore the constant scanner noise there (`/.git/HEAD`, `/docker-compose.yaml`, `/kube/config`, `/wp-json/*` — bots probing for leaked secrets); it inflates the error rate but is not user traffic. The durable fix for this whole failure class is moving the origin to Cloudflare Pages, so edge and origin are the same provider and there is no cross-company cert handshake.
 
 ### Email links
 

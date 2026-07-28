@@ -2,3 +2,7 @@
 # conversion would change its bytes and break the check, so keep it byte-exact
 # across all platforms regardless of core.autocrlf.
 public/opencv/opencv.js binary
+
+# GitHub Pages reads the custom domain from this file. Keep it LF-only so a
+# Windows checkout (core.autocrlf=true) can't ship it with a CR.
+public/CNAME text eol=lf
