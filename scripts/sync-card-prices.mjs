@@ -1,18 +1,18 @@
 import 'dotenv/config'
 import fs from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import { createClient } from '@supabase/supabase-js'
-import { streamArray } from 'stream-json/streamers/stream-array.js'
 import { shouldInsertPrint, buildPrintRow } from './lib/print-sync-core.mjs'
+import { downloadBulkData, streamBulkCardsFromFile } from './lib/scryfall-bulk.mjs'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 const BULK_DATA_TYPE = 'all_cards'
+const USER_AGENT = 'DeckLoomPriceSync/1.0'
 const UPSERT_BATCH_SIZE = 500
 const DELETE_BATCH_SIZE = 500
 const FETCH_BATCH_SIZE = 1000
-const BULK_DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-all-cards.json')
+const BULK_DOWNLOAD_DIR = path.join(process.cwd(), '.tmp')
 // Rows already in card_prints but missing the search-metadata columns
 // (released_at etc.) get re-upserted from the same bulk stream, capped per run
 // so the one-time backfill of ~119k legacy rows is spread over several days —
@@ -84,44 +84,6 @@ function shouldKeepCard(card) {
   if (excludedSetTypes.has(card.set_type)) return false
 
   return true
-}
-
-async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'DeckLoomPriceSync/1.0',
-    },
-  })
-  if (!res.ok) throw new Error(`Request failed (${res.status}) for ${url}`)
-  return res.json()
-}
-
-async function getBulkDownloadUrl() {
-  const manifest = await fetchJson('https://api.scryfall.com/bulk-data')
-  const file = (manifest.data || []).find(item => item.type === BULK_DATA_TYPE)
-  if (!file?.download_uri) throw new Error(`Could not find Scryfall bulk data type "${BULK_DATA_TYPE}".`)
-  return file.download_uri
-}
-
-async function downloadBulkFile(url, destination) {
-  fs.mkdirSync(path.dirname(destination), { recursive: true })
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/json, application/octet-stream;q=0.9, */*;q=0.8',
-      'User-Agent': 'DeckLoomPriceSync/1.0',
-    },
-  })
-  if (!res.ok || !res.body) throw new Error(`Bulk download failed (${res.status})`)
-
-  const fileStream = fs.createWriteStream(destination)
-  const bodyStream = Readable.fromWeb(res.body)
-  await new Promise((resolve, reject) => {
-    bodyStream.pipe(fileStream)
-    bodyStream.on('error', reject)
-    fileStream.on('finish', resolve)
-    fileStream.on('error', reject)
-  })
 }
 
 // ── card_prints sync (same bulk stream, separate table) ─────────────────────
@@ -215,17 +177,13 @@ function createPrintSync(printState) {
   return { offer, finish }
 }
 
-async function processBulkFile(snapshotDate, printSync) {
+async function processBulkFile(bulk, snapshotDate, printSync) {
   let skipped = 0
   let processed = 0
   let duplicateRows = 0
   let pendingRows = []
 
-  const pipeline = fs
-    .createReadStream(BULK_DOWNLOAD_PATH)
-    .pipe(streamArray.withParserAsStream())
-
-  for await (const { value: card } of pipeline) {
+  for await (const card of streamBulkCardsFromFile(bulk.path, bulk.format)) {
     if (printSync) await printSync.offer(card)
 
     if (!shouldKeepCard(card)) {
@@ -337,6 +295,7 @@ async function pruneLiveRows(snapshotDate, retentionCutoff) {
 async function main() {
   const snapshotDate = isoDateUtc(0)
   const retentionCutoff = isoDateUtc(-1)
+  let bulk = null
 
   try {
     await clearRows(
@@ -346,10 +305,9 @@ async function main() {
     )
 
     console.log(`[Price Sync] Fetching Scryfall ${BULK_DATA_TYPE} manifest...`)
-    const downloadUrl = await getBulkDownloadUrl()
-
     console.log('[Price Sync] Downloading bulk card data to disk...')
-    await downloadBulkFile(downloadUrl, BULK_DOWNLOAD_PATH)
+    bulk = await downloadBulkData(BULK_DATA_TYPE, { dir: BULK_DOWNLOAD_DIR, userAgent: USER_AGENT })
+    console.log(`[Price Sync] Bulk export ${bulk.format}${bulk.gzipped ? '.gz' : ''}, updated ${bulk.updatedAt ?? 'unknown'}.`)
 
     let printSync = null
     try {
@@ -363,7 +321,7 @@ async function main() {
     }
 
     console.log('[Price Sync] Streaming bulk card data...')
-    const { processed, skipped, duplicateRows } = await processBulkFile(snapshotDate, printSync)
+    const { processed, skipped, duplicateRows } = await processBulkFile(bulk, snapshotDate, printSync)
     console.log(`[Price Sync] Finished writing ${processed.toLocaleString()} live rows (${skipped.toLocaleString()} skipped).`)
     if (duplicateRows) {
       console.log(`[Price Sync] Collapsed ${duplicateRows.toLocaleString()} duplicate rows while staging.`)
@@ -378,8 +336,8 @@ async function main() {
     await pruneLiveRows(snapshotDate, retentionCutoff)
   } finally {
     try {
-      fs.rmSync(BULK_DOWNLOAD_PATH, { force: true })
-      fs.rmSync(path.dirname(BULK_DOWNLOAD_PATH), { recursive: true, force: true })
+      if (bulk?.path) fs.rmSync(bulk.path, { force: true })
+      fs.rmSync(BULK_DOWNLOAD_DIR, { recursive: true, force: true })
     } catch {}
   }
 

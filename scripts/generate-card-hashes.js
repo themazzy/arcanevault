@@ -39,7 +39,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import fetch from 'node-fetch'
 import sharp from 'sharp'
-import { withParserAsStream } from 'stream-json/streamers/stream-array.js'
+import { resolveBulkDownload, streamBulkCardsFromUrl } from './lib/scryfall-bulk.mjs'
 import { CARD_W, CARD_H, TILE_GRID } from '../src/scanner/constants.js'
 import { computeSeedHashes } from '../src/scanner/hashCard.js'
 import { encodeHashPack, HashPackStore, bytesToUuid } from '../src/scanner/hashPack.js'
@@ -118,17 +118,13 @@ function pruneUnreferencedChunks(manifest) {
 
 // ── Scryfall ─────────────────────────────────────────────────────────────────
 
-async function fetchJsonArrayStream(url) {
-  const res = await fetch(url, { headers: UA, timeout: 120000 })
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
-  return new Promise((resolve, reject) => {
-    const items = []
-    const pipeline = withParserAsStream()
-    pipeline.on('data', ({ value }) => items.push(value))
-    pipeline.on('end', () => resolve(items))
-    pipeline.on('error', reject)
-    res.body.pipe(pipeline)
-  })
+async function fetchBulkCards(type) {
+  const bulk = await resolveBulkDownload(type, { userAgent: UA['User-Agent'] })
+  const items = []
+  for await (const card of streamBulkCardsFromUrl(bulk.url, bulk.format, { userAgent: UA['User-Agent'] })) {
+    items.push(card)
+  }
+  return items
 }
 
 async function fetchSetReleaseDates() {
@@ -262,8 +258,7 @@ async function main() {
   }
 
   console.log('Downloading Scryfall bulk data…')
-  const bulkMeta = await (await fetch('https://api.scryfall.com/bulk-data/default-cards', { headers: UA })).json()
-  const cards = await fetchJsonArrayStream(bulkMeta.download_uri)
+  const cards = await fetchBulkCards('default_cards')
   const releaseDates = await fetchSetReleaseDates()
   console.log(`${cards.length} cards in bulk data.`)
 

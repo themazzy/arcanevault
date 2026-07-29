@@ -1,10 +1,9 @@
 import 'dotenv/config'
 import fs from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
-import { streamArray } from 'stream-json/streamers/stream-array.js'
+import { downloadBulkData, streamBulkCardsFromFile } from './lib/scryfall-bulk.mjs'
 
 // Refreshes shared oracle-level recommendation metadata from Scryfall's bulk
 // export. This is an administrative sync, not a runtime card-API dependency.
@@ -12,8 +11,9 @@ import { streamArray } from 'stream-json/streamers/stream-array.js'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
 const BULK_DATA_TYPE = 'oracle_cards'
+const USER_AGENT = 'DeckLoomOracleSync/1.0'
 const UPSERT_BATCH = 500
-const DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-oracle-cards.json')
+const DOWNLOAD_DIR = path.join(process.cwd(), '.tmp')
 const SYNCED_AT = new Date().toISOString()
 const ORACLE_TEXT_CAP = 600
 
@@ -25,41 +25,6 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 })
-
-async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'DeckLoomOracleSync/1.0' },
-  })
-  if (!res.ok) throw new Error(`Request failed (${res.status}) for ${url}`)
-  return res.json()
-}
-
-async function getBulkDownloadUrl() {
-  const manifest = await fetchJson('https://api.scryfall.com/bulk-data')
-  const file = (manifest.data || []).find(item => item.type === BULK_DATA_TYPE)
-  if (!file?.download_uri) throw new Error(`Could not find Scryfall bulk data type "${BULK_DATA_TYPE}".`)
-  return file.download_uri
-}
-
-async function downloadBulkFile(url) {
-  fs.mkdirSync(path.dirname(DOWNLOAD_PATH), { recursive: true })
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/json, application/octet-stream;q=0.9, */*;q=0.8',
-      'User-Agent': 'DeckLoomOracleSync/1.0',
-    },
-  })
-  if (!res.ok || !res.body) throw new Error(`Bulk download failed (${res.status})`)
-
-  const output = fs.createWriteStream(DOWNLOAD_PATH)
-  const input = Readable.fromWeb(res.body)
-  await new Promise((resolve, reject) => {
-    input.pipe(output)
-    input.on('error', reject)
-    output.on('finish', resolve)
-    output.on('error', reject)
-  })
-}
 
 function cardImage(card, size) {
   return card?.image_uris?.[size] || card?.card_faces?.[0]?.image_uris?.[size] || null
@@ -130,14 +95,13 @@ async function flush(rows) {
   if (error) throw error
 }
 
-async function processBulkFile() {
+async function processBulkFile(bulk) {
   let scanned = 0
   let upserted = 0
   let pending = []
   const seen = new Set()
-  const pipeline = fs.createReadStream(DOWNLOAD_PATH).pipe(streamArray.withParserAsStream())
 
-  for await (const { value: card } of pipeline) {
+  for await (const card of streamBulkCardsFromFile(bulk.path, bulk.format)) {
     scanned++
     const row = oracleCardRow(card)
     if (!row || seen.has(row.oracle_id)) continue
@@ -162,16 +126,16 @@ async function processBulkFile() {
 }
 
 async function main() {
+  let bulk = null
   try {
     console.log('[Oracle Sync] Fetching Scryfall bulk manifest…')
-    const url = await getBulkDownloadUrl()
     console.log('[Oracle Sync] Downloading oracle_cards bulk file…')
-    await downloadBulkFile(url)
+    bulk = await downloadBulkData(BULK_DATA_TYPE, { dir: DOWNLOAD_DIR, userAgent: USER_AGENT })
     console.log('[Oracle Sync] Streaming rows into Supabase…')
-    const { scanned, upserted } = await processBulkFile()
+    const { scanned, upserted } = await processBulkFile(bulk)
     console.log(`[Oracle Sync] Done. Scanned ${scanned.toLocaleString()}, upserted ${upserted.toLocaleString()}.`)
   } finally {
-    try { fs.rmSync(DOWNLOAD_PATH, { force: true }) } catch {}
+    try { if (bulk?.path) fs.rmSync(bulk.path, { force: true }) } catch {}
   }
 }
 

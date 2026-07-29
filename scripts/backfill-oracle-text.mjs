@@ -1,9 +1,8 @@
 import 'dotenv/config'
 import fs from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import { createClient } from '@supabase/supabase-js'
-import { streamArray } from 'stream-json/streamers/stream-array.js'
+import { downloadBulkData, streamBulkCardsFromFile } from './lib/scryfall-bulk.mjs'
 
 // One-off (and re-runnable) seed for card_prints.oracle_text.
 //
@@ -19,9 +18,10 @@ const SERVICE_KEY =
   process.env.SUPABASE_SERVICE_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY // scripts/.env stores a service_role token here
 const BULK_DATA_TYPE = 'oracle_cards'
+const USER_AGENT = 'DeckLoomOracleBackfill/1.0'
 const ORACLE_TEXT_CAP = 600 // matches the client cap in scryfall.js / cardPrints.js
 const RPC_CHUNK = 1000
-const BULK_DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-oracle-cards.json')
+const BULK_DOWNLOAD_DIR = path.join(process.cwd(), '.tmp')
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
   console.error('Missing SUPABASE_URL and/or a service-role key (SUPABASE_SERVICE_ROLE_KEY / VITE_SUPABASE_ANON_KEY).')
@@ -44,40 +44,6 @@ function oracleTextOf(card) {
   return ''
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'DeckLoomOracleBackfill/1.0' },
-  })
-  if (!res.ok) throw new Error(`Request failed (${res.status}) for ${url}`)
-  return res.json()
-}
-
-async function getBulkDownloadUrl() {
-  const manifest = await fetchJson('https://api.scryfall.com/bulk-data')
-  const file = (manifest.data || []).find(item => item.type === BULK_DATA_TYPE)
-  if (!file?.download_uri) throw new Error(`Could not find Scryfall bulk data type "${BULK_DATA_TYPE}".`)
-  return file.download_uri
-}
-
-async function downloadBulkFile(url, destination) {
-  fs.mkdirSync(path.dirname(destination), { recursive: true })
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/json, application/octet-stream;q=0.9, */*;q=0.8',
-      'User-Agent': 'DeckLoomOracleBackfill/1.0',
-    },
-  })
-  if (!res.ok || !res.body) throw new Error(`Bulk download failed (${res.status})`)
-  const fileStream = fs.createWriteStream(destination)
-  const bodyStream = Readable.fromWeb(res.body)
-  await new Promise((resolve, reject) => {
-    bodyStream.pipe(fileStream)
-    bodyStream.on('error', reject)
-    fileStream.on('finish', resolve)
-    fileStream.on('error', reject)
-  })
-}
-
 async function flushChunk(rows) {
   if (!rows.length) return 0
   const { data, error } = await sb.rpc('apply_card_oracle_text', { payload: rows })
@@ -85,14 +51,13 @@ async function flushChunk(rows) {
   return typeof data === 'number' ? data : 0
 }
 
-async function processBulkFile() {
+async function processBulkFile(bulk) {
   let updated = 0
   let scanned = 0
   let pending = []
   const seen = new Set() // de-dupe oracle_ids (oracle_cards is already unique, but be safe)
 
-  const pipeline = fs.createReadStream(BULK_DOWNLOAD_PATH).pipe(streamArray.withParserAsStream())
-  for await (const { value: card } of pipeline) {
+  for await (const card of streamBulkCardsFromFile(bulk.path, bulk.format)) {
     scanned++
     const oid = card?.oracle_id
     if (!oid || seen.has(oid)) continue
@@ -111,18 +76,18 @@ async function processBulkFile() {
 }
 
 async function main() {
+  let bulk = null
   try {
     console.log('[Oracle Backfill] Fetching Scryfall bulk manifest…')
-    const url = await getBulkDownloadUrl()
     console.log('[Oracle Backfill] Downloading oracle_cards bulk…')
-    await downloadBulkFile(url, BULK_DOWNLOAD_PATH)
+    bulk = await downloadBulkData(BULK_DATA_TYPE, { dir: BULK_DOWNLOAD_DIR, userAgent: USER_AGENT })
     console.log('[Oracle Backfill] Streaming and applying via RPC…')
-    const { updated, oracleCards } = await processBulkFile()
+    const { updated, oracleCards } = await processBulkFile(bulk)
     console.log(`[Oracle Backfill] Done. ${oracleCards.toLocaleString()} oracle cards seen, ${updated.toLocaleString()} card_prints rows filled.`)
   } finally {
     try {
-      fs.rmSync(BULK_DOWNLOAD_PATH, { force: true })
-      fs.rmSync(path.dirname(BULK_DOWNLOAD_PATH), { recursive: true, force: true })
+      if (bulk?.path) fs.rmSync(bulk.path, { force: true })
+      fs.rmSync(BULK_DOWNLOAD_DIR, { recursive: true, force: true })
     } catch {}
   }
 }

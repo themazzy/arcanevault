@@ -1,16 +1,16 @@
 import 'dotenv/config'
 import fs from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
 import { createClient } from '@supabase/supabase-js'
-import { streamArray } from 'stream-json/streamers/stream-array.js'
+import { downloadBulkData, streamBulkCardsFromFile } from './lib/scryfall-bulk.mjs'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
 const BULK_DATA_TYPE = 'all_cards'
+const USER_AGENT = 'DeckLoomPrintsBackfill/1.0'
 const UPSERT_BATCH_SIZE = 100
 const FETCH_BATCH_SIZE = 1000
-const BULK_DOWNLOAD_PATH = path.join(process.cwd(), '.tmp', 'scryfall-all-cards.json')
+const BULK_DOWNLOAD_DIR = path.join(process.cwd(), '.tmp')
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.')
@@ -70,40 +70,6 @@ function buildPayload(card) {
   }
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json', 'User-Agent': 'DeckLoomPrintsBackfill/1.0' },
-  })
-  if (!res.ok) throw new Error(`Request failed (${res.status}) for ${url}`)
-  return res.json()
-}
-
-async function getBulkDownloadUrl() {
-  const manifest = await fetchJson('https://api.scryfall.com/bulk-data')
-  const file = (manifest.data || []).find(item => item.type === BULK_DATA_TYPE)
-  if (!file?.download_uri) throw new Error(`Could not find Scryfall bulk data type "${BULK_DATA_TYPE}".`)
-  return file.download_uri
-}
-
-async function downloadBulkFile(url, destination) {
-  fs.mkdirSync(path.dirname(destination), { recursive: true })
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/json, application/octet-stream;q=0.9, */*;q=0.8',
-      'User-Agent': 'DeckLoomPrintsBackfill/1.0',
-    },
-  })
-  if (!res.ok || !res.body) throw new Error(`Bulk download failed (${res.status})`)
-  const fileStream = fs.createWriteStream(destination)
-  const bodyStream = Readable.fromWeb(res.body)
-  await new Promise((resolve, reject) => {
-    bodyStream.pipe(fileStream)
-    bodyStream.on('error', reject)
-    fileStream.on('finish', resolve)
-    fileStream.on('error', reject)
-  })
-}
-
 // Only target rows that still need metadata or language backfilling. This
 // avoids rewriting already-populated rows, which would create dead tuples and
 // inflate the table until VACUUM FULL.
@@ -135,14 +101,13 @@ async function flushBatch(batch) {
   if (error) throw error
 }
 
-async function processBulkFile(existingIds) {
+async function processBulkFile(bulk, existingIds) {
   let processed = 0
   let skipped = 0
   let pending = []
   const seen = new Set()
 
-  const pipeline = fs.createReadStream(BULK_DOWNLOAD_PATH).pipe(streamArray.withParserAsStream())
-  for await (const { value: card } of pipeline) {
+  for await (const card of streamBulkCardsFromFile(bulk.path, bulk.format)) {
     if (!card?.id || !existingIds.has(card.id)) { skipped++; continue }
     if (seen.has(card.id)) continue
     seen.add(card.id)
@@ -168,18 +133,18 @@ async function main() {
   const existing = await loadExistingScryfallIds()
   console.log(`[Prints Backfill] ${existing.size.toLocaleString()} rows currently in card_prints.`)
 
+  let bulk = null
   try {
     console.log('[Prints Backfill] Fetching Scryfall bulk manifest…')
-    const url = await getBulkDownloadUrl()
     console.log('[Prints Backfill] Downloading bulk file…')
-    await downloadBulkFile(url, BULK_DOWNLOAD_PATH)
+    bulk = await downloadBulkData(BULK_DATA_TYPE, { dir: BULK_DOWNLOAD_DIR, userAgent: USER_AGENT })
     console.log('[Prints Backfill] Streaming and upserting…')
-    const { processed, skipped } = await processBulkFile(existing)
+    const { processed, skipped } = await processBulkFile(bulk, existing)
     console.log(`[Prints Backfill] Done. Updated ${processed.toLocaleString()} rows, skipped ${skipped.toLocaleString()} (not in collection).`)
   } finally {
     try {
-      fs.rmSync(BULK_DOWNLOAD_PATH, { force: true })
-      fs.rmSync(path.dirname(BULK_DOWNLOAD_PATH), { recursive: true, force: true })
+      if (bulk?.path) fs.rmSync(bulk.path, { force: true })
+      fs.rmSync(BULK_DOWNLOAD_DIR, { recursive: true, force: true })
     } catch {}
   }
 }
