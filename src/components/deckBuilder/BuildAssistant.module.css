@@ -1205,11 +1205,17 @@
   white-space: nowrap;
 }
 
+/* Pinned to the bottom of the tile: grid items stretch to the tallest tile in
+   their row, so `margin-top: auto` keeps every price/Add row on one line even
+   when a neighbour carries an extra line the others don't (the color pips on
+   owned lands, say). The reserved ownership line handles the common case; this
+   is what stops the next optional line from breaking the row again. */
 .tileActions {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 1px;
+  margin-top: auto;
+  padding-top: 1px;
 }
 
 /* Price tag + Add/Remove share one row, ~50/50. */

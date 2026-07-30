@@ -268,7 +268,7 @@ const LIGHTBOX_PREVIEW_W = 460
 const TILE_IMAGE_W = 132
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, previewProps, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, reserveNoteLine, previewProps, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // previewProps carries the hover/tap handlers for the large-image preview;
   // it's empty ({}) when the card has no art to enlarge. No special cursor — the
@@ -295,15 +295,23 @@ function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTa
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
       </div>
       <div className={styles.tileName} title={name}>{name}</div>
-      {ownershipNote && (
-        <div
-          className={styles.tileOwnedNote}
-          title={ownershipNote === 'In another deck'
-            ? 'You own this card, but every copy is allocated to another deck'
-            : 'An available copy is in one of your binders'}
-        >
-          {ownershipNote}
-        </div>
+      {/* The ownership line is reserved on every tile of a grid where any tile
+          can carry one (`reserveNoteLine`) — rendering it only when present made
+          those tiles one line taller, so the price/Add rows stepped out of
+          alignment across the row. The blank stand-in is aria-hidden so screen
+          readers don't announce an empty line per card. */}
+      {reserveNoteLine && (ownershipNote
+        ? (
+          <div
+            className={styles.tileOwnedNote}
+            title={ownershipNote === 'In another deck'
+              ? 'You own this card, but every copy is allocated to another deck'
+              : 'An available copy is in one of your binders'}
+          >
+            {ownershipNote}
+          </div>
+        )
+        : <div className={styles.tileOwnedNote} aria-hidden="true">&nbsp;</div>
       )}
       {pips?.length ? <div className={styles.tileSub}><ColorPips colors={pips} /></div> : null}
       <div className={styles.tileActions}>
@@ -2136,6 +2144,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               flag={flag}
                               overTarget={targetBracket != null && flag && flag.level > targetBracket}
                               ownershipNote={owned ? 'In your binders' : (inAnotherDeck ? 'In another deck' : null)}
+                              reserveNoteLine
                               added={isAdded(cand.name)}
                               wished={isWishlisted(cand.name)}
                               showWishlist={!owned && typeof onAddToWishlist === 'function'}
