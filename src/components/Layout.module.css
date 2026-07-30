@@ -1,10 +1,13 @@
 .app {
   --page-gutter: max(40px, calc((100vw - 1600px) / 2 + 40px));
-  /* Horizontal inset of the floating navbar pill. Defaults to --page-gutter so
-     the pill lines up with a normal page's content column. Routes whose content
-     runs wider than that column (e.g. the deck builder) lower this so the navbar
-     is never inset more than — i.e. never slimmer than — the content below it. */
-  --nav-gutter: var(--page-gutter);
+  /* Horizontal inset of the floating navbar pill. The pill holds ONE width on
+     every route — the widest one, which is the deck builder's near-full-bleed
+     inset — so moving between pages never resizes the navbar. It used to track
+     --page-gutter and widen only on the builder, which made the pill visibly
+     shrink and grow as you navigated.
+     min() keeps the phone breakpoints honest: below ~980px --page-gutter drops
+     under 12px, and the pill should follow the content out rather than pull in. */
+  --nav-gutter: min(var(--page-gutter), clamp(12px, 1.4vw, 28px));
   /* .main's bottom padding, tokenized so full-height pages (Collection) can
      stretch under it on mobile and reach the screen edge. */
   --main-pad-b: 28px;
@@ -43,13 +46,6 @@
   transition: padding 0.4s cubic-bezier(.4,0,.2,1);
 }
 
-/* Deck builder content runs near-full-bleed (clamp inset, ≤28px), far narrower
-   an inset than --page-gutter. Match the navbar to it so the pill never ends up
-   slimmer than the content — most visible on wide desktop screens, where the
-   page-gutter grows to hundreds of px while the content stays at 28px. */
-.app:has(.mainDeckBuilder) {
-  --nav-gutter: clamp(12px, 1.4vw, 28px);
-}
 .headerWrap .header {
   pointer-events: auto;
 }
