@@ -30,16 +30,28 @@
   -webkit-backdrop-filter: blur(18px);
 }
 
+/* Logo + Back — the left cluster of the top bar. */
+.topLeft {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* Same lockup as the app navbar (Layout.module.css) — gold "Deck", purple
+   "Loom", both with their glow. This page used to render "Loom" in plain cream,
+   which made the brand read differently here than on every other page. */
 .logo {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   font-family: 'Cinzel', Georgia, serif;
   color: var(--gold, #c9a84c);
+  text-shadow: 0 0 28px rgba(201, 168, 76, 0.3), 0 1px 3px rgba(0, 0, 0, 0.5);
   font-size: 1rem;
   text-decoration: none;
-  letter-spacing: 0.14em;
-  font-weight: 600;
+  letter-spacing: 0.18em;
+  font-weight: 700;
 }
 /* the global `a:hover { text-decoration: underline }` outranks the plain
    .logo rule's text-decoration:none on specificity — override explicitly */
@@ -50,7 +62,7 @@
   flex: 0 0 auto;
   object-fit: contain;
 }
-.logoText span { color: var(--text, #e8e0d0); }
+.logoText span { color: var(--purple); text-shadow: 0 0 22px rgba(138, 111, 196, 0.35); }
 
 .topActions {
   display: flex;
@@ -919,7 +931,7 @@
   width: 36px;
   height: 36px;
 }
-.signinLogo .logoText span { color: var(--text, #e8e0d0); }
+.signinLogo .logoText span { color: var(--purple); text-shadow: 0 0 22px rgba(138, 111, 196, 0.35); }
 .signinMsg {
   color: var(--text-dim, #9a8870);
   font-size: 0.9rem;

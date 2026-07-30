@@ -677,10 +677,29 @@ export default function DeckViewPage() {
 
       {/* ── Top bar ── */}
       <div className={styles.topBar}>
-        <Link to="/" className={styles.logo}>
-          <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
-          <span className={styles.logoText}>Deck<span>Loom</span></span>
-        </Link>
+        {/* Back sits in the left cluster, opposite the forward actions: it's a
+            retreat, and grouping it with "Open in Deck Builder" on the right
+            read as one more thing to do with the deck. The logo stays leftmost
+            so the brand is anchored where it is on every other page. */}
+        <div className={styles.topLeft}>
+          <Link to="/" className={styles.logo}>
+            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+            <span className={styles.logoText}>Deck<span>Loom</span></span>
+          </Link>
+          {user && (
+            <button
+              type="button"
+              className={styles.backBtn}
+              onClick={() => {
+                if (window.history.length > 1) navigate(-1)
+                else navigate(deck?.type === 'builder_deck' ? '/builder' : '/decks')
+              }}
+            >
+              <span aria-hidden="true" className={styles.backArrow}>←</span>
+              <span>Back</span>
+            </button>
+          )}
+        </div>
 
         <div className={styles.topActions}>
           {!user ? (
@@ -688,25 +707,10 @@ export default function DeckViewPage() {
               <Link to="/login" className={styles.signInBtn}>Sign In</Link>
               <Link to="/login" className={styles.actionLink}>Create Account</Link>
             </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={styles.backBtn}
-                onClick={() => {
-                  if (window.history.length > 1) navigate(-1)
-                  else navigate(deck?.type === 'builder_deck' ? '/builder' : '/decks')
-                }}
-              >
-                <span aria-hidden="true" className={styles.backArrow}>←</span>
-                <span>Back</span>
-              </button>
-              {isOwner && (
-                <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>
-                  <BuilderIcon size={12} /> Open in Deck Builder
-                </Link>
-              )}
-            </>
+          ) : isOwner && (
+            <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>
+              <BuilderIcon size={12} /> Open in Deck Builder
+            </Link>
           )}
         </div>
       </div>
