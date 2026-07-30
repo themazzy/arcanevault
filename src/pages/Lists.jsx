@@ -735,18 +735,17 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
           compact
           icon={<WishlistsIcon size={32} />}
           title={`Add cards to ${folder.name}`}
-          description="Add cards you want or import an existing list. Wishlist-specific filters and views will appear once it contains cards."
-          importFirst={false}
-          manualAction={{
-            label: 'Add wanted cards',
-            icon: <AddIcon size={14} />,
-            onClick: () => setShowAddCard(true),
-          }}
+          description="Import an existing list or add cards you want. Wishlist-specific filters and views will appear once it contains cards."
           importAction={{
             label: 'Import a wishlist',
             description: 'Drop a .csv or .txt list here, or click to paste or upload.',
             onClick: openImport,
             onFile: async file => { setImportText(await file.text()); setShowImport(true) },
+          }}
+          manualAction={{
+            label: 'Add wanted cards',
+            icon: <AddIcon size={14} />,
+            onClick: () => setShowAddCard(true),
           }}
         />
       )}
@@ -1602,18 +1601,17 @@ export default function ListsPage() {
         <LibraryEmptyState
           icon={<WishlistsIcon size={34} />}
           title="Save cards for later"
-          description="Wishlists track cards you want without adding them to your owned collection. Create one manually or import an existing list."
-          importFirst={false}
-          manualAction={{
-            label: 'Create your first wishlist',
-            icon: <AddIcon size={14} />,
-            onClick: () => setShowNewFolder(true),
-          }}
+          description="Wishlists track cards you want without adding them to your owned collection. Import an existing list or create one manually."
           importAction={{
             label: 'Import a wishlist',
             description: 'Drop a .csv or .txt list here, or click to paste or upload.',
             onClick: openImport,
             onFile: handleEmptyImportFile,
+          }}
+          manualAction={{
+            label: 'Create your first wishlist',
+            icon: <AddIcon size={14} />,
+            onClick: () => setShowNewFolder(true),
           }}
           footer="Wishlist cards do not count toward collection totals or values."
         />
