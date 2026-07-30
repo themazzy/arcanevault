@@ -651,7 +651,13 @@
   white-space: nowrap;
 }
 
+/* Fixed height: this line holds either 11px color pips or a blank stand-in on
+   tiles without them, and an inline-flex pip row and a text line box don't
+   measure the same — the two variants have to agree or the row misaligns. */
 .tileSub {
+  display: flex;
+  align-items: center;
+  min-height: 16px;
   font-size: 0.7rem;
   color: var(--text-faint);
   overflow: hidden;
@@ -1205,17 +1211,15 @@
   white-space: nowrap;
 }
 
-/* Pinned to the bottom of the tile: grid items stretch to the tallest tile in
-   their row, so `margin-top: auto` keeps every price/Add row on one line even
-   when a neighbour carries an extra line the others don't (the color pips on
-   owned lands, say). The reserved ownership line handles the common case; this
-   is what stops the next optional line from breaking the row again. */
+/* Top-aligned, NOT margin-top:auto. The action block's own height varies — an
+   owned card has no "+ Wishlist" row — so bottom-aligning it against the
+   stretched grid row drops the price/Add row one line on exactly those tiles.
+   Alignment comes from every line ABOVE this being reserved (see CardTile). */
 .tileActions {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: auto;
-  padding-top: 1px;
+  margin-top: 1px;
 }
 
 /* Price tag + Add/Remove share one row, ~50/50. */

@@ -267,8 +267,22 @@ const LIGHTBOX_PREVIEW_W = 460
 // 104px column, which lands on the same tier at the pixel ratios phones have.
 const TILE_IMAGE_W = 132
 
+// Blank stand-in for an optional tile line the tile itself doesn't have. Keeps
+// the price/Add row at the same height across a grid row; aria-hidden so screen
+// readers don't announce an empty line per card.
+function BlankLine({ className }) {
+  return <div className={className} aria-hidden="true">&nbsp;</div>
+}
+
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, reserveNoteLine, previewProps, onAdd, onUndo, onWishlist }) {
+//
+// `reserveNoteLine` / `reservePipsLine` mark the optional lines the *grid* can
+// show, not the ones this tile has: every tile reserves them so the tiles that
+// do carry one aren't a line taller than their neighbours. Everything above
+// .tileActions has to stay uniform — the action block itself is top-aligned,
+// because bottom-aligning it drops the price row on owned cards (which have no
+// "+ Wishlist" row under it).
+function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, reserveNoteLine, reservePipsLine, previewProps, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // previewProps carries the hover/tap handlers for the large-image preview;
   // it's empty ({}) when the card has no art to enlarge. No special cursor — the
@@ -295,11 +309,6 @@ function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTa
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
       </div>
       <div className={styles.tileName} title={name}>{name}</div>
-      {/* The ownership line is reserved on every tile of a grid where any tile
-          can carry one (`reserveNoteLine`) — rendering it only when present made
-          those tiles one line taller, so the price/Add rows stepped out of
-          alignment across the row. The blank stand-in is aria-hidden so screen
-          readers don't announce an empty line per card. */}
       {reserveNoteLine && (ownershipNote
         ? (
           <div
@@ -311,9 +320,13 @@ function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTa
             {ownershipNote}
           </div>
         )
-        : <div className={styles.tileOwnedNote} aria-hidden="true">&nbsp;</div>
+        : <BlankLine className={styles.tileOwnedNote} />
       )}
-      {pips?.length ? <div className={styles.tileSub}><ColorPips colors={pips} /></div> : null}
+      {/* Colorless lands produce no pips, so this line is reserved too — inside
+          the lands step it's the same one-line-taller problem as the note. */}
+      {pips?.length
+        ? <div className={styles.tileSub}><ColorPips colors={pips} /></div>
+        : reservePipsLine ? <BlankLine className={styles.tileSub} /> : null}
       <div className={styles.tileActions}>
         <div className={styles.tileActionRow}>
           {/* Price only — the finish used to render inline here, but "€0.14 ·
@@ -2047,6 +2060,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             name={cand.name}
                             img={img}
                             pips={onLands ? item.colors : undefined}
+                            reservePipsLine={onLands}
                             inclusion={onLands ? 0 : cand.edhrecInclusion}
                             price={priceLabelFor(cand.name)}
                             finish={finishFor(cand.name)}
@@ -2132,11 +2146,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             fallbackImg: cand.image,
                           })
                           return (
+                            // showWishlist is offered on owned cards too: a copy
+                            // in a binder doesn't mean you don't want another —
+                            // a second for another deck, or a nicer printing.
                             <CardTile
                               key={`${owned ? 'owned' : 'suggested'}:${cand.slug || cand.name}`}
                               name={cand.name}
                               img={img}
                               pips={landInfo?.colors}
+                              reservePipsLine={onLands}
                               inclusion={cand.edhrecInclusion}
                               price={priceLabelFor(cand.name)}
                               finish={finishFor(cand.name)}
@@ -2147,7 +2165,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               reserveNoteLine
                               added={isAdded(cand.name)}
                               wished={isWishlisted(cand.name)}
-                              showWishlist={!owned && typeof onAddToWishlist === 'function'}
+                              showWishlist={typeof onAddToWishlist === 'function'}
                               previewProps={previewHandlers({
                                 name: cand.name,
                                 scryfall_id: owned ? (cand.sfCard?.id || cand.card?.scryfall_id || null) : null,
@@ -2512,6 +2530,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           >
             Back
           </Button>
+          <div className={styles.footerSpacer} />
+          {/* Auto-fill sits with the forward actions, not beside Back: it builds
+              the deck, and a button on the "retreat" side reads as one. */}
           {!loading && !error && plan && (autoFilling || autoFillPicksOwned.length > 0 || autoFillPicksRec.length > 0) && (
             <Button
               variant="ghost"
@@ -2526,7 +2547,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 : ' Auto-fill'}
             </Button>
           )}
-          <div className={styles.footerSpacer} />
           {stepIndex < steps.length - 1 ? (
             <Button variant="primary" disabled={loading} onClick={() => setStepIndex(i => Math.min(steps.length - 1, i + 1))}>
               Next: {steps[stepIndex + 1] === SUMMARY_STEP ? 'Summary' : steps[stepIndex + 1]}
