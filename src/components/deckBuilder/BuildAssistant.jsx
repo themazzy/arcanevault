@@ -11,6 +11,7 @@ import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
 import { fetchDeckBuilderDisplayPrintings } from '../../lib/cardSearch'
+import { cardImageUrl, tileImage } from './buildAssistantTiles'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
@@ -108,15 +109,6 @@ function roleNameSet(deckCards) {
   // Full + front-face keys, so EDHREC/combo names (front face for DFCs) still
   // match deck rows stored under the full "Front // Back" name.
   return new Set((deckCards || []).flatMap(c => cardNameMatchKeys(c?.name)))
-}
-
-// Card image from the cached Scryfall art (cards.scryfall.io CDN). We never hit
-// api.scryfall.com per tile — that endpoint is rate-limited and floods to 429.
-// Falls back to the 'normal' size because card_prints-derived entries only store
-// `normal` + `art_crop` (no `small`), which otherwise left owned tiles blank.
-function cardImageUrl(sfCard) {
-  if (!sfCard) return null
-  return getCardImageUri(sfCard, 'small') || getCardImageUri(sfCard, 'normal')
 }
 
 // Overlay new fields onto an existing sfMap entry, skipping null/empty values
@@ -276,14 +268,8 @@ const LIGHTBOX_PREVIEW_W = 460
 const TILE_IMAGE_W = 132
 
 // One card tile: image + name + sub-meta + add action(s).
-function CardTile({ name, sfCard, fallbackImg, displayImg, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, previewProps, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, previewProps, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
-  // Cached collection art first; Scryfall-fetched fallback for unowned upgrades
-  // and any owned card whose cache entry has no image. These three sources don't
-  // agree on a tier (card_prints rows carry only `normal`, cached entries carry
-  // `small`), so CardImg forces one below — a grid of mixed tiers renders as a
-  // patchwork of resolutions.
-  const img = displayImg || cardImageUrl(sfCard) || fallbackImg || null
   // previewProps carries the hover/tap handlers for the large-image preview;
   // it's empty ({}) when the card has no art to enlarge. No special cursor — the
   // enlarge is a hover affordance, and a zoom-in cursor would wrongly imply a click.
@@ -322,12 +308,14 @@ function CardTile({ name, sfCard, fallbackImg, displayImg, pips, inclusion, tag,
       {pips?.length ? <div className={styles.tileSub}><ColorPips colors={pips} /></div> : null}
       <div className={styles.tileActions}>
         <div className={styles.tileActionRow}>
+          {/* Price only — the finish used to render inline here, but "€0.14 ·
+              Non-foil" overflows the ~50% half of the action row at tile width.
+              It lives in the tooltip instead. */}
           <span
             className={`${styles.tilePriceTag}${price ? '' : ' ' + styles.tilePriceTagEmpty}`}
-            title={price ? `Lowest English price · ${finish}` : 'No price data'}
+            title={price ? `Lowest English price${finish ? ` · ${finish}` : ''}` : 'No price data'}
           >
             {price || '—'}
-            {price && finish && <span className={styles.tilePriceFinish}>{finish}</span>}
           </span>
           <button
             className={`${styles.tileBtn}${added ? ' ' + styles.tileBtnDone : ''}${canUndo ? ' ' + styles.tileBtnUndo : ''}`}
@@ -1578,11 +1566,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   // Event handlers that drive the large-image preview for one card. On pointer
   // devices the image follows the cursor (mouseenter/move/leave); on touch a tap
-  // toggles a centered lightbox. `card` = { name, scryfall_id, img? } — a card
-  // with a scryfall_id resolves its large art from sfMap; unowned upgrades carry
-  // an explicit `img` URL instead. Cards with neither get no preview affordance.
+  // toggles a centered lightbox.
+  //
+  // `card` = { name, scryfall_id?, img?, fallbackImg? }:
+  //   img         — the exact URL the caller painted; wins outright, so the
+  //                 enlarged card is the same printing the grid tile shows.
+  //   scryfall_id — resolves large art from sfMap when there's no `img`.
+  //   fallbackImg — last resort for rows whose sfMap entry has no art.
+  // A card with none of the three gets no preview affordance.
   const previewHandlers = card => {
-    if (!card?.scryfall_id && !card?.img) return {}
+    if (!card?.scryfall_id && !card?.img && !card?.fallbackImg) return {}
     if (hoverCapable) {
       return {
         onMouseEnter: e => setPreview({ ...card, x: e.clientX, y: e.clientY }),
@@ -2039,12 +2032,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       {shown.slice(0, MAX_TILES).map(item => {
                         const cand = onLands ? item.cand : item
                         const flag = onLands ? null : bracketFlagFor(cand.name, cand.sfCard, gameChangers)
+                        const img = tileImage({ displayImg: imageEnFor(cand.name), sfCard: cand.sfCard })
                         return (
                           <CardTile
                             key={cand.card?.id || cand.name}
                             name={cand.name}
-                            sfCard={cand.sfCard}
-                            displayImg={imageEnFor(cand.name)}
+                            img={img}
                             pips={onLands ? item.colors : undefined}
                             inclusion={onLands ? 0 : cand.edhrecInclusion}
                             price={priceLabelFor(cand.name)}
@@ -2055,7 +2048,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             previewProps={previewHandlers({
                               name: cand.name,
                               scryfall_id: cand.sfCard?.id || cand.card?.scryfall_id || null,
-                              img: imageEnFor(cand.name) || cardImageUrl(cand.sfCard),
+                              img,
                             })}
                             onAdd={() => handleAdd(cand, cand.name)}
                             onUndo={() => handleUndoAdd(cand.name)}
@@ -2125,13 +2118,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             ? landCandidates.find(item => item.cand === cand)
                             : null
                           const inAnotherDeck = !owned && cardNameMatchKeys(cand.name).some(k => inOtherDeckNames.has(k))
+                          const img = tileImage({
+                            displayImg: imageEnFor(cand.name),
+                            sfCard: owned ? cand.sfCard : null,
+                            fallbackImg: cand.image,
+                          })
                           return (
                             <CardTile
                               key={`${owned ? 'owned' : 'suggested'}:${cand.slug || cand.name}`}
                               name={cand.name}
-                              sfCard={owned ? cand.sfCard : null}
-                              displayImg={imageEnFor(cand.name)}
-                              fallbackImg={imageEnFor(cand.name) || cand.image}
+                              img={img}
                               pips={landInfo?.colors}
                               inclusion={cand.edhrecInclusion}
                               price={priceLabelFor(cand.name)}
@@ -2146,13 +2142,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               previewProps={previewHandlers({
                                 name: cand.name,
                                 scryfall_id: owned ? (cand.sfCard?.id || cand.card?.scryfall_id || null) : null,
-                                // Whatever tier these URLs carry, CardImg re-tiers
-                                // them to the preview's painted width. EDHREC
+                                // Whatever tier this URL carries, CardImg re-tiers
+                                // it to the preview's painted width. EDHREC
                                 // fallback URLs aren't cards.scryfall.io, so they
                                 // pass through untouched.
-                                img: owned
-                                  ? (imageEnFor(cand.name) || cardImageUrl(cand.sfCard))
-                                  : (imageEnFor(cand.name) || cand.image || null),
+                                img,
                               })}
                               onAdd={() => handleAdd(cand, cand.name)}
                               onUndo={() => handleUndoAdd(cand.name)}
@@ -2367,9 +2361,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               name: m.name,
                               scryfall_id: sid,
                               // These cards ARE in the deck (just not in the
-                              // binders), but their cache entry may lack art —
-                              // the enriched cheapest-English art is the fallback.
-                              img: imageEnFor(m.name),
+                              // binders), so the deck row's printing is the one
+                              // to enlarge; the enriched cheapest-English art is
+                              // only a fallback for cache entries lacking art.
+                              fallbackImg: imageEnFor(m.name),
                             })}
                           >
                             {m.name}
@@ -2725,8 +2720,19 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           modal at viewport coordinates. Hover-follows the cursor on pointer
           devices; a centered tap-to-dismiss lightbox on touch. */}
       {preview && (() => {
+        // `preview.img` is the exact URL the tile painted (the resolved display
+        // printing), so it wins over the sfMap lookup — otherwise an owned card
+        // whose cheapest English printing differs from the copy in the
+        // collection enlarged into a *different* printing than the grid showed.
+        // Whatever tier it carries, CardImg re-tiers it to the painted width.
+        // Callers without an explicit img (the summary lists) still fall through
+        // to sfMap, which is the printing those rows render from.
         const sf = sfMap?.[preview.scryfall_id] || null
-        const img = getCardImageUri(sf, 'normal') || cardImageUrl(sf) || preview.img || null
+        const img = preview.img
+          || getCardImageUri(sf, 'normal')
+          || cardImageUrl(sf)
+          || preview.fallbackImg
+          || null
         if (!img) return null
         const node = hoverCapable ? (
           <div className={styles.hoverPreview} style={cardPreviewStyle(preview.x, preview.y)}>

@@ -1236,18 +1236,6 @@
 
 .tilePriceTagEmpty { color: var(--text-faint); }
 
-.tilePriceFinish {
-  margin-left: 3px;
-  color: var(--text-faint);
-  font-size: 0.58rem;
-  font-weight: 500;
-}
-
-.tilePriceFinish::before {
-  content: '·';
-  margin-right: 3px;
-}
-
 .tileBtn {
   flex: 1;
   padding: 4px 6px;
