@@ -1,14 +1,10 @@
 import { sb } from './supabase'
 import { loadCardMapWithSharedPrices } from './sharedCardPrices'
-import { createOfflineError } from './networkUtils'
+import { assertOnline } from './networkUtils'
 import { getMeta, setMeta, getLocalCards, putCards, deleteCard, deleteAllCards } from './db'
 import { fetchAllByKeyset, fetchAllByKeysetSharded } from './keysetPager'
 
 const PAGE = 1000
-
-function assertOnline() {
-  if (!navigator.onLine) throw createOfflineError()
-}
 
 export function isGroupFolder(folder) {
   try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }

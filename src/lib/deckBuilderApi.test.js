@@ -9,6 +9,13 @@ vi.mock('./scryfall', () => ({
   getImageUri: (c, size = 'normal') =>
     c?.image_uris?.[size] ?? c?.card_faces?.[0]?.image_uris?.[size] ?? null,
   scryfallImageAtSize: (url) => url,
+  // Reached transitively: deckPrintingResolution reads prices through this to
+  // pick the cheapest printing. These fixtures carry no prices, so the real
+  // behaviour under test is the unpriced newest-English fallback.
+  getPrice: (card, foil) => {
+    const value = parseFloat(card?.prices?.[foil ? 'eur_foil' : 'eur'] || 0)
+    return value || null
+  },
 }))
 
 vi.mock('./supabase', () => ({ sb: { from: vi.fn(), rpc: vi.fn() } }))

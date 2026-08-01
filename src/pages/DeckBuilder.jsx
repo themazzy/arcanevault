@@ -75,6 +75,7 @@ import {
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
 import { invalidateOwnedCollectionQueries, removeDecksFromHomeSnapshot } from '../lib/queryInvalidation'
 import { getPublicAppUrl } from '../lib/publicUrl'
+import { assertOnline } from '../lib/networkUtils'
 import { fetchRemoteOwnedPrintingCandidates } from '../lib/deckPlacementData'
 import {
   rankOwnedPrintingCandidates,
@@ -2857,13 +2858,17 @@ export default function DeckBuilderPage() {
   // Search state lives in useCommanderSearch(); this handler applies the pick
   // to the deck (mutates deck_cards + folder description meta).
   async function pickCommander(sfCard) {
+    // Guarded before the picker closes, so an offline attempt leaves the search
+    // open to retry rather than dropping the user back to an unchanged deck.
+    if (!canWriteDeckCards()) return
     closeCmdPicker()
     const baseMeta = deckMetaRef.current || deckMeta
 
     // The commander search returns whichever single print Scryfall considers
     // canonical (unique=cards), which can be an art-series/special printing.
     // Resolve the actual print the same way the normal card search does:
-    // owned binder copy first, then owned deck copy, then newest paper print.
+    // owned binder copy first, then owned collection-deck copy, then the
+    // cheapest priced English print.
     let resolved
     try {
       resolved = await resolvePreferredDeckPrinting(sfCard.name, sfCard)
@@ -2944,6 +2949,7 @@ export default function DeckBuilderPage() {
   // color identity) from every commander card now in the deck.
   async function addSecondCommander(sfCard) {
     if (!sfCard?.name) return
+    if (!canWriteDeckCards()) return
     const baseMeta = deckMetaRef.current || deckMeta
     let resolved
     try {
@@ -2999,20 +3005,45 @@ export default function DeckBuilderPage() {
   }
 
   // ── Companion ───────────────────────────────────────────────────────────────
-  function setCompanion(sfCard) {
+  async function setCompanion(sfCard) {
+    if (!sfCard?.name) return
+    if (!canWriteDeckCards()) return
     closeCompPicker()
+
+    // The companion search shares searchCommanders' `unique=cards`, so it hands
+    // back whichever print Scryfall considers canonical — often an art-series
+    // or special printing. Resolve it like the commander: the copy you own,
+    // else the cheapest one you'd have to buy.
+    let resolved
+    try {
+      resolved = await resolvePreferredDeckPrinting(sfCard.name, sfCard)
+    } catch (err) {
+      console.error('[DeckBuilder] companion printing resolution failed:', err)
+      showToast(`Could not verify the companion printing: ${err?.message || 'network error'}`, { tone: 'error' })
+      return
+    }
+    const compCard = resolved.sfCard
+
     const companion = {
-      name:           sfCard.name,
-      scryfall_id:    sfCard.id,
-      color_identity: sfCard.color_identity || [],
-      image_uri:      getCardImageUri(sfCard, 'normal'),
+      name:           compCard.name || sfCard.name,
+      // Identity + art follow the resolved printing…
+      scryfall_id:    compCard.id || sfCard.id,
+      image_uri:      getCardImageUri(compCard, 'normal') || getCardImageUri(sfCard, 'normal'),
+      // …while the rules fields stay on the picker's card. They're identical
+      // across printings, and validateCompanion parses the deck-building
+      // restriction straight out of oracle_text — card_prints caps that column
+      // at 600 chars (every companion currently fits, the longest is 379), so
+      // there is nothing to gain and a truncation to lose.
+      color_identity: sfCard.color_identity || compCard.color_identity || [],
       type_line:      sfCard.type_line || sfCard.card_faces?.[0]?.type_line || '',
       mana_cost:      sfCard.mana_cost || sfCard.card_faces?.[0]?.mana_cost || '',
       cmc:            sfCard.cmc ?? 0,
       oracle_text:    getCommanderOracle(sfCard),
       keywords:       sfCard.keywords || [],
     }
-    const newMeta = { ...deckMeta, companion }
+    // Read the ref, not the closure: this function now awaits, so the captured
+    // deckMeta can be stale by the time the printing resolves.
+    const newMeta = { ...(deckMetaRef.current || deckMeta), companion }
     applyAndSaveMeta(newMeta)
     logDeckChange(deckId, user?.id, 'Companion', `Set to ${companion.name}`)
   }
@@ -3049,17 +3080,29 @@ export default function DeckBuilderPage() {
       const completePrintings = [...printings, ...hydrated.filter(card =>
         !printings.some(printing => printing.id === card.id))]
 
-      if (ranked.some(entry => !entry.printing)
-        && rankOwnedPrintingCandidates(ownedCandidates, completePrintings).some(entry => !entry.printing)) {
-        throw new Error(`Owned printing metadata is unavailable for ${canonicalName}.`)
-      }
+      // An owned copy we can't resolve print metadata for is a degradation, not
+      // a failure: selectPreferredDeckPrinting skips the unhydratable entries
+      // and falls through to the next-best owned copy, then to the cheapest
+      // catalog printing. Refusing the add outright — which is what this used
+      // to do — left the user unable to add a card that the catalog could serve
+      // perfectly well, because fetchCardsByScryfallIds silently returns fewer
+      // rows on any Scryfall hiccup.
+      const unresolvedOwned = rankOwnedPrintingCandidates(ownedCandidates, completePrintings)
+        .some(entry => !entry.printing)
 
       const resolved = selectPreferredDeckPrinting({
         printings: completePrintings,
         ownedCandidates,
         fallbackCard: fallbackSfCard,
+        priceSource: price_source,
       })
       if (!resolved) throw new Error(`No paper printing is available for ${canonicalName}.`)
+      if (unresolvedOwned && !resolved.cardPrintId) {
+        // Every owned copy failed to hydrate, so this is an unowned-style pick
+        // for a card the user does own. Say so rather than silently assigning a
+        // printing they didn't ask for.
+        console.warn('[DeckBuilder] owned printing metadata unavailable, using catalog printing for', canonicalName)
+      }
       return resolved
     })().finally(() => printingResolutionRequests.current.delete(requestKey))
 
@@ -3115,8 +3158,14 @@ export default function DeckBuilderPage() {
     }
     const existing = deckCardsRef.current.find(dc => dc.id !== placeholderRow.id && isSameDeckPrinting(dc, nextRow))
 
+    // Both branches below unwind their optimistic state when the write fails.
+    // sbExec has already toasted the error at that point, so leaving the row on
+    // screen would show a card that only exists until the next reload — and the
+    // Build Assistant, which treats a returned row as proof the add landed,
+    // would keep the tile flagged "Added".
     if (existing) {
       const updatedExisting = { ...existing, qty: (existing.qty || 0) + (placeholderRow.qty || 1), updated_at: now }
+      const rollback = deckCardsRef.current
       deckCardsRef.current = deckCardsRef.current
         .filter(dc => dc.id !== placeholderRow.id)
         .map(dc => dc.id === existing.id ? updatedExisting : dc)
@@ -3125,7 +3174,11 @@ export default function DeckBuilderPage() {
         await sbExec(sb.from('deck_cards').update({ qty: updatedExisting.qty, updated_at: now }).eq('id', existing.id), { label: 'Add card failed' })
         putDeckCards([updatedExisting]).catch(() => {})
         deleteDeckCardLocal(placeholderRow.id).catch(() => {})
-      } catch {}
+      } catch {
+        deckCardsRef.current = rollback
+        setDeckCards(deckCardsRef.current)
+        return null
+      }
       return updatedExisting
     }
 
@@ -3134,7 +3187,12 @@ export default function DeckBuilderPage() {
     try {
       await sbExec(sb.from('deck_cards').insert(toDeckCardRow(nextRow)), { label: 'Add card failed' })
       putDeckCards([nextRow]).catch(() => {})
-    } catch {}
+    } catch {
+      deckCardsRef.current = deckCardsRef.current.filter(dc => dc.id !== nextRow.id)
+      setDeckCards(deckCardsRef.current)
+      deleteDeckCardLocal(nextRow.id).catch(() => {})
+      return null
+    }
     return nextRow
   }
 
@@ -3267,7 +3325,22 @@ export default function DeckBuilderPage() {
   }
 
   // ── Add / remove / qty ────────────────────────────────────────────────────
+
+  // Both add paths need connectivity: the printing has to be resolved against
+  // the catalogue and the row written to Supabase. Checked before anything
+  // optimistic happens, so an offline add never paints a card into the deck
+  // just to rip it back out a moment later.
+  function canWriteDeckCards() {
+    if (!user?.id) return false
+    if (!navigator.onLine) {
+      showToast('You’re offline — cards can’t be added right now.', { tone: 'error' })
+      return false
+    }
+    return true
+  }
+
   async function addCardToDeck(sfCardOrRec) {
+    if (!canWriteDeckCards()) return null
     // Determine if it's a full Scryfall card or an EDHRec rec object
     const isSfCard = !!sfCardOrRec.set
     let name, scryfallId, setCode, collNum, typeLine, manaCost, cmc, colorId, imageUri
@@ -3376,12 +3449,19 @@ export default function DeckBuilderPage() {
   // path above costs several network round-trips per card, which made a full
   // auto-build take minutes. Every input is deliberately reduced to its name,
   // then resolved against fresh ownership and the canonical print catalog.
-  // Returns { added, skipped, rows } — rows are the resolved
+  // Returns { added, skipped, skippedNames, rows } — rows are the resolved
   // deck-card rows (with id/name/mana_cost/type_line), so the caller can mark
   // exactly what landed, predict basics from real pip costs, and offer undo.
+  // skippedNames carries the cards this run could not resolve, so the summary
+  // can say what it dropped instead of leaving unexplained empty slots.
   async function addCardsToDeckBulk(items) {
     const list = toAutomaticDeckPrintingRequests(items)
-    if (!list.length) return { added: 0, skipped: 0, rows: [] }
+    if (!list.length) return { added: 0, skipped: 0, skippedNames: [], rows: [] }
+    if (!user?.id) return { added: 0, skipped: list.length, skippedNames: list.map(i => i.name), rows: [] }
+    // Throws rather than returning an empty result: the assistant renders this
+    // as a banner explaining the run didn't happen, which beats a summary
+    // truthfully reporting "Added 0 cards" with no reason attached.
+    assertOnline('You’re offline — auto-fill needs a connection.')
 
     const requestedNames = [...new Set(list.map(item => item.name).filter(Boolean))]
     const [metas, catalog] = await Promise.all([
@@ -3420,11 +3500,18 @@ export default function DeckBuilderPage() {
     if (canonicalList.length) {
       const names = [...new Set(canonicalList.map(item => item.name).filter(Boolean))]
       const ownedByName = await fetchRemoteOwnedPrintingCandidates(user.id, names)
-      const printingsByName = new Map(names.map(name => [normalizeCardName(name), []]))
-      for (const printing of catalog) {
-        const key = normalizeCardName(printing.name)
-        if (printingsByName.has(key)) printingsByName.get(key).push(printing)
-      }
+      // Reuse the alias index rather than re-bucketing the catalog on exact
+      // `printing.name` equality. The old exact-match loop was correct only
+      // while the canonical name always equalled the catalog's own name — an
+      // invariant nothing enforces. When it doesn't hold, the pool comes back
+      // empty and the card resolves off the recommendation metadata instead:
+      // no cheapest-printing search, and an owned copy goes undetected because
+      // the ownership lookup keys on the same name. Copied per key so the
+      // shared alias arrays are never mutated by a caller.
+      const printingsByName = new Map(names.map(name => {
+        const key = normalizeCardName(name)
+        return [key, [...(catalogByAlias.get(key) || [])]]
+      }))
 
       const missingOwnedIds = new Set()
       for (const name of names) {
@@ -3446,14 +3533,22 @@ export default function DeckBuilderPage() {
           ...(printingsByName.get(key) || []),
           ...hydratedOwned.filter(card => candidateIds.has(card.id)),
         ]
-        const ranked = rankOwnedPrintingCandidates(ownedCandidates, printings)
-        if (ranked.some(entry => !entry.printing)) {
-          throw new Error(`Owned printing metadata is unavailable for ${name}.`)
+        // An owned copy whose print metadata wouldn't hydrate used to throw here
+        // — which aborted the WHOLE batch, so one bad row turned a 60-card
+        // auto-build into zero cards added. fetchCardsByScryfallIds swallows
+        // every failure and just returns fewer rows, so a single Scryfall
+        // hiccup was enough to trigger it. Degrade per name instead: the
+        // resolver skips the unhydratable entries and falls through to the
+        // next-best owned copy, then to the cheapest catalog printing, exactly
+        // like the single-card path below.
+        if (rankOwnedPrintingCandidates(ownedCandidates, printings).some(entry => !entry.printing)) {
+          console.warn('[DeckBuilder] owned printing metadata unavailable for', name)
         }
         const resolved = selectPreferredDeckPrinting({
           printings,
           ownedCandidates,
           fallbackCard: canonicalList.find(item => normalizeCardName(item.name) === key)?.metadata || null,
+          priceSource: price_source,
         })
         if (resolved) resolvedByName.set(key, resolved)
       }
@@ -3461,10 +3556,14 @@ export default function DeckBuilderPage() {
 
     const now = new Date().toISOString()
     const prepared = []
+    // Names this run could not turn into a deck row. Collision drops (a copy is
+    // already in the deck) are counted in `skipped` but deliberately kept out of
+    // this list — they're an expected no-op, not something to report as a miss.
+    const skippedNames = []
     for (const it of canonicalList) {
       const resolved = resolvedByName.get(normalizeCardName(it.name))
       const src = resolved?.sfCard
-      if (!src) continue
+      if (!src) { skippedNames.push(it.requestedName || it.name); continue }
       const meta = getDeckBuilderCardMeta(src)
       prepared.push({
         sfCard: src,
@@ -3492,7 +3591,7 @@ export default function DeckBuilderPage() {
       })
     }
     let skipped = list.length - prepared.length
-    if (!prepared.length) return { added: 0, skipped, rows: [] }
+    if (!prepared.length) return { added: 0, skipped, skippedNames, rows: [] }
 
     // card_print_ids in one batch; a single unresolvable print aborts
     // requireCardPrintIds, so on failure retry per row and drop the failures.
@@ -3503,10 +3602,10 @@ export default function DeckBuilderPage() {
       rows = []
       for (const p of prepared) {
         try { rows.push((await requireCardPrintIds([p.row], 'Deck card printing'))[0]) }
-        catch { skipped++ }
+        catch { skipped++; skippedNames.push(p.row.name) }
       }
     }
-    if (!rows.length) return { added: 0, skipped, rows: [] }
+    if (!rows.length) return { added: 0, skipped, skippedNames, rows: [] }
 
     // Same category inference as single adds; ensureDeckCategoryForName caches
     // in-flight creations, so each unique category costs one write.
@@ -3529,7 +3628,7 @@ export default function DeckBuilderPage() {
     const deduped = dedupeDeckRowsForInsert(rows, deckCardsRef.current)
     rows = deduped.rows
     skipped += deduped.skipped
-    if (!rows.length) return { added: 0, skipped, rows: [] }
+    if (!rows.length) return { added: 0, skipped, skippedNames, rows: [] }
 
     deckCardsRef.current = [...deckCardsRef.current, ...rows]
     setDeckCards(deckCardsRef.current)
@@ -3540,12 +3639,17 @@ export default function DeckBuilderPage() {
       const ids = new Set(rows.map(r => r.id))
       deckCardsRef.current = deckCardsRef.current.filter(dc => !ids.has(dc.id))
       setDeckCards(deckCardsRef.current)
-      return { added: 0, skipped: skipped + rows.length, rows: [] }
+      return {
+        added: 0,
+        skipped: skipped + rows.length,
+        skippedNames: [...skippedNames, ...rows.map(r => r.name).filter(Boolean)],
+        rows: [],
+      }
     }
     putDeckCards(rows).catch(() => {})
     queueOwnershipRefreshForRows(rows)
     logDeckChange(deckId, user?.id, 'Auto-fill', `${rows.length} card${rows.length === 1 ? '' : 's'} added`)
-    return { added: rows.length, skipped, rows }
+    return { added: rows.length, skipped, skippedNames, rows }
   }
 
   // Undo an auto-fill run: delete exactly the rows it added, then decrement the
@@ -3777,7 +3881,16 @@ export default function DeckBuilderPage() {
   // session so repeated adds land in the same place.
   const assistantWishlistRef = useRef(null) // { id, name }
   async function addUpgradeToWishlist(name) {
-    const full = recCards[name] || (await fetchRecommendationMetadataByNames([name]))[0]
+    // Resolve through the SAME RPC the assistant tile priced with, so the
+    // wishlist stores the printing whose price the user was just shown. Going
+    // via recommendation metadata (as this used to) stored whatever
+    // representative print that RPC preferred, and the wishlist's own valuation
+    // then disagreed with the buy list it came from.
+    const [display] = await fetchDeckBuilderDisplayPrintings([name], { priceSource: price_source })
+      .catch(() => [])
+    const full = display
+      || recCards[name]
+      || (await fetchRecommendationMetadataByNames([name]))[0]
     if (!full) {
       showToast(`Couldn't find ${name} in the card database.`, { tone: 'error' })
       throw new Error('card not found')

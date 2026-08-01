@@ -40,6 +40,30 @@ function printingQuery(pages, calls) {
   return query
 }
 
+// Records how many print queries are in flight at once. Each range() yields to
+// the microtask queue before resolving, so overlapping callers are observable:
+// strictly sequential code could never push inFlight above 1.
+function concurrencyQuery(stats) {
+  const query = {
+    select: vi.fn(() => query),
+    not: vi.fn(() => query),
+    or: vi.fn(() => query),
+    order: vi.fn(() => query),
+    eq: vi.fn(() => query),
+    like: vi.fn(() => query),
+    in: vi.fn(() => query),
+    range: vi.fn(async () => {
+      stats.inFlight++
+      stats.maxInFlight = Math.max(stats.maxInFlight, stats.inFlight)
+      await Promise.resolve()
+      await Promise.resolve()
+      stats.inFlight--
+      return { data: [], error: null }
+    }),
+  }
+  return query
+}
+
 // A card_prices query that records its chunk sizes and stays pending until the
 // test releases it — that pending window is what proves the chunks were issued
 // together instead of one after another.
@@ -182,5 +206,35 @@ describe('card printing catalog queries', () => {
     expect(cards[0].name).toBe(fullName)
     expect(sfGet).not.toHaveBeenCalled()
     expect(calls.ranges).toHaveLength(3)
+  })
+
+  // Per-name fallbacks used to run one after another, so a catalogue miss
+  // across a whole auto-fill serialized into dozens of round trips.
+  it('resolves per-name fallbacks concurrently, within a bounded group size', async () => {
+    const stats = { inFlight: 0, maxInFlight: 0 }
+    sb.from.mockReturnValue(concurrencyQuery(stats))
+
+    const names = Array.from({ length: 12 }, (_, i) => `Missing Card ${i}`)
+    await fetchPrintingsForNames(names, { withPrices: false, language: 'all' })
+
+    // >1 proves they overlap at all; <=5 proves the fan-out stays bounded so a
+    // wide miss can't open dozens of simultaneous PostgREST connections.
+    expect(stats.maxInFlight).toBeGreaterThan(1)
+    expect(stats.maxInFlight).toBeLessThanOrEqual(5)
+  })
+
+  it('still resolves a name the bulk query missed', async () => {
+    const calls = { orders: [], ranges: [] }
+    sb.from.mockReturnValue(printingQuery([
+      { data: [], error: null },                                   // bulk miss
+      { data: [printRow(1, { name: 'Second Card' })], error: null }, // fallback
+    ], calls))
+
+    const cards = await fetchPrintingsForNames(['Second Card'], {
+      withPrices: false,
+      language: 'all',
+    })
+
+    expect(cards.map(c => c.name)).toEqual(['Second Card'])
   })
 })

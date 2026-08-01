@@ -100,5 +100,9 @@ export function buildPrintRow(card) {
     edhrec_rank: Number.isFinite(card.edhrec_rank) ? card.edhrec_rank : null,
     illustration_id: card.illustration_id || card.card_faces?.[0]?.illustration_id || null,
     finishes: Array.isArray(card.finishes) ? card.finishes : [],
+    // shouldInsertPrint already rejects digital cards, so this is belt-and-
+    // braces for rows that arrive by another route (and it keeps the column
+    // truthful if that gate is ever relaxed).
+    digital: card.digital === true,
   }
 }

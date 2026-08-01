@@ -30,3 +30,33 @@ export function cardImageUrl(sfCard) {
 export function tileImage({ displayImg, sfCard, fallbackImg } = {}) {
   return displayImg || cardImageUrl(sfCard) || fallbackImg || null
 }
+
+/**
+ * What a grid tile should paint in its art slot.
+ *
+ * The display printing resolves over the network, so painting the EDHREC or
+ * collection art first and swapping to it on arrival made every tile visibly
+ * flip to a different printing's artwork mid-load. `resolved: false` holds a
+ * skeleton until the real answer lands, so each tile paints its art exactly
+ * once.
+ *
+ * Returns `url` as well as the state so the caller can feed the SAME value to
+ * the hover preview — while pending there is no url, and the preview correctly
+ * stays inert rather than enlarging art the tile isn't showing.
+ *
+ * `preferOwned` flips the order for a card the user owns: the copy in their
+ * collection is the printing Add will actually put in the deck, so it wins over
+ * the cheapest-to-buy one. It's already cached too, so such a tile never waits
+ * on the lookup — it can paint on the first render.
+ *
+ * @returns {{ state: 'pending'|'image'|'none', url: string|null }}
+ */
+export function tileArt({ displayImg, sfCard, fallbackImg, resolved = true, preferOwned = false } = {}) {
+  if (preferOwned) {
+    const owned = cardImageUrl(sfCard)
+    if (owned) return { state: 'image', url: owned }
+  }
+  if (!resolved) return { state: 'pending', url: null }
+  const url = tileImage({ displayImg, sfCard, fallbackImg })
+  return url ? { state: 'image', url } : { state: 'none', url: null }
+}

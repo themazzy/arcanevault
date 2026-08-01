@@ -30,6 +30,10 @@ const PRINTINGS_PAGE_SIZE = 1000
 // 835), ~600 KB of rows, where the picker's own viewport shows about a dozen.
 const PRINTINGS_FIRST_PAGE_SIZE = 60
 const PRINTINGS_NAME_CHUNK = 40
+// Per-name fallbacks run in groups this size. Small on purpose: each one can
+// issue two catalogue queries, so a wide auto-fill miss would otherwise open
+// dozens of simultaneous PostgREST connections.
+const PRINTINGS_FALLBACK_CONCURRENCY = 5
 const DISPLAY_PRINTING_NAME_CHUNK = 100
 const PRICE_ID_CHUNK = 200
 const SCRYFALL_PAGE_CAP = 20
@@ -39,7 +43,7 @@ const PRINT_COLUMNS = [
   'type_line', 'mana_cost', 'cmc', 'color_identity', 'image_uri', 'art_crop_uri',
   'rarity', 'set_name', 'artist', 'power', 'toughness',
   'produced_mana', 'keywords', 'colors', 'card_faces', 'oracle_text',
-  'released_at', 'edhrec_rank', 'finishes',
+  'released_at', 'edhrec_rank', 'finishes', 'digital',
 ].join(',')
 
 function isoDateUtc(daysOffset = 0) {
@@ -92,6 +96,9 @@ export function rowToCard(row) {
     artist: row.artist || null,
     edhrec_rank: row.edhrec_rank ?? null,
     finishes: row.finishes || [],
+    // Scryfall's own field name — MTGO/Arena printings that have no paper
+    // existence. Deck-printing resolution filters on it.
+    digital: row.digital === true,
     legalities: row.legalities || null,
     image_uris: buildImageUris(row.image_uri, row.art_crop_uri),
   }
@@ -408,9 +415,27 @@ export async function fetchPrintingsForNames(names, { withPrices = true, languag
   let cards = rows.map(rowToCard).filter(Boolean)
   if (withPrices && cards.length) cards = await attachSharedPrices(cards)
 
-  for (const name of wanted) {
-    if (filterScryfallPrintingsByRequestedName(cards, name).length) continue
-    cards.push(...await fetchPrintingsByName(name, { withPrices, language }))
+  // Names the bulk `in(...)` query didn't answer — front-face DFC requests, and
+  // anything the catalogue is missing entirely. Each costs up to two more
+  // queries plus a possible Scryfall search, so resolving them one after
+  // another made a catalogue miss across a 60-card auto-fill serialize into a
+  // minutes-long stall. Fanned out in small groups instead: Scryfall keeps its
+  // own semaphore (SF_CONCURRENCY), so this bounds the Supabase side only.
+  //
+  // Names are decided against the bulk result up front rather than against a
+  // growing array, so one name's fallback can no longer suppress another's.
+  // The only cost is an occasional duplicate fetch when two requested names
+  // resolve to the same card — the dedupe below already absorbs it.
+  const missing = wanted.filter(name => !filterScryfallPrintingsByRequestedName(cards, name).length)
+  for (let i = 0; i < missing.length; i += PRINTINGS_FALLBACK_CONCURRENCY) {
+    const batch = missing.slice(i, i + PRINTINGS_FALLBACK_CONCURRENCY)
+    // fetchPrintingsByName is total today (it swallows catalogue errors and
+    // falls back to Scryfall, which swallows its own), so this catch is
+    // unreachable. Kept because Promise.all raises the stakes if that ever
+    // changes: one rejection would take the other four names down with it.
+    const results = await Promise.all(batch.map(name =>
+      fetchPrintingsByName(name, { withPrices, language }).catch(() => [])))
+    for (const result of results) cards.push(...result)
   }
   const unique = new Map()
   for (const card of cards) {

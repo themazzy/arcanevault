@@ -11,7 +11,7 @@ import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
 import { fetchDeckBuilderDisplayPrintings } from '../../lib/cardSearch'
-import { cardImageUrl, tileImage } from './buildAssistantTiles'
+import { cardImageUrl, tileArt } from './buildAssistantTiles'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
@@ -70,6 +70,7 @@ import {
 } from '../../lib/deckBuildAssistant'
 import { cardNameMatchKeys, countDeckCards } from '../../lib/deckBuilderHelpers'
 import { toAutomaticDeckPrintingRequest, toAutomaticDeckPrintingRequests } from '../../lib/deckPrintingResolution'
+import { isOfflineError } from '../../lib/networkUtils'
 import { runComboPass as comboPassCore, runGameChangerPass as gcPassCore } from '../../lib/buildAssistantPasses'
 import { SpecificCardSearch } from './SpecificCardSearch'
 import styles from './BuildAssistant.module.css'
@@ -274,6 +275,24 @@ function BlankLine({ className }) {
   return <div className={className} aria-hidden="true">&nbsp;</div>
 }
 
+// Placeholder grid held until every wave that can reorder the tiles has landed
+// (see gridSettled). Sized to the usual display cap so the section doesn't
+// collapse and then shove the page down when the real tiles arrive.
+function TileSkeletonGrid({ count = 12 }) {
+  return (
+    <div className={styles.grid} aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className={styles.tile}>
+          <div className={styles.tileArt}>
+            <div className={styles.tileImgSkeleton} />
+          </div>
+          <BlankLine className={styles.tileName} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // One card tile: image + name + sub-meta + add action(s).
 //
 // `reserveNoteLine` / `reservePipsLine` mark the optional lines the *grid* can
@@ -282,7 +301,7 @@ function BlankLine({ className }) {
 // .tileActions has to stay uniform — the action block itself is top-aligned,
 // because bottom-aligning it drops the price row on owned cards (which have no
 // "+ Wishlist" row under it).
-function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTarget, added, wished, showWishlist, ownershipNote, reserveNoteLine, reservePipsLine, previewProps, onAdd, onUndo, onWishlist }) {
+function CardTile({ name, img, imgPending, pips, inclusion, tag, price, finish, priceNote = 'Lowest English price', flag, overTarget, added, wished, showWishlist, ownershipNote, reserveNoteLine, reservePipsLine, previewProps, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // previewProps carries the hover/tap handlers for the large-image preview;
   // it's empty ({}) when the card has no art to enlarge. No special cursor — the
@@ -290,9 +309,13 @@ function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTa
   return (
     <div className={`${styles.tile}${added ? ' ' + styles.tileAdded : ''}`}>
       <div className={styles.tileArt} {...(previewProps || {})}>
-        {img
-          ? <CardImg url={img} width={TILE_IMAGE_W} alt={name} loading="lazy" className={styles.tileImg} />
-          : <div className={styles.tileNoImg}>{name}</div>}
+        {/* Skeleton, not the name placeholder: the art is coming, and showing
+            a stand-in printing here is exactly what made tiles flash. */}
+        {imgPending
+          ? <div className={styles.tileImgSkeleton} aria-hidden="true" />
+          : img
+            ? <CardImg url={img} width={TILE_IMAGE_W} alt={name} loading="lazy" className={styles.tileImg} />
+            : <div className={styles.tileNoImg}>{name}</div>}
         {inclusion > 0
           ? <span className={styles.tileIncl}>{inclusion}%</span>
           : tag ? <span className={`${styles.tileIncl} ${styles.tileTag}`}>{tag}</span> : null}
@@ -334,7 +357,7 @@ function CardTile({ name, img, pips, inclusion, tag, price, finish, flag, overTa
               It lives in the tooltip instead. */}
           <span
             className={`${styles.tilePriceTag}${price ? '' : ' ' + styles.tilePriceTagEmpty}`}
-            title={price ? `Lowest English price${finish ? ` · ${finish}` : ''}` : 'No price data'}
+            title={price ? `${priceNote}${finish ? ` · ${finish}` : ''}` : 'No price data'}
           >
             {price || '—'}
           </span>
@@ -434,6 +457,9 @@ function MenuOption({ active, onClick, children, desc }) {
 
 export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onAddCards, onUndoAutoFill, onPlaytest, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
+  // True between the EDHREC plan landing and the Recommander merge resolving —
+  // the second of the two waves that used to reshuffle the grids mid-view.
+  const [recsPending, setRecsPending] = useState(false)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null) // enriched plan (candidates + upgrades)
   const [sfMap, setSfMap] = useState({})
@@ -447,6 +473,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // suggestion-tile art — so a foreign printing never makes a card look cheaper
   // than its English copy, and foreign card art never shows in recommendations.
   const [cheapestByName, setCheapestByName] = useState(() => new Map())
+  // Cache keys whose display-printing lookup failed. Only drives the art
+  // skeleton — see artResolved.
+  const [artLookupFailed, setArtLookupFailed] = useState(() => new Set())
   const stepperRef = useRef(null)   // scroll container for the node stepper
   const activeStepRef = useRef(null) // current node, auto-centered on mobile
   const afCardRef = useRef(null)     // auto-fill dialog card, focused on open
@@ -731,11 +760,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         // never blocks the initial render; if it returns nothing, EDHREC stands.
         // Guarded on the theme (still Balanced) so a theme switch mid-fetch wins.
         setPlan(enriched)
+        // recsPending keeps the tile grids on skeletons until this second wave
+        // lands. Without it the grid painted EDHREC-only picks, then re-ranked
+        // and swapped cards out the moment Recommander answered.
+        setRecsPending(true)
         mergeRecommender(enriched, deckCards)
           .then(withRecs => {
             if (!cancelled && selectedThemeRef.current === '' && withRecs !== enriched) setPlan(withRecs)
           })
           .catch(() => {})
+          .finally(() => { if (!cancelled) setRecsPending(false) })
       } catch (err) {
         if (!cancelled) setError(err?.message || 'Failed to analyze your collection.')
       } finally {
@@ -857,6 +891,18 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     },
     [cheapestOf, price_source],
   )
+  // An owned tile is priced as the copy you have, at its own finish — the same
+  // printing its art shows and the one Add puts in the deck. passesBudget still
+  // judges by the cheapest print on purpose: "can I afford this card" is a
+  // question about the market, not about the copy already in your binder.
+  const ownedPriceLabelFor = useCallback(
+    cand => {
+      const v = priceOf(cand?.sfCard || null, !!cand?.card?.foil)
+      return v != null ? formatPrice(v, price_source) : null
+    },
+    [priceOf, price_source],
+  )
+  const ownedFinishFor = cand => (cand?.card?.foil ? 'Foil' : 'Non-foil')
   // Budget is "per card": judge by the cheapest available printing so an
   // expensive owned printing doesn't hide a card you could buy cheaply. Falls
   // back to the owned printing's price until the cheapest lookup resolves.
@@ -1292,7 +1338,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // immediately visible. `rows` are what actually landed (bulk path) or the
   // pseudo-rows (sequential path); `addedCardIds` are the deck-card ids to
   // remove on undo.
-  async function finishAutoFill(rows, added, addedCardIds) {
+  async function finishAutoFill(rows, added, addedCardIds, skippedNames = []) {
     let effectiveRows = rows
     let effectiveAdded = added
     let effectiveAddedIds = addedCardIds || []
@@ -1376,6 +1422,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       added: effectiveAdded, basics, left,
       addedCardIds: effectiveAddedIds, basicCounts,
       combosCompleted, comboAdded, cutCount, gcAdded,
+      skippedNames,
     })
     setStepIndex(steps.length - 1)
   }
@@ -1397,9 +1444,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           for (const r of rows) if (r?.name) next.add(r.name.toLowerCase())
           return next
         })
-        await finishAutoFill(rows, res?.added ?? rows.length, rows.map(r => r.id))
+        await finishAutoFill(rows, res?.added ?? rows.length, rows.map(r => r.id), res?.skippedNames || [])
       } catch (err) {
-        setError(`Could not verify card printings: ${err?.message || 'network error'}`)
+        // Offline already carries a complete sentence; prefixing it would read
+        // as "Could not verify card printings: You're offline…".
+        setError(isOfflineError(err)
+          ? err.message
+          : `Could not verify card printings: ${err?.message || 'network error'}`)
         setAutoFillResult({ added: 0, basics: 0, left: 0, addedCardIds: [], basicCounts: null })
       } finally {
         setAutoFilling(null)
@@ -1408,14 +1459,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
     setAutoFilling({ done: 0, total: picks.length })
     try {
+      const missed = []
       for (let i = 0; i < picks.length; i++) {
         const p = picks[i]
-        await handleAdd(p.cand, p.cand.name)
+        if (!await handleAdd(p.cand, p.cand.name)) missed.push(p.cand.name)
         setAutoFilling({ done: i + 1, total: picks.length })
       }
       // Sequential path has no returned rows/ids — undo falls back to name-based
       // removal via the normal per-tile Remove, so no addedCardIds here.
-      await finishAutoFill(picksToPseudoRows(picks), picks.length, [])
+      const landed = picks.filter(p => !missed.includes(p.cand.name))
+      await finishAutoFill(picksToPseudoRows(landed), landed.length, [], missed)
     } finally {
       setAutoFilling(null)
     }
@@ -1481,10 +1534,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     } catch { /* clipboard unavailable — the list is still on screen */ }
   }
 
-  // Resolve the lowest-priced English printing across foil and non-foil. The
-  // database returns one exact print so image, finish, and price always match;
-  // without a price, it returns the newest English printing.
-  useEffect(() => {
+  // Every name this step will resolve a display printing for. Derived once and
+  // shared with the effect below, so `artResolved` can tell "still loading"
+  // apart from "never requested" — a tile whose name isn't in here would sit on
+  // a skeleton forever waiting for a fetch that is never coming.
+  const pricedNames = useMemo(() => {
     const names = new Set()
     if (onLands) {
       for (const l of landCandidates.slice(0, MAX_TILES)) if (l.cand?.name) names.add(l.cand.name)
@@ -1502,6 +1556,41 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     if (onSummary) {
       for (const m of [...buyGap.toBuy, ...buyGap.elsewhere]) names.add(m.name)
     }
+    return names
+  }, [onLands, onSummary, buyGap, roleData, landCandidates, suggestionSource, hasRecommender])
+
+  // False while a tile's display printing is still in flight. The tile paints a
+  // skeleton until then rather than a placeholder printing it would visibly
+  // swap out a moment later. Names outside pricedNames are "resolved" by
+  // definition — nothing will ever fetch them, so they render their fallback
+  // art immediately.
+  //
+  // A failed lookup counts as resolved too. The effect deliberately leaves the
+  // price cache untouched on error (so a later run can retry), which without
+  // this would leave every tile shimmering forever instead of falling back to
+  // the art it already had.
+  const artResolved = useCallback(
+    name => !pricedNames.has(name)
+      || cheapestByName.has(`${price_source}:${(name || '').toLowerCase()}`)
+      || artLookupFailed.has(`${price_source}:${(name || '').toLowerCase()}`),
+    [pricedNames, cheapestByName, artLookupFailed, price_source],
+  )
+
+  // The grids paint only once everything that can reorder them has landed:
+  // the collection scan, the Recommander merge (which re-ranks the pool), and
+  // the display-printing batch (which supplies prices the budget filter trims
+  // by). Until then they show skeleton tiles. Cards used to appear, shuffle and
+  // vanish across those three waves.
+  const gridSettled = useMemo(
+    () => !loading && !recsPending && [...pricedNames].every(artResolved),
+    [loading, recsPending, pricedNames, artResolved],
+  )
+
+  // Resolve the lowest-priced English printing across foil and non-foil. The
+  // database returns one exact print so image, finish, and price always match;
+  // without a price, it returns the newest English printing.
+  useEffect(() => {
+    const names = pricedNames
     const cacheKey = name => `${price_source}:${name.toLowerCase()}`
     const missing = [...names].filter(n => !cheapestByName.has(cacheKey(n)))
     if (!missing.length) return
@@ -1522,10 +1611,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             : { price: null, image: null, finish: null })
         }
         if (!cancelled) setCheapestByName(next)
-      } catch { /* leave cache as-is; tiles show "—" */ }
+      } catch {
+        // Cache stays untouched so a later run retries, but the tiles must stop
+        // waiting on art that isn't coming — they fall back to what they have.
+        if (!cancelled) {
+          setArtLookupFailed(prev => {
+            const next = new Set(prev)
+            for (const n of missing) next.add(cacheKey(n))
+            return next
+          })
+        }
+      }
     })()
     return () => { cancelled = true }
-  }, [onLands, onSummary, buyGap, roleData, landCandidates, suggestionSource, hasRecommender, price_source, cheapestByName])
+  }, [pricedNames, price_source, cheapestByName])
 
   async function handleAdd(cardOrRec, name) {
     const key = name.toLowerCase()
@@ -2031,7 +2130,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   {onLands && <span className={styles.sectionHint}> · nonbasic, needed colors first</span>}
                 </span>
               </button>
-              {!collapsed.owned && (() => {
+              {!collapsed.owned && (!gridSettled ? <TileSkeletonGrid /> : (() => {
                 // Budget filter (cards with unknown price always pass).
                 const shown = onLands
                   ? landCandidates.filter(({ cand }) => passesBudget(cand.name, cand.sfCard))
@@ -2053,24 +2152,33 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       {shown.slice(0, MAX_TILES).map(item => {
                         const cand = onLands ? item.cand : item
                         const flag = onLands ? null : bracketFlagFor(cand.name, cand.sfCard, gameChangers)
-                        const img = tileImage({ displayImg: imageEnFor(cand.name), sfCard: cand.sfCard })
+                        // Everything in this section is a binder copy, so it
+                        // shows that copy's art and price throughout.
+                        const art = tileArt({
+                          displayImg: imageEnFor(cand.name),
+                          sfCard: cand.sfCard,
+                          resolved: artResolved(cand.name),
+                          preferOwned: true,
+                        })
                         return (
                           <CardTile
                             key={cand.card?.id || cand.name}
                             name={cand.name}
-                            img={img}
+                            img={art.url}
+                            imgPending={art.state === 'pending'}
                             pips={onLands ? item.colors : undefined}
                             reservePipsLine={onLands}
                             inclusion={onLands ? 0 : cand.edhrecInclusion}
-                            price={priceLabelFor(cand.name)}
-                            finish={finishFor(cand.name)}
+                            price={ownedPriceLabelFor(cand) ?? priceLabelFor(cand.name)}
+                            finish={ownedFinishFor(cand)}
+                            priceNote="Your copy"
                             flag={flag}
                             overTarget={targetBracket != null && flag && flag.level > targetBracket}
                             added={isAdded(cand.name)}
                             previewProps={previewHandlers({
                               name: cand.name,
                               scryfall_id: cand.sfCard?.id || cand.card?.scryfall_id || null,
-                              img,
+                              img: art.url,
                             })}
                             onAdd={() => handleAdd(cand, cand.name)}
                             onUndo={() => handleUndoAdd(cand.name)}
@@ -2083,11 +2191,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     )}
                   </>
                 )
-              })()}
+              })())}
 
               {/* Best overall cards (source per the Suggestions toggle). This
                   deliberately repeats strong binder cards from the first list. */}
-              {(() => {
+              {!gridSettled ? <TileSkeletonGrid /> : (() => {
                 // Budget per card applies to both owned and unowned choices.
                 // Filter the DEEP pool first, then take the display cap, so a
                 // tight budget doesn't blank the section when cheaper picks
@@ -2140,10 +2248,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             ? landCandidates.find(item => item.cand === cand)
                             : null
                           const inAnotherDeck = !owned && cardNameMatchKeys(cand.name).some(k => inOtherDeckNames.has(k))
-                          const img = tileImage({
+                          const art = tileArt({
                             displayImg: imageEnFor(cand.name),
                             sfCard: owned ? cand.sfCard : null,
                             fallbackImg: cand.image,
+                            resolved: artResolved(cand.name),
+                            // Owned entries show the copy in the binder — the
+                            // one Add uses. Unowned ones keep the cheapest
+                            // printing, which is what you'd be buying.
+                            preferOwned: owned,
                           })
                           return (
                             // showWishlist is offered on owned cards too: a copy
@@ -2152,12 +2265,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             <CardTile
                               key={`${owned ? 'owned' : 'suggested'}:${cand.slug || cand.name}`}
                               name={cand.name}
-                              img={img}
+                              img={art.url}
+                              imgPending={art.state === 'pending'}
                               pips={landInfo?.colors}
                               reservePipsLine={onLands}
                               inclusion={cand.edhrecInclusion}
-                              price={priceLabelFor(cand.name)}
-                              finish={finishFor(cand.name)}
+                              price={owned
+                                ? (ownedPriceLabelFor(cand) ?? priceLabelFor(cand.name))
+                                : priceLabelFor(cand.name)}
+                              finish={owned ? ownedFinishFor(cand) : finishFor(cand.name)}
+                              priceNote={owned ? 'Your copy' : 'Lowest English price'}
                               tag={!owned && cand.source === 'recommander' ? 'rec' : undefined}
                               flag={flag}
                               overTarget={targetBracket != null && flag && flag.level > targetBracket}
@@ -2173,7 +2290,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                                 // it to the preview's painted width. EDHREC
                                 // fallback URLs aren't cards.scryfall.io, so they
                                 // pass through untouched.
-                                img,
+                                img: art.url,
                               })}
                               onAdd={() => handleAdd(cand, cand.name)}
                               onUndo={() => handleUndoAdd(cand.name)}
@@ -2708,6 +2825,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   {autoFillResult.gcAdded > 0 && (
                     <div className={styles.afResultDetail}>
                       Added {autoFillResult.gcAdded} Game Changer{autoFillResult.gcAdded === 1 ? '' : 's'} to reach the Bracket 4 floor.
+                    </div>
+                  )}
+                  {/* Cards the run couldn't resolve a printing for. Without this
+                      they only showed up as unexplained empty slots below. */}
+                  {autoFillResult.skippedNames?.length > 0 && (
+                    <div className={styles.afShortfall}>
+                      <WarningIcon size={12} /> Couldn’t add {autoFillResult.skippedNames.length} card
+                      {autoFillResult.skippedNames.length === 1 ? '' : 's'}: {autoFillResult.skippedNames.slice(0, 5).join(', ')}
+                      {autoFillResult.skippedNames.length > 5 && ` and ${autoFillResult.skippedNames.length - 5} more`}.
                     </div>
                   )}
                   {autoFillResult.left > 0 && (

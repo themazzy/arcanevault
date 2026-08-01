@@ -12,3 +12,17 @@ export function createOfflineError(message = 'Offline') {
   error.name = 'OfflineError'
   return error
 }
+
+/**
+ * Throw before spending a round trip we know will fail. Reads require
+ * connectivity (the app is IDB-cached, not offline-first), so the useful
+ * behaviour is a named OfflineError callers can recognise — rather than the
+ * raw "Failed to fetch" a doomed request eventually produces.
+ */
+export function assertOnline(message) {
+  if (!navigator.onLine) throw createOfflineError(message)
+}
+
+export function isOfflineError(err) {
+  return err?.name === 'OfflineError'
+}

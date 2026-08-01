@@ -88,6 +88,10 @@ export function buildCardPrintPayload(card) {
     colors:        card.colors || [],
     card_faces:    slimCardFaces(card.card_faces),
     attraction_lights: Array.isArray(card.attraction_lights) ? card.attraction_lights : null,
+    // Unlike the bulk sync this path has no digital gate — it inserts whatever
+    // print a user actually referenced — so the flag has to be carried through
+    // or the row would default to false and re-enter printing resolution.
+    digital:       card.digital === true,
   }
 }
 
