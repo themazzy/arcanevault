@@ -1,46 +1,23 @@
-import { useState, useEffect, useCallback } from 'react'
-import { getUserFollowStats, setFollow } from '../../lib/community'
-import styles from './FollowButton.module.css'
+import { Button } from '../UI'
 
-// Follower/following counts + a follow toggle for a public profile.
-// `username` is the profile's nickname; `user` is the signed-in viewer.
-export default function FollowButton({ username, user }) {
-  const [stats, setStats] = useState(null)   // { user_id, follower_count, following_count, viewer_following, is_self }
-  const [busy, setBusy] = useState(false)
+// The follow toggle only. It used to fetch getUserFollowStats itself, which meant
+// the profile page ran that RPC twice on every load — once here and once for the
+// ownership check. The page owns the fetch now and passes the result down, and it
+// renders the follower counts itself so they can be clickable.
+export default function FollowButton({ stats, user, busy = false, onToggle }) {
+  if (!stats || !user || stats.is_self) return null
 
-  useEffect(() => {
-    let alive = true
-    getUserFollowStats(username).then(s => { if (alive) setStats(s) }).catch(() => {})
-    return () => { alive = false }
-  }, [username])
-
-  const toggle = useCallback(async () => {
-    if (!user || !stats || stats.is_self || busy) return
-    const next = !stats.viewer_following
-    setBusy(true)
-    setStats(s => ({ ...s, viewer_following: next, follower_count: Math.max(0, (s.follower_count || 0) + (next ? 1 : -1)) }))
-    try { await setFollow(user.id, stats.user_id, next) }
-    catch { setStats(s => ({ ...s, viewer_following: !next, follower_count: Math.max(0, (s.follower_count || 0) + (next ? -1 : 1)) })) }
-    finally { setBusy(false) }
-  }, [user, stats, busy])
-
-  if (!stats) return null
-  const canFollow = user && !stats.is_self
+  const following = !!stats.viewer_following
 
   return (
-    <div className={styles.wrap}>
-      <span className={styles.stat}><strong>{stats.follower_count}</strong> follower{stats.follower_count === 1 ? '' : 's'}</span>
-      <span className={styles.dot}>·</span>
-      <span className={styles.stat}><strong>{stats.following_count}</strong> following</span>
-      {canFollow && (
-        <button
-          className={`${styles.btn} ${stats.viewer_following ? styles.btnFollowing : ''}`}
-          onClick={toggle}
-          disabled={busy}
-        >
-          {stats.viewer_following ? 'Following' : 'Follow'}
-        </button>
-      )}
-    </div>
+    <Button
+      variant={following ? 'secondary' : 'primary'}
+      size="sm"
+      onClick={onToggle}
+      disabled={busy}
+      aria-pressed={following}
+    >
+      {following ? 'Following' : 'Follow'}
+    </Button>
   )
 }

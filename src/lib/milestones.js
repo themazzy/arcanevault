@@ -220,3 +220,34 @@ export const MILESTONES = [
     check: (_, p) => (p?.game_stats?.total ?? 0) >= 25,
   },
 ]
+
+// Grouping for the "All milestones" dialog. Kept as an id map rather than a
+// field on each entry so the list above stays a flat, diffable table.
+// Order here is the order the dialog renders.
+export const MILESTONE_GROUPS = [
+  { id: 'collection', label: 'Collection size', ids: ['first_card', 'apprentice', 'collector', 'dedicated', 'obsessed', 'legendary', 'hoarder', 'archmage'] },
+  { id: 'unique',     label: 'Unique prints',   ids: ['print_seeker', 'unique_collector', 'completionist', 'chronicler'] },
+  { id: 'foils',      label: 'Foils',           ids: ['first_foil', 'foil_dabbler', 'shiny_hunter', 'foil_fanatic', 'shimmer', 'mirror_vault'] },
+  { id: 'sets',       label: 'Sets',            ids: ['set_dabbler', 'sets_explorer', 'set_scholar', 'globetrotter', 'omniscient'] },
+  { id: 'colors',     label: 'Colours',         ids: ['rainbow', 'mono_devotee', 'colorless_keeper', 'multicolor_master'] },
+  { id: 'decks',      label: 'Decks',           ids: ['deck_builder', 'architect', 'loremaster', 'brewmaster'] },
+  { id: 'value',      label: 'Value',           ids: ['valuable', 'investor', 'high_roller', 'diamond_vault', 'whale'] },
+  { id: 'games',      label: 'Games',           ids: ['first_win', 'champion', 'veteran'] },
+]
+
+const BY_ID = new Map(MILESTONES.map(m => [m.id, m]))
+
+export function getMilestone(id) {
+  return BY_ID.get(id) || null
+}
+
+// Milestones grouped and pre-checked, earned first inside each group.
+export function groupedMilestones(stats, profile) {
+  return MILESTONE_GROUPS.map(group => ({
+    ...group,
+    items: group.ids
+      .map(id => BY_ID.get(id))
+      .filter(Boolean)
+      .map(m => ({ ...m, earned: !!m.check(stats, profile) })),
+  })).filter(group => group.items.length > 0)
+}

@@ -1,18 +1,28 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, Link } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings, DEFAULT_BENTO_CONFIG } from '../components/SettingsContext'
-import { Modal } from '../components/UI'
+import { Button, Modal, EmptyState } from '../components/UI'
+import { useToast } from '../components/ToastContext'
 import CardArtPicker from '../components/CardArtPicker'
-import { CheckIcon, CloseIcon, ImageIcon } from '../icons'
+import {
+  CheckIcon, CloseIcon, ImageIcon, ShareIcon, TradingIcon,
+  EditIcon, StarIcon, ChevronRightIcon,
+} from '../icons'
 import { Select } from '../components/UI'
-import { MILESTONES } from '../lib/milestones'
+import { MILESTONES, groupedMilestones } from '../lib/milestones'
 import { checkAndNotifyMilestones } from '../lib/milestoneTracker'
 import FollowButton from '../components/community/FollowButton'
-import { getUserFollowStats, recordMilestoneNotifications } from '../lib/community'
-import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
+import { getUserFollowStats, setFollow, recordMilestoneNotifications } from '../lib/community'
+import {
+  fetchPublicProfile, fetchPublicDecks, fetchFollowList,
+  refreshMyProfileStats, profileKeys, PROFILE_STALE_MS,
+} from '../lib/profileApi'
+import { getPublicAppUrl } from '../lib/publicUrl'
+import { useDeckArt } from '../lib/deckArt'
 import { deckBracketBadge } from '../lib/commanderBracket'
 import {
   DndContext,
@@ -38,11 +48,11 @@ import styles from './Profile.module.css'
 
 // Painted widths of the card images on this page, so CardImg can pick the tier
 // each needs. `owned_cards_view.image_uri` is always the 488px `normal`, so the
-// 34-80px thumbs were pulling a ~78KB image apiece; those ask for `small` by
-// name (nothing is legible at that size, and it is ~7x lighter). Keep these in
-// sync with `.featuredStandoutCard` and `.topCardsHero` in the stylesheet.
-const STANDOUT_TILE_W = 120
-const TOP_CARDS_HERO_W = 160
+// small thumbs were pulling a ~78KB image apiece; those ask for `small` by name
+// (nothing is legible at that size, and it is ~7x lighter). Keep in sync with
+// `.standoutCard` and `.valueHeroArt` in the stylesheet.
+const STANDOUT_TILE_W = 132
+const VALUE_HERO_W = 168
 
 const ACCENT_PALETTE = [
   '#c9a84c', '#e8c96a', '#e07840', '#e05c5c', '#c44569',
@@ -52,12 +62,12 @@ const ACCENT_PALETTE = [
 ]
 
 const MANA_COLORS = [
-  { key: 'W', label: 'White',     color: '#e8e4d0', symbol: 'W' },
-  { key: 'U', label: 'Blue',      color: '#4a90d9', symbol: 'U' },
-  { key: 'B', label: 'Black',     color: '#8a7ca8', symbol: 'B' },
-  { key: 'R', label: 'Red',       color: '#e05c5c', symbol: 'R' },
-  { key: 'G', label: 'Green',     color: '#5dba70', symbol: 'G' },
-  { key: 'C', label: 'Colorless', color: '#9ba8b0', symbol: 'C' },
+  { key: 'W', label: 'White',     symbol: 'W', color: '#e8e4d0' },
+  { key: 'U', label: 'Blue',      symbol: 'U', color: '#4a90d9' },
+  { key: 'B', label: 'Black',     symbol: 'B', color: '#8a7ca8' },
+  { key: 'R', label: 'Red',       symbol: 'R', color: '#e05c5c' },
+  { key: 'G', label: 'Green',     symbol: 'G', color: '#5dba70' },
+  { key: 'C', label: 'Colorless', symbol: 'C', color: '#9ba8b0' },
 ]
 
 const RARITY_DEFS = [
@@ -73,56 +83,54 @@ const FORMAT_LABEL = {
   explorer: 'Explorer', alchemy: 'Alchemy', brawl: 'Brawl', oathbreaker: 'Oathbreaker',
 }
 
-async function enrichPublicDecksWithCommanderArt(decks) {
-  const missing = (decks || []).filter(deck => !hasDeckArtSource(deck))
-  if (!missing.length) return decks || []
-
-  const pairs = await Promise.all(missing.map(async deck => {
-    const { data } = await sb.rpc('get_deck_cards_for_view', { p_deck_id: deck.id })
-    return [deck.id, Array.isArray(data) ? data : []]
-  }))
-  const byDeck = new Map(pairs)
-
-  return (decks || []).map(deck => mergeDeckCommanderArt(deck, byDeck.get(deck.id) || []))
-}
 const FORMAT_COLORS = {
   standard: '#4a90d9', pioneer: '#9b59b6', modern: '#2ecc71', legacy: '#e07840',
   vintage: '#c9a84c', commander: '#e05c5c', pauper: '#9ba8b0', historic: '#00cec9',
   explorer: '#6c5ce7', alchemy: '#fd79a8', brawl: '#e84393', oathbreaker: '#a8e6cf',
 }
 
+const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
 
 // ── Block metadata ────────────────────────────────────────────────────────────
+// `kind` decides which zone a block lives in, and it is not a style hint — it is
+// the whole point of the layout. Every block used to be an identical bordered
+// card, so a single number ("Total Cards") carried the same visual weight as the
+// deck showcase. Stats are now cells in one ledger strip; only blocks with real
+// content get a panel.
 const BLOCK_DEFS = {
-  bio:           { label: 'Text Block',       span: 'full'  },
-  total:         { label: 'Total Cards',      span: 'third' },
-  unique:        { label: 'Unique Prints',    span: 'third' },
-  foils:         { label: 'Foil Count',       span: 'third' },
-  sets:          { label: 'Sets Collected',   span: 'third' },
-  since:         { label: 'Member Since',     span: 'third' },
-  value:         { label: 'Est. Value',       span: 'third' },
-  deck_count:    { label: 'Public Decks',     span: 'third' },
-  winrate:       { label: 'Win Rate',         span: 'third' },
-  fav_format:    { label: 'Most Played',      span: 'third' },
-  color_pie:     { label: 'Color Pie',        span: 'half'  },
-  rarity:        { label: 'Rarity Breakdown', span: 'half'  },
-  formats:       { label: 'Formats Played',   span: 'half'  },
-  fav_commander: { label: 'Fav. Commander',   span: 'half'  },
-  crown:         { label: 'Crown Jewel',      span: 'third' },
-  top_cards:     { label: 'Top Cards',        span: 'full'  },
-  milestones:    { label: 'Milestones',       span: 'full'  },
-  featured_deck: { label: 'Featured Deck',    span: 'full'  },
-  recent_cards:  { label: 'Recently Added',   span: 'full'  },
-  decks:         { label: 'Deck Showcase',    span: 'full'  },
+  total:         { label: 'Total Cards',    kind: 'stat' },
+  unique:        { label: 'Unique Prints',  kind: 'stat' },
+  foils:         { label: 'Foils',          kind: 'stat' },
+  sets:          { label: 'Sets',           kind: 'stat' },
+  since:         { label: 'Member Since',   kind: 'stat' },
+  value:         { label: 'Est. Value',     kind: 'stat' },
+  deck_count:    { label: 'Public Decks',   kind: 'stat' },
+  winrate:       { label: 'Win Rate',       kind: 'stat' },
+  fav_format:    { label: 'Most Played',    kind: 'stat' },
+
+  bio:           { label: 'Text Block',        kind: 'panel', span: 'full' },
+  featured_deck: { label: 'Featured Deck',     kind: 'panel', span: 'full' },
+  decks:         { label: 'Deck Showcase',     kind: 'panel', span: 'full' },
+  top_cards:     { label: 'Most Valuable',     kind: 'panel', span: 'full' },
+  milestones:    { label: 'Milestones',        kind: 'panel', span: 'full' },
+  recent_cards:  { label: 'Recently Added',    kind: 'panel', span: 'full' },
+  color_pie:     { label: 'Colour Pie',        kind: 'panel', span: 'half' },
+  rarity:        { label: 'Rarity',            kind: 'panel', span: 'half' },
+  formats:       { label: 'Formats Played',    kind: 'panel', span: 'half' },
+  fav_commander: { label: 'Fav. Commander',    kind: 'panel', span: 'half' },
+  crown:         { label: 'Crown Jewel',       kind: 'panel', span: 'half' },
 }
 
-const GRID_DROP_ID = 'drop-grid'
-const TRAY_DROP_ID = 'drop-tray'
-const noDisplace   = () => null
+const LEDGER_DROP_ID = 'drop-ledger'
+const PANEL_DROP_ID  = 'drop-panels'
+const TRAY_DROP_ID   = 'drop-tray'
+const noDisplace     = () => null
+
+const isStat = id => BLOCK_DEFS[id]?.kind === 'stat'
 
 function mergeBlocks(configBlocks) {
-  const allIds     = Object.keys(BLOCK_DEFS)
-  const existing   = configBlocks || []
+  const allIds      = Object.keys(BLOCK_DEFS)
+  const existing    = configBlocks || []
   const existingIds = existing.map(b => b.id)
   return [
     ...existing.filter(b => allIds.includes(b.id)),
@@ -131,18 +139,12 @@ function mergeBlocks(configBlocks) {
 }
 
 function fmtNum(val) {
-  return val != null && typeof val === 'number' ? val.toLocaleString() : '—'
+  return typeof val === 'number' ? val.toLocaleString() : '—'
 }
 
 function spanClass(id) {
-  const span = BLOCK_DEFS[id]?.span
-  if (span === 'full')  return styles.blockFull
-  if (span === 'half')  return styles.blockHalf
-  if (span === 'third') return styles.blockThird
-  return styles.blockThird
+  return BLOCK_DEFS[id]?.span === 'half' ? styles.panelHalf : styles.panelFull
 }
-
-const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
 
 // ── Standout card picker (featured deck) ─────────────────────────────────────
 function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
@@ -155,14 +157,9 @@ function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
     async function load() {
       setLoading(true)
       try {
-        let rows = []
-        if (deck.type === 'builder_deck') {
-          const { data } = await sb.from('deck_cards_view').select('scryfall_id,name').eq('deck_id', deck.id)
-          rows = data || []
-        } else {
-          const { data } = await sb.from('deck_allocations_view').select('scryfall_id,name').eq('deck_id', deck.id)
-          rows = data || []
-        }
+        const table = deck.type === 'builder_deck' ? 'deck_cards_view' : 'deck_allocations_view'
+        const { data } = await sb.from(table).select('scryfall_id,name').eq('deck_id', deck.id)
+        const rows = data || []
 
         const seen   = new Set()
         const unique = rows.filter(r => {
@@ -206,36 +203,41 @@ function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
 
   return (
     <Modal onClose={onClose}>
-      <h2 className={styles.artPickerTitle}>Standout Cards ({selected.length}/5)</h2>
+      <h2 className={styles.dialogTitle}>Standout cards ({selected.length}/5)</h2>
+      <p className={styles.dialogSub}>Pick up to five cards to show alongside the deck.</p>
+
       {selected.length > 0 && (
-        <div className={styles.standoutSelected}>
+        <div className={styles.pickerSelected}>
           {selected.map((c, i) => (
-            <div key={i} className={styles.standoutSelectedItem}>
-              <img src={c.art_crop} alt={c.name} className={styles.standoutSelectedImg} />
-              <span className={styles.standoutSelectedName}>{c.name}</span>
-              <button className={styles.standoutSelectedRemove} onClick={() => onRemove(i)}><CloseIcon size={13} /></button>
+            <div key={i} className={styles.pickerSelectedItem}>
+              <img src={c.art_crop} alt="" className={styles.pickerSelectedImg} />
+              <span className={styles.pickerSelectedName}>{c.name}</span>
+              <button className={styles.pickerSelectedRemove} onClick={() => onRemove(i)}
+                aria-label={`Remove ${c.name}`}><CloseIcon size={12} /></button>
             </div>
           ))}
         </div>
       )}
+
       {loading ? (
-        <div className={styles.standoutPickerLoading}>Loading deck cards…</div>
+        <div className={styles.dialogNote}>Loading deck cards…</div>
       ) : cards.length === 0 ? (
-        <p className={styles.artPickerEmpty}>No cards found in this deck.</p>
+        <div className={styles.dialogNote}>This deck has no cards yet.</div>
       ) : (
-        <div className={styles.standoutPickerGrid}>
+        <div className={styles.pickerGrid}>
           {cards.map(card => {
             const sel      = isSelected(card)
             const disabled = full && !sel
             return (
               <button key={card.scryfall_id}
-                className={`${styles.standoutPickerItem}${sel ? ' ' + styles.standoutPickerItemSel : ''}${disabled ? ' ' + styles.standoutPickerItemDisabled : ''}`}
+                className={`${styles.pickerItem}${sel ? ' ' + styles.pickerItemSel : ''}`}
+                disabled={disabled}
                 onClick={() => { if (!disabled && !sel) onAdd({ scryfall_id: card.scryfall_id, name: card.name, art_crop: card.art_crop }) }}
                 title={card.name}>
-                <img src={card.art_crop} alt={card.name} className={styles.standoutPickerImg} />
-                {card.price > 0 && <div className={styles.standoutPickerPrice}>€{card.price.toFixed(2)}</div>}
-                {sel && <div className={styles.standoutPickerCheck}><CheckIcon size={18} /></div>}
-                <div className={styles.standoutPickerName}>{card.name}</div>
+                <img src={card.art_crop} alt="" className={styles.pickerImg} />
+                {card.price > 0 && <span className={styles.pickerPrice}>€{card.price.toFixed(2)}</span>}
+                {sel && <span className={styles.pickerCheck}><CheckIcon size={16} /></span>}
+                <span className={styles.pickerName}>{card.name}</span>
               </button>
             )
           })}
@@ -245,120 +247,119 @@ function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
   )
 }
 
-// ── Block components ──────────────────────────────────────────────────────────
-function TextBlock({ text, editMode, onChangeText }) {
-  if (editMode) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Text Block</div>
-      <textarea className={styles.bioTextarea} value={text}
-        onChange={e => onChangeText(e.target.value)}
-        placeholder="Add any text — favourite format, goals, deck philosophy…"
-        maxLength={500} rows={4} />
-      <div className={styles.bioCount}>{text.length}/500</div>
+// ── Ledger cells ──────────────────────────────────────────────────────────────
+function StatCell({ label, value, tone }) {
+  return (
+    <div className={styles.statCell}>
+      <div className={`${styles.statValue}${tone ? ' ' + styles[tone] : ''}`}>{value}</div>
+      <div className={styles.statLabel}>{label}</div>
     </div>
   )
-  if (!text) return null
-  return <div className={styles.blockInner}><div className={styles.bioText}>{text}</div></div>
 }
 
-function StatBlock({ label, value, sub, valueColor }) {
+// ── Panels ────────────────────────────────────────────────────────────────────
+function Panel({ title, action, children, className = '' }) {
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>{label}</div>
-      <div className={styles.statBig} style={valueColor ? { color: valueColor } : undefined}>{value}</div>
-      {sub && <div className={styles.statSub}>{sub}</div>}
-    </div>
+    <section className={`${styles.panel} ${className}`}>
+      {(title || action) && (
+        <header className={styles.panelHead}>
+          {title && <h2 className={styles.panelTitle}>{title}</h2>}
+          {action}
+        </header>
+      )}
+      {children}
+    </section>
   )
+}
+
+function PanelEmpty({ children }) {
+  return <p className={styles.panelEmpty}>{children}</p>
+}
+
+function TextBlock({ text, editMode, onChangeText }) {
+  if (editMode) return (
+    <Panel title="Text block">
+      <textarea className={styles.textarea} value={text}
+        onChange={e => onChangeText(e.target.value)}
+        placeholder="Favourite format, what you collect, what you're hunting for…"
+        maxLength={500} rows={4} />
+      <div className={styles.charCount}>{text.length}/500</div>
+    </Panel>
+  )
+  if (!text) return null
+  return <Panel><p className={styles.bodyText}>{text}</p></Panel>
 }
 
 function ColorPieBlock({ distribution }) {
-  if (!distribution) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Color Pie</div>
-      <div className={styles.emptyNote}>No color data yet.</div>
-    </div>
-  )
-  const total   = MANA_COLORS.reduce((a, c) => a + (distribution[c.key] || 0), 0) || 1
-  const present = MANA_COLORS.filter(c => distribution[c.key])
+  const present = MANA_COLORS.filter(c => distribution?.[c.key])
+  if (!present.length) return <Panel title="Colour pie"><PanelEmpty>No colour data yet.</PanelEmpty></Panel>
+  const total = present.reduce((a, c) => a + distribution[c.key], 0) || 1
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Color Pie</div>
-      <div className={styles.colorPieBar}>
+    <Panel title="Colour pie">
+      <div className={styles.meter}>
         {present.map(c => (
-          <div key={c.key} className={styles.colorPieSegment}
+          <span key={c.key} className={styles.meterSegment}
             style={{ flex: distribution[c.key] / total, background: c.color }}
             title={`${c.label}: ${distribution[c.key].toLocaleString()}`} />
         ))}
       </div>
-      <div className={styles.colorPieLegend}>
+      <ul className={styles.pipLegend}>
         {present.map(c => (
-          <div key={c.key} className={styles.colorPieEntry}>
-            <img src={`https://svgs.scryfall.io/card-symbols/${c.symbol}.svg`} className={styles.colorPipSm} alt={c.label} />
+          <li key={c.key} className={styles.pipEntry}>
+            <img src={MANA_SYMBOL_URL(c.symbol)} className={styles.pip} alt="" />
             <span>{Math.round(distribution[c.key] / total * 100)}%</span>
-          </div>
+          </li>
         ))}
-      </div>
-    </div>
+      </ul>
+    </Panel>
   )
 }
 
 function RarityBlock({ breakdown }) {
-  if (!breakdown) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Rarity Breakdown</div>
-      <div className={styles.emptyNote}>No data yet.</div>
-    </div>
-  )
-  const total   = RARITY_DEFS.reduce((a, r) => a + (breakdown[r.key] || 0), 0) || 1
-  const present = RARITY_DEFS.filter(r => breakdown[r.key])
+  const present = RARITY_DEFS.filter(r => breakdown?.[r.key])
+  if (!present.length) return <Panel title="Rarity"><PanelEmpty>No rarity data yet.</PanelEmpty></Panel>
+  const total = present.reduce((a, r) => a + breakdown[r.key], 0) || 1
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Rarity Breakdown</div>
-      <div className={styles.rarityBar}>
+    <Panel title="Rarity">
+      <div className={styles.meter}>
         {present.map(r => (
-          <div key={r.key} className={styles.raritySegment}
+          <span key={r.key} className={styles.meterSegment}
             style={{ flex: breakdown[r.key] / total, background: r.color }}
             title={`${r.label}: ${breakdown[r.key].toLocaleString()}`} />
         ))}
       </div>
-      <div className={styles.rarityRows}>
+      <ul className={styles.rarityRows}>
         {present.map(r => (
-          <div key={r.key} className={styles.rarityRow}>
+          <li key={r.key} className={styles.rarityRow}>
             <span className={styles.rarityDot} style={{ background: r.color }} />
             <span className={styles.rarityLabel}>{r.label}</span>
             <span className={styles.rarityCount}>{breakdown[r.key].toLocaleString()}</span>
-          </div>
+          </li>
         ))}
-      </div>
-    </div>
+      </ul>
+    </Panel>
   )
 }
 
 function FormatsBlock({ decks }) {
   const formats = [...new Set((decks || []).map(d => d.format).filter(Boolean))]
-  if (!formats.length) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Formats Played</div>
-      <div className={styles.emptyNote}>No public decks yet.</div>
-    </div>
-  )
+  if (!formats.length) return <Panel title="Formats played"><PanelEmpty>No public decks yet.</PanelEmpty></Panel>
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Formats Played</div>
-      <div className={styles.formatPills}>
+    <Panel title="Formats played">
+      <ul className={styles.chipRow}>
         {formats.map(f => (
-          <span key={f} className={styles.formatPill}
-            style={{ borderColor: FORMAT_COLORS[f] || 'var(--s-border2)', color: FORMAT_COLORS[f] || 'var(--text-dim)' }}>
+          <li key={f} className={styles.chip}
+            style={{ '--chip-tint': FORMAT_COLORS[f] || 'var(--text-dim)' }}>
             {FORMAT_LABEL[f] || f}
-          </span>
+          </li>
         ))}
-      </div>
-    </div>
+      </ul>
+    </Panel>
   )
 }
 
 function FavCommanderBlock({ decks }) {
-  const { name: commanderName, art: commanderArt } = useMemo(() => {
+  const { name, art } = useMemo(() => {
     if (!decks?.length) return {}
     const counts = {}
     decks.forEach(d => { if (d.commander_name) counts[d.commander_name] = (counts[d.commander_name] || 0) + 1 })
@@ -367,38 +368,22 @@ function FavCommanderBlock({ decks }) {
     return { name: top[0], art: decks.find(d => d.commander_name === top[0])?.cover_art_uri || null }
   }, [decks])
 
-  if (!commanderName) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Fav. Commander</div>
-      <div className={styles.emptyNote}>No public commander decks yet.</div>
-    </div>
-  )
+  if (!name) return <Panel title="Fav. commander"><PanelEmpty>No public commander decks yet.</PanelEmpty></Panel>
   return (
-    <div className={`${styles.blockInner} ${styles.commanderBlock}`}>
-      {commanderArt && <div className={styles.commanderArtBg} style={{ backgroundImage: `url(${commanderArt})` }} />}
-      <div className={styles.commanderContent}>
-        <div className={styles.blockTitle}>Fav. Commander</div>
-        <div className={styles.commanderName}>{commanderName}</div>
+    <Panel title="Fav. commander" className={styles.artPanel}>
+      {art && <div className={styles.artPanelBg} style={{ backgroundImage: `url(${art})` }} />}
+      <div className={styles.artPanelBody}>
+        <div className={styles.commanderName}>{name}</div>
       </div>
-    </div>
+    </Panel>
   )
 }
 
 function WinRateBlock({ gameStats }) {
-  if (!gameStats || gameStats.total === 0) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Win Rate</div>
-      <div className={styles.emptyNote}>No games tracked yet.</div>
-    </div>
-  )
+  if (!gameStats || !gameStats.total) return <StatCell label="Win rate" value="—" />
   const pct = Math.round(gameStats.wins / gameStats.total * 100)
-  return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Win Rate</div>
-      <div className={styles.statBig} style={{ color: pct >= 50 ? 'var(--green)' : '#e05c5c' }}>{pct}%</div>
-      <div className={styles.statSub}>{gameStats.wins}W – {gameStats.losses}L · {gameStats.total} games</div>
-    </div>
-  )
+  return <StatCell label={`${gameStats.wins}W ${gameStats.losses}L`} value={`${pct}%`}
+    tone={pct >= 50 ? 'toneGood' : 'toneBad'} />
 }
 
 function FavFormatBlock({ gameStats, decks }) {
@@ -409,33 +394,22 @@ function FavFormatBlock({ gameStats, decks }) {
     decks.forEach(d => { if (d.format) counts[d.format] = (counts[d.format] || 0) + 1 })
     return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || null
   }, [gameStats, decks])
-  return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Most Played</div>
-      <div className={`${styles.statBig} ${styles.statBigMd}`}>
-        {format ? (FORMAT_LABEL[format] || format) : '—'}
-      </div>
-    </div>
-  )
+  return <StatCell label="Most played" value={format ? (FORMAT_LABEL[format] || format) : '—'} />
 }
 
-// ── Milestone tooltip (portal) ────────────────────────────────────────────────
+// ── Milestones ────────────────────────────────────────────────────────────────
 function MilestoneTooltip({ m, earned, earnedAt, rect }) {
-  const x = rect.left + rect.width / 2
-  const y = rect.top
-
   return createPortal(
-    <div className={styles.milestoneTooltip} style={{ left: x, top: y }}>
-      <div className={styles.milestoneTooltipHeader}>
-        <span className={styles.milestoneTooltipIcon}>{m.icon}</span>
-        <span className={styles.milestoneTooltipTitle}>{m.label}</span>
-        {earned && <span className={styles.milestoneTooltipBadge}>Earned</span>}
+    <div className={styles.tooltip} style={{ left: rect.left + rect.width / 2, top: rect.top }} role="tooltip">
+      <div className={styles.tooltipHead}>
+        <span className={styles.tooltipIcon}>{m.icon}</span>
+        <span className={styles.tooltipTitle}>{m.label}</span>
       </div>
-      <div className={styles.milestoneTooltipDesc}>{m.desc}</div>
-      {!earned && <div className={styles.milestoneTooltipReq}>Requires: {m.req}</div>}
+      <div className={styles.tooltipDesc}>{m.desc}</div>
+      {!earned && <div className={styles.tooltipReq}>Requires {m.req}</div>}
       {earned && earnedAt && (
-        <div className={styles.milestoneTooltipDate}>
-          Since {new Date(earnedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+        <div className={styles.tooltipDate}>
+          Earned {new Date(earnedAt).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
         </div>
       )}
     </div>,
@@ -443,138 +417,174 @@ function MilestoneTooltip({ m, earned, earnedAt, rect }) {
   )
 }
 
-function MilestonesBlock({ stats, profile }) {
-  const [tooltip, setTooltip] = useState(null)
-  const earnedAt = profile?.bento_config?.milestone_earned_at || {}
+function AllMilestonesDialog({ stats, profile, earnedAt, onClose }) {
+  const groups = useMemo(() => groupedMilestones(stats, profile), [stats, profile])
+  const earnedCount = groups.reduce((a, g) => a + g.items.filter(i => i.earned).length, 0)
+  const totalCount  = groups.reduce((a, g) => a + g.items.length, 0)
 
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Milestones</div>
-      <div className={styles.milestoneGrid}>
-        {MILESTONES.map(m => {
-          const earned = m.check(stats, profile)
-          return (
-            <div
-              key={m.id}
-              className={`${styles.milestone}${earned ? ' ' + styles.milestoneEarned : ''}`}
-              onMouseEnter={e => setTooltip({ m, earned, earnedAt: earnedAt[m.id], rect: e.currentTarget.getBoundingClientRect() })}
-              onMouseLeave={() => setTooltip(null)}
-            >
-              <span className={styles.milestoneIcon}>{m.icon}</span>
-              <span className={styles.milestoneName}>{m.label}</span>
-            </div>
-          )
-        })}
+    <Modal onClose={onClose}>
+      <h2 className={styles.dialogTitle}>Milestones</h2>
+      <p className={styles.dialogSub}>{earnedCount} of {totalCount} earned.</p>
+      <div className={styles.dialogScroll}>
+        {groups.map(group => (
+          <section key={group.id} className={styles.milestoneGroup}>
+            <h3 className={styles.milestoneGroupTitle}>{group.label}</h3>
+            <ul className={styles.milestoneList}>
+              {group.items.map(m => (
+                <li key={m.id} className={`${styles.milestoneRow}${m.earned ? ' ' + styles.milestoneRowEarned : ''}`}>
+                  <span className={styles.milestoneRowIcon}>{m.icon}</span>
+                  <span className={styles.milestoneRowText}>
+                    <span className={styles.milestoneRowName}>{m.label}</span>
+                    <span className={styles.milestoneRowDesc}>{m.earned ? m.desc : `Requires ${m.req}`}</span>
+                  </span>
+                  {m.earned && (
+                    <span className={styles.milestoneRowCheck}>
+                      <CheckIcon size={12} />
+                      {earnedAt?.[m.id] && (
+                        <span className={styles.milestoneRowDate}>
+                          {new Date(earnedAt[m.id]).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </div>
-      {tooltip && (
-        <MilestoneTooltip
-          m={tooltip.m}
-          earned={tooltip.earned}
-          earnedAt={tooltip.earnedAt}
-          rect={tooltip.rect}
-        />
-      )}
-    </div>
+    </Modal>
   )
 }
 
-// ── Featured Deck block ───────────────────────────────────────────────────────
+function MilestonesBlock({ stats, profile }) {
+  const [tooltip, setTooltip] = useState(null)
+  const [showAll, setShowAll] = useState(false)
+  const earnedAt = profile?.bento_config?.milestone_earned_at || {}
+
+  const earned = useMemo(
+    () => MILESTONES.filter(m => m.check(stats, profile)),
+    [stats, profile]
+  )
+
+  return (
+    <Panel
+      title="Milestones"
+      action={
+        <button className={styles.panelAction} onClick={() => setShowAll(true)}>
+          {earned.length} of {MILESTONES.length}
+          <ChevronRightIcon size={12} />
+        </button>
+      }
+    >
+      {earned.length === 0 ? (
+        <PanelEmpty>No milestones earned yet — adding cards is the fastest way to start.</PanelEmpty>
+      ) : (
+        <ul className={styles.badgeGrid}>
+          {earned.map(m => (
+            <li key={m.id}
+              className={styles.badge}
+              tabIndex={0}
+              onFocus={e => setTooltip({ m, earned: true, earnedAt: earnedAt[m.id], rect: e.currentTarget.getBoundingClientRect() })}
+              onBlur={() => setTooltip(null)}
+              onMouseEnter={e => setTooltip({ m, earned: true, earnedAt: earnedAt[m.id], rect: e.currentTarget.getBoundingClientRect() })}
+              onMouseLeave={() => setTooltip(null)}
+            >
+              <span className={styles.badgeIcon}>{m.icon}</span>
+              <span className={styles.badgeName}>{m.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {tooltip && <MilestoneTooltip {...tooltip} />}
+      {showAll && (
+        <AllMilestonesDialog stats={stats} profile={profile} earnedAt={earnedAt}
+          onClose={() => setShowAll(false)} />
+      )}
+    </Panel>
+  )
+}
+
+// ── Featured deck — the signature surface ─────────────────────────────────────
 function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, onChangeDeck, onChangeCards }) {
-  const art = useDeckArt(deck)
-  const colors = Array.isArray(deck.color_identity) ? deck.color_identity : []
-  const tags = Array.isArray(deck.tags) ? deck.tags.filter(Boolean) : []
-  const description = (deck.deck_description || '').trim()
+  const art          = useDeckArt(deck)
+  const colors       = Array.isArray(deck.color_identity) ? deck.color_identity : []
+  const tags         = Array.isArray(deck.tags) ? deck.tags.filter(Boolean) : []
+  const description  = (deck.deck_description || '').trim()
   const bracketBadge = deckBracketBadge(deck.format, deck.bracket)
   const [showPicker, setShowPicker] = useState(false)
-  // Build commander display name from commanders array (new) or legacy commander_name
+
   const commanderDisplayName = useMemo(() => {
     const commanders = Array.isArray(deck.commanders) ? deck.commanders : null
     if (commanders?.length > 0) return commanders.map(c => c.name).join(' + ')
     return deck.commander_name || null
   }, [deck.commanders, deck.commander_name])
 
-  return (
-    <div className={styles.featuredDeckWrap}>
-      {art && <div className={styles.featuredDeckArt} style={{ backgroundImage: `url(${art})` }} />}
-      <div className={styles.featuredDeckContent}>
-        <div className={styles.blockTitle}>Featured Deck</div>
+  const cards = standoutCards || []
 
-        <div className={styles.featuredDeckHeader}>
-          {art && <div className={styles.featuredCommanderArt} style={{ backgroundImage: `url(${art})` }} />}
-          <div className={styles.featuredDeckInfo}>
-            <Link to={`/d/${deck.id}`} className={styles.featuredDeckName}>{deck.name}</Link>
-            {commanderDisplayName && (
-              <div className={styles.featuredDeckCommander}>{commanderDisplayName}</div>
-            )}
-            <div className={styles.featuredDeckMeta}>
-              {deck.format && FORMAT_LABEL[deck.format] && (
-                <span className={styles.deckBadgeFormat}>{FORMAT_LABEL[deck.format]}</span>
-              )}
-              {bracketBadge && (
-                <span
-                  className={styles.deckBadgeFormat}
-                  style={{ borderColor: `${bracketBadge.color}55`, color: bracketBadge.color }}
-                  title={bracketBadge.desc}
-                >
-                  B{deck.bracket} · {bracketBadge.label}
-                </span>
-              )}
-              {colors.length > 0 && (
-                <div className={styles.deckTilePips}>
-                  {colors.map(c => <img key={c} className={styles.deckTilePip} src={MANA_SYMBOL_URL(c)} alt={c} />)}
-                </div>
-              )}
-              <span className={styles.featuredDeckCount}>{deck.card_count} cards</span>
-            </div>
-            {deckStats && deckStats.total > 0 && (
-              <div className={styles.featuredDeckStats}>
-                <span className={styles.featuredStatW}>{deckStats.wins}W</span>
-                <span className={styles.featuredStatL}>{deckStats.losses}L</span>
-                <span className={styles.featuredStatGames}>· {deckStats.total} games</span>
-              </div>
-            )}
-          </div>
+  return (
+    <section className={styles.featured}>
+      {art && <div className={styles.featuredArt} style={{ backgroundImage: `url(${art})` }} />}
+      <div className={styles.featuredScrim} />
+
+      <div className={styles.featuredBody}>
+        <span className={styles.featuredEyebrow}>Featured deck</span>
+        <Link to={`/d/${deck.id}`} className={styles.featuredName}>{deck.name}</Link>
+        {commanderDisplayName && <p className={styles.featuredCommander}>{commanderDisplayName}</p>}
+
+        <div className={styles.featuredMeta}>
+          {deck.format && FORMAT_LABEL[deck.format] && <span>{FORMAT_LABEL[deck.format]}</span>}
+          {bracketBadge && <span title={bracketBadge.desc}>Bracket {deck.bracket} · {bracketBadge.label}</span>}
+          <span>{deck.card_count} cards</span>
+          {deckStats?.total > 0 && <span>{deckStats.wins}W – {deckStats.losses}L</span>}
         </div>
 
-        {description && (
-          <div className={styles.featuredDeckDescription}>{description}</div>
-        )}
-
-        {tags.length > 0 && (
-          <div className={styles.featuredDeckTags}>
-            {tags.map((t, i) => (
-              <span key={i} className={styles.featuredDeckTag}>{t}</span>
-            ))}
+        {colors.length > 0 && (
+          <div className={styles.pipRow}>
+            {colors.map(c => <img key={c} className={styles.pip} src={MANA_SYMBOL_URL(c)} alt="" />)}
           </div>
         )}
 
-        {(standoutCards?.length > 0 || editMode) && (
-          <div className={styles.featuredStandoutSection}>
-            <div className={styles.featuredStandoutLabel}>Standout Cards</div>
-            <div className={styles.featuredStandoutStrip}>
-              {(standoutCards || []).map((c, i) => {
-                const fullImg = c.scryfall_id
-                  ? `https://cards.scryfall.io/normal/front/${c.scryfall_id[0]}/${c.scryfall_id[1]}/${c.scryfall_id}.jpg`
-                  : c.art_crop
-                return (
-                  <div key={i} className={styles.featuredStandoutCard} title={c.name}>
-                    <CardImg url={fullImg} width={STANDOUT_TILE_W} alt={c.name} className={styles.featuredStandoutImg} loading="lazy" />
-                    {editMode && (
-                      <button className={styles.featuredStandoutRemove}
-                        onClick={() => onChangeCards((standoutCards || []).filter((_, j) => j !== i))}><CloseIcon size={13} /></button>
-                    )}
-                  </div>
-                )
-              })}
-              {editMode && (standoutCards || []).length < 5 && (
-                <button className={styles.featuredStandoutAdd} onClick={() => setShowPicker(true)}>+</button>
-              )}
-            </div>
+        {description && <p className={styles.featuredDesc}>{description}</p>}
+
+        {tags.length > 0 && (
+          <ul className={styles.chipRow}>
+            {tags.map((t, i) => <li key={i} className={styles.chipGold}>{t}</li>)}
+          </ul>
+        )}
+
+        {(cards.length > 0 || editMode) && (
+          <div className={styles.fan}>
+            {cards.map((c, i) => {
+              const fullImg = c.scryfall_id
+                ? `https://cards.scryfall.io/normal/front/${c.scryfall_id[0]}/${c.scryfall_id[1]}/${c.scryfall_id}.jpg`
+                : c.art_crop
+              return (
+                <div key={i} className={styles.fanCard} title={c.name}>
+                  <CardImg url={fullImg} width={STANDOUT_TILE_W} alt={c.name}
+                    className={styles.fanImg} loading="lazy" />
+                  {editMode && (
+                    <button className={styles.fanRemove}
+                      aria-label={`Remove ${c.name}`}
+                      onClick={() => onChangeCards(cards.filter((_, j) => j !== i))}>
+                      <CloseIcon size={12} />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+            {editMode && cards.length < 5 && (
+              <button className={styles.fanAdd} onClick={() => setShowPicker(true)}>
+                Add card
+              </button>
+            )}
           </div>
         )}
 
         {editMode && decks?.length > 1 && (
-          <Select className={styles.featuredDeckPicker} title="Featured deck" value={deck.id} onChange={e => onChangeDeck(e.target.value)}>
+          <Select className={styles.featuredPicker} title="Featured deck"
+            value={deck.id} onChange={e => onChangeDeck(e.target.value)} portal>
             {decks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </Select>
         )}
@@ -583,13 +593,13 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
       {showPicker && (
         <StandoutCardPicker
           deck={deck}
-          selected={standoutCards || []}
-          onAdd={card => onChangeCards([...(standoutCards || []), card])}
-          onRemove={i => onChangeCards((standoutCards || []).filter((_, j) => j !== i))}
+          selected={cards}
+          onAdd={card => onChangeCards([...cards, card])}
+          onRemove={i => onChangeCards(cards.filter((_, j) => j !== i))}
           onClose={() => setShowPicker(false)}
         />
       )}
-    </div>
+    </section>
   )
 }
 
@@ -598,12 +608,7 @@ function FeaturedDeckBlock({ decks, featuredDeckId, standoutCards, deckStats, ed
     () => decks?.find(d => d.id === featuredDeckId) || decks?.[0] || null,
     [decks, featuredDeckId]
   )
-  if (!deck) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Featured Deck</div>
-      <div className={styles.emptyNote}>No public decks to feature yet.</div>
-    </div>
-  )
+  if (!deck) return <Panel title="Featured deck"><PanelEmpty>No public decks to feature yet.</PanelEmpty></Panel>
   return (
     <FeaturedDeckInner
       deck={deck}
@@ -617,205 +622,234 @@ function FeaturedDeckBlock({ decks, featuredDeckId, standoutCards, deckStats, ed
   )
 }
 
+// ── Cards / decks ─────────────────────────────────────────────────────────────
 function RecentCardsBlock({ cards }) {
-  if (!cards?.length) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Recently Added</div>
-      <div className={styles.emptyNote}>No cards to show yet.</div>
-    </div>
-  )
+  if (!cards?.length) return <Panel title="Recently added"><PanelEmpty>Nothing added yet.</PanelEmpty></Panel>
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Recently Added</div>
-      <div className={styles.recentCardsStrip}>
+    <Panel title="Recently added">
+      <div className={styles.cardStrip}>
         {cards.map((card, i) => (
-          <div key={i} className={styles.recentCardItem} title={card.name}>
+          <div key={i} className={styles.stripCard} title={card.name}>
             {card.image_uri
-              ? <CardImg url={card.image_uri} forceTier="small" alt={card.name} className={styles.recentCardImg} loading="lazy" />
-              : <div className={styles.recentCardPlaceholder}>{card.name?.[0] || '?'}</div>
-            }
+              ? <CardImg url={card.image_uri} forceTier="small" alt={card.name} className={styles.stripImg} loading="lazy" />
+              : <span className={styles.stripPlaceholder}>{card.name?.[0] || '?'}</span>}
           </div>
         ))}
       </div>
-    </div>
+    </Panel>
   )
 }
 
-function ProfileDeckTile({ deck }) {
+function ProfileDeckTile({ deck, pinned, editMode, onTogglePin }) {
   const art    = useDeckArt(deck)
   const colors = Array.isArray(deck.color_identity) ? deck.color_identity : []
   const fmtLabel     = FORMAT_LABEL[deck.format] || null
   const isCollection = deck.type === 'deck'
   const bracketBadge = deckBracketBadge(deck.format, deck.bracket)
-  // Commander display: prefer commanders array, fall back to commander_name
+
   const commanderDisplay = useMemo(() => {
     const commanders = Array.isArray(deck.commanders) ? deck.commanders : null
     if (commanders?.length > 0) return commanders.map(c => c.name).join(' + ')
     return deck.commander_name || null
   }, [deck.commanders, deck.commander_name])
+
   return (
-    <Link to={`/d/${deck.id}`} className={styles.deckTile}>
-      {art && <div className={styles.deckTileArt} style={{ backgroundImage: `url(${art})` }} />}
-      <div className={styles.deckTileContent}>
-        <div className={styles.deckTileTop}>
-          <div className={styles.deckTileBadges}>
-            {isCollection
-              ? <span className={styles.deckBadgeCollection}>Collection</span>
-              : <span className={styles.deckBadgeFormat}>{fmtLabel || 'Builder'}</span>
-            }
-            {isCollection && fmtLabel && <span className={styles.deckBadgeFormat}>{fmtLabel}</span>}
+    <div className={styles.deckTileWrap}>
+      <Link to={`/d/${deck.id}`} className={styles.deckTile}>
+        {art && <div className={styles.deckTileArt} style={{ backgroundImage: `url(${art})` }} />}
+        <div className={styles.deckTileBody}>
+          <div className={styles.deckTileTags}>
+            {isCollection && <span className={styles.tagCollection}>Collection</span>}
+            {fmtLabel && <span className={styles.tag}>{fmtLabel}</span>}
             {bracketBadge && (
-              <span
-                className={styles.deckBadgeFormat}
-                style={{ borderColor: `${bracketBadge.color}55`, color: bracketBadge.color }}
-                title={bracketBadge.desc}
-              >
-                B{deck.bracket} · {bracketBadge.label}
+              <span className={styles.tag} style={{ color: bracketBadge.color }} title={bracketBadge.desc}>
+                B{deck.bracket}
               </span>
             )}
           </div>
-        </div>
-        <div className={styles.deckTileBottom}>
-          <div className={styles.deckTileName}>{deck.name}</div>
-          {commanderDisplay && <div className={styles.deckTileCommander}>{commanderDisplay}</div>}
-          {colors.length > 0 && (
-            <div className={styles.deckTilePips}>
-              {colors.map(c => <img key={c} className={styles.deckTilePip} src={MANA_SYMBOL_URL(c)} alt={c} />)}
+          <div className={styles.deckTileFoot}>
+            <div className={styles.deckTileName}>{deck.name}</div>
+            {commanderDisplay && <div className={styles.deckTileCommander}>{commanderDisplay}</div>}
+            <div className={styles.deckTileStats}>
+              {colors.length > 0 && (
+                <span className={styles.pipRow}>
+                  {colors.map(c => <img key={c} className={styles.pipSm} src={MANA_SYMBOL_URL(c)} alt="" />)}
+                </span>
+              )}
+              <span>{deck.card_count} cards</span>
             </div>
-          )}
-          <div className={styles.deckTileCount}>{deck.card_count} cards</div>
+          </div>
         </div>
-      </div>
-    </Link>
+      </Link>
+      {editMode && (
+        <button
+          className={`${styles.pinBtn}${pinned ? ' ' + styles.pinBtnOn : ''}`}
+          onClick={() => onTogglePin(deck.id)}
+          title={pinned ? 'Unpin from the top' : 'Pin to the top'}
+          aria-pressed={pinned}
+        >
+          <StarIcon size={12} />
+        </button>
+      )}
+      {!editMode && pinned && (
+        <span className={styles.pinnedMark} title="Pinned"><StarIcon size={11} /></span>
+      )}
+    </div>
   )
 }
 
-function DecksBlock({ decks }) {
-  if (!decks?.length) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Deck Showcase</div>
-      <div className={styles.emptyNote}>No public decks yet.</div>
-    </div>
-  )
+function DecksBlock({ decks, pinnedIds, editMode, onTogglePin }) {
+  const ordered = useMemo(() => {
+    if (!decks?.length) return []
+    const pinRank = new Map((pinnedIds || []).map((id, i) => [id, i]))
+    return [...decks].sort((a, b) => {
+      const ra = pinRank.has(a.id) ? pinRank.get(a.id) : Infinity
+      const rb = pinRank.has(b.id) ? pinRank.get(b.id) : Infinity
+      return ra - rb
+    })
+  }, [decks, pinnedIds])
+
+  if (!ordered.length) return <Panel title="Deck showcase"><PanelEmpty>No public decks yet.</PanelEmpty></Panel>
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Deck Showcase</div>
+    <Panel title="Deck showcase"
+      action={editMode ? <span className={styles.panelHint}>Star a deck to pin it first</span> : null}>
       <div className={styles.deckGrid}>
-        {decks.map(deck => <ProfileDeckTile key={deck.id} deck={deck} />)}
+        {ordered.map(deck => (
+          <ProfileDeckTile key={deck.id} deck={deck}
+            pinned={(pinnedIds || []).includes(deck.id)}
+            editMode={editMode} onTogglePin={onTogglePin} />
+        ))}
       </div>
-    </div>
+    </Panel>
   )
 }
 
 function CrownBlock({ topCard }) {
-  if (!topCard) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Crown Jewel</div>
-      <div className={styles.emptyNote}>No price data yet.</div>
-    </div>
-  )
+  if (!topCard) return <Panel title="Crown jewel"><PanelEmpty>No price data yet.</PanelEmpty></Panel>
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Crown Jewel</div>
-      <div className={styles.crownWrap}>
-        {topCard.image_uri && <CardImg className={styles.crownImg} url={topCard.image_uri} forceTier="small" alt={topCard.name} loading="lazy" />}
+    <Panel title="Crown jewel">
+      <div className={styles.crown}>
+        {topCard.image_uri && (
+          <CardImg className={styles.crownImg} url={topCard.image_uri} forceTier="small"
+            alt={topCard.name} loading="lazy" />
+        )}
         <div className={styles.crownInfo}>
           <div className={styles.crownName}>{topCard.name}</div>
-          <div className={styles.crownSet}>{(topCard.set_code || '').toUpperCase()} #{topCard.collector_number}</div>
+          <div className={styles.crownSet}>
+            {(topCard.set_code || '').toUpperCase()} #{topCard.collector_number}
+          </div>
           {topCard.price != null && <div className={styles.crownPrice}>€{Number(topCard.price).toFixed(2)}</div>}
         </div>
       </div>
-    </div>
+    </Panel>
   )
 }
 
 function TopCardsBlock({ cards }) {
   const [activeIndex, setActiveIndex] = useState(0)
-
-  useEffect(() => {
-    if (!cards?.length || cards.length < 2) return
-    const timer = setInterval(() => setActiveIndex(p => (p + 1) % cards.length), 4200)
-    return () => clearInterval(timer)
-  }, [cards])
-
-  if (!cards?.length) return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Top Cards</div>
-      <div className={styles.emptyNote}>No price data yet. Enable this block so prices get fetched.</div>
-    </div>
-  )
+  if (!cards?.length) return <Panel title="Most valuable"><PanelEmpty>No price data yet.</PanelEmpty></Panel>
 
   const active = cards[Math.min(activeIndex, cards.length - 1)]
 
   return (
-    <div className={styles.blockInner}>
-      <div className={styles.blockTitle}>Top Cards</div>
-      <div className={styles.topCardsShowcase}>
-        {/* Hero */}
-        <div className={styles.topCardsHero}>
-          <div className={styles.topCardsCardFrame}>
-            {active.image_uri
-              ? <CardImg key={active.image_uri} url={active.image_uri} width={TOP_CARDS_HERO_W} alt={active.name} className={styles.topCardsCardImg} loading="lazy" />
-              : <div className={styles.topCardsCardPlaceholder}>{active.name?.[0] || '?'}</div>
-            }
-          </div>
-          <div className={styles.topCardsHeroBody}>
-            <div className={styles.topCardsEyebrow}>Featured Value Card</div>
-            <div className={styles.topCardsHeroNameRow}>
-              <div className={styles.topCardsHeroName}>{active.name}</div>
-              {active.foil && <span className={styles.topCardsFoilTag}>Foil</span>}
+    <Panel title="Most valuable">
+      <div className={styles.valueLayout}>
+        <div className={styles.valueHero}>
+          {active.image_uri
+            ? <CardImg key={active.image_uri} url={active.image_uri} width={VALUE_HERO_W}
+                alt={active.name} className={styles.valueHeroArt} loading="lazy" />
+            : <span className={styles.valueHeroPlaceholder}>{active.name?.[0] || '?'}</span>}
+          <div className={styles.valueHeroBody}>
+            <div className={styles.valueHeroName}>
+              {active.name}
+              {active.foil && <span className={styles.chipGold}>Foil</span>}
             </div>
-            <div className={styles.topCardsHeroSet}>{(active.set_code || '').toUpperCase()}</div>
-            <div className={styles.topCardsMetrics}>
-              <div className={styles.topCardsMetric}>
-                <span className={styles.topCardsMetricLabel}>Price</span>
-                <strong>€{Number(active.price ?? 0).toFixed(2)}</strong>
-              </div>
-            </div>
+            <div className={styles.valueHeroSet}>{(active.set_code || '').toUpperCase()}</div>
+            <div className={styles.valueHeroPrice}>€{Number(active.price ?? 0).toFixed(2)}</div>
           </div>
         </div>
 
-        {/* Rail */}
-        <div className={styles.topCardsRail}>
+        <ol className={styles.valueRail}>
           {cards.map((c, i) => (
-            <button key={i}
-              className={`${styles.topCardsChip}${i === activeIndex ? ' ' + styles.topCardsChipActive : ''}`}
-              onClick={() => setActiveIndex(i)}>
-              <div className={styles.topCardsChipThumb}>
-                {c.image_uri && <CardImg url={c.image_uri} forceTier="small" alt={c.name} className={styles.topCardsChipImg} loading="lazy" />}
-              </div>
-              <div className={styles.topCardsChipMeta}>
-                <span className={styles.topCardsChipRank}>#{i + 1}</span>
-                <span className={styles.topCardsChipName}>{c.name}</span>
-                <span className={styles.topCardsChipPrice}>€{Number(c.price ?? 0).toFixed(2)}</span>
-              </div>
-            </button>
+            <li key={i}>
+              <button
+                className={`${styles.valueRow}${i === activeIndex ? ' ' + styles.valueRowActive : ''}`}
+                onClick={() => setActiveIndex(i)}
+                aria-current={i === activeIndex}
+              >
+                <span className={styles.valueRank}>{i + 1}</span>
+                <span className={styles.valueRowThumb}>
+                  {c.image_uri && <CardImg url={c.image_uri} forceTier="small" alt="" className={styles.valueRowImg} loading="lazy" />}
+                </span>
+                <span className={styles.valueRowName}>{c.name}</span>
+                <span className={styles.valueRowPrice}>€{Number(c.price ?? 0).toFixed(2)}</span>
+              </button>
+            </li>
           ))}
-        </div>
+        </ol>
       </div>
-    </div>
+    </Panel>
+  )
+}
+
+// ── Follow list dialog ────────────────────────────────────────────────────────
+function FollowListDialog({ username, kind, onClose }) {
+  const { data, isLoading } = useQuery({
+    queryKey: profileKeys.follows(username, kind),
+    queryFn: () => fetchFollowList(username, kind),
+    staleTime: PROFILE_STALE_MS,
+  })
+
+  return (
+    <Modal onClose={onClose}>
+      <h2 className={styles.dialogTitle}>{kind === 'followers' ? 'Followers' : 'Following'}</h2>
+      {isLoading ? (
+        <div className={styles.dialogNote}>Loading…</div>
+      ) : !data?.length ? (
+        <div className={styles.dialogNote}>
+          {kind === 'followers' ? 'Nobody follows this collector yet.' : 'Not following anyone yet.'}
+        </div>
+      ) : (
+        <ul className={styles.followList}>
+          {data.map(u => (
+            <li key={u.nickname}>
+              <Link to={`/profile/${encodeURIComponent(u.nickname)}`} className={styles.followRow} onClick={onClose}>
+                <span className={styles.followAvatar} style={{ borderColor: u.accent || 'var(--gold)', color: u.accent || 'var(--gold)' }}>
+                  {(u.nickname[0] || '?').toUpperCase()}
+                </span>
+                <span className={styles.followName}>{u.nickname}</span>
+                {u.premium && <span className={styles.chipGold}>Supporter</span>}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
   )
 }
 
 // ── dnd-kit sortable items ────────────────────────────────────────────────────
-function SortableBentoBlock({ id, editMode, onHide, children }) {
+function SortableBlock({ id, onHide, children, cell = false }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
   const style = { transform: CSS.Transform.toString(transform), transition }
   return (
     <div ref={setNodeRef} style={style}
-      className={`${styles.blockOuter} ${spanClass(id)}${isDragging ? ' ' + styles.blockDragging : ''}`}
+      className={[
+        cell ? styles.editCell : `${styles.editPanel} ${spanClass(id)}`,
+        isDragging ? styles.dragging : '',
+      ].filter(Boolean).join(' ')}
       {...attributes}>
-      {editMode && (
-        <div className={styles.blockEditBar}>
-          <div className={styles.blockDragArea} {...listeners}>
-            <span className={styles.blockDragHandle}>⠿</span>
-            <span className={styles.blockEditLabel}>{BLOCK_DEFS[id]?.label}</span>
-          </div>
-          <button className={styles.blockRemoveBtn}
-            onClick={e => { e.stopPropagation(); onHide(id) }}
-            title="Move to available" aria-label={`Hide ${BLOCK_DEFS[id]?.label}`}><CloseIcon size={13} /></button>
-        </div>
-      )}
+      <div className={styles.editBar}>
+        <span className={styles.editGrip} {...listeners}>
+          <span aria-hidden="true">⠿</span>
+          <span className={styles.editLabel}>{BLOCK_DEFS[id]?.label}</span>
+        </span>
+        <button className={styles.editHide}
+          onClick={e => { e.stopPropagation(); onHide(id) }}
+          title="Hide this block" aria-label={`Hide ${BLOCK_DEFS[id]?.label}`}>
+          <CloseIcon size={12} />
+        </button>
+      </div>
       {children}
     </div>
   )
@@ -827,27 +861,29 @@ function SortableTrayItem({ id, onShow }) {
   const def   = BLOCK_DEFS[id]
   return (
     <div ref={setNodeRef} style={style}
-      className={`${styles.availableItem}${isDragging ? ' ' + styles.availableItemDragging : ''}`}
+      className={`${styles.trayItem}${isDragging ? ' ' + styles.dragging : ''}`}
       {...attributes} {...listeners}>
-      <span className={styles.blockDragHandle}>⠿</span>
-      <span className={styles.availableItemText}>
-        <span className={styles.availableItemName}>{def?.label}</span>
-        <span className={styles.availableItemSpan}>{def?.span}</span>
+      <span aria-hidden="true" className={styles.editGripDot}>⠿</span>
+      <span className={styles.trayText}>
+        <span className={styles.trayName}>{def?.label}</span>
+        <span className={styles.trayKind}>{def?.kind === 'stat' ? 'Ledger' : 'Panel'}</span>
       </span>
-      <button className={styles.blockShowBtn}
+      <button className={styles.trayShow}
         onPointerDown={e => e.stopPropagation()}
         onClick={e => { e.stopPropagation(); onShow(id) }}
-        title="Add to grid" aria-label={`Show ${def?.label}`}>+</button>
+        title="Show this block" aria-label={`Show ${def?.label}`}>+</button>
     </div>
   )
 }
 
-function DroppableTray({ children, className }) {
-  const { setNodeRef, isOver } = useDroppable({ id: TRAY_DROP_ID })
+// Named Zone, not DropZone — UI.jsx exports a DropZone primitive (file upload)
+// and two components with the same name in one codebase is a trap.
+function Zone({ id, className, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id })
   return (
-    <aside ref={setNodeRef} className={`${className}${isOver ? ' ' + styles.availablePanelActive : ''}`}>
+    <div ref={setNodeRef} className={`${className}${isOver ? ' ' + styles.dropActive : ''}`}>
       {children}
-    </aside>
+    </div>
   )
 }
 
@@ -856,13 +892,10 @@ export default function ProfilePage() {
   const { username } = useParams()
   const { user }     = useAuth()
   const settings     = useSettings()
+  const { showToast } = useToast()
+  const queryClient  = useQueryClient()
 
-  const [profile, setProfile]               = useState(null)
-  const [publicDecks, setPublicDecks]       = useState([])
-  const [gameStats, setGameStats]           = useState(null)
-  const [featuredDeckStats, setFeaturedDeckStats] = useState(null)
-  const [loading, setLoading]               = useState(true)
-  const [notFound, setNotFound]             = useState(false)
+  const decodedUsername = decodeURIComponent(username)
 
   const [editMode, setEditMode]                       = useState(false)
   const [draftBio, setDraftBio]                       = useState('')
@@ -872,33 +905,49 @@ export default function ProfilePage() {
   const [draftTextContent, setDraftTextContent]       = useState('')
   const [draftFeaturedDeckId, setDraftFeaturedDeckId] = useState('')
   const [draftStandoutCards, setDraftStandoutCards]   = useState([])
+  const [draftPinnedDecks, setDraftPinnedDecks]       = useState([])
   const [showArtPicker, setShowArtPicker]             = useState(false)
   const [saving, setSaving]                           = useState(false)
+  const [followDialog, setFollowDialog]               = useState(null)
+  const [followBusy, setFollowBusy]                   = useState(false)
+  const [activeId, setActiveId]                       = useState(null)
 
-  const [activeId, setActiveId] = useState(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } })
   )
 
-  const decodedUsername = decodeURIComponent(username)
   // Optimistic ownership from the local nickname — cheap, drives instant own-
-  // profile rendering and viewer-only own-data fetches (all scoped to user.id,
-  // so a wrong value here can only mis-decorate, never leak or write elsewhere).
+  // profile rendering. A wrong value here can only mis-decorate, never leak.
   const isOwn = !!(user && settings.nickname &&
     decodedUsername.toLowerCase() === settings.nickname.toLowerCase())
 
-  // Authoritative ownership for anything that grants write/edit power. The
-  // server (get_user_follow_stats.is_self) compares auth.uid() to the profile's
-  // resolved user_id, so a stale/leaked local nickname can never unlock editing
-  // of someone else's profile. Null until resolved; edit UI stays hidden until
-  // then. get_public_profile deliberately omits user_id (SEC-002), so this is
-  // the identity signal we compare against.
-  const [serverIsOwner, setServerIsOwner] = useState(null)
-  const canEdit = serverIsOwner === true
+  const profileQuery = useQuery({
+    queryKey: profileKeys.profile(decodedUsername),
+    queryFn: () => fetchPublicProfile(decodedUsername),
+    staleTime: PROFILE_STALE_MS,
+  })
+
+  const decksQuery = useQuery({
+    queryKey: profileKeys.decks(decodedUsername),
+    queryFn: () => fetchPublicDecks(decodedUsername),
+    staleTime: PROFILE_STALE_MS,
+    enabled: !!profileQuery.data,
+  })
+
+  // Authoritative ownership for anything that grants write power. The server
+  // compares auth.uid() to the profile's resolved user_id, so a stale local
+  // nickname can never unlock editing of someone else's profile.
+  const followQuery = useQuery({
+    queryKey: ['followStats', decodedUsername, user?.id ?? 'anon'],
+    queryFn: () => getUserFollowStats(decodedUsername),
+    staleTime: PROFILE_STALE_MS,
+  })
+
+  const followStats = followQuery.data || null
+  const canEdit     = followStats?.is_self === true
 
   const ownProfileFallback = useMemo(() => ({
-    user_id:           user?.id,
     nickname:          settings.nickname,
     bio:               settings.profile_bio || '',
     accent:            settings.profile_accent || '',
@@ -910,90 +959,49 @@ export default function ProfilePage() {
     joined_at:         null,
     collection_value:  null,
     public_deck_count: null,
-  }), [user?.id, settings.nickname, settings.profile_bio, settings.profile_accent, settings.premium, settings.profile_config])
+  }), [settings.nickname, settings.profile_bio, settings.profile_accent, settings.premium, settings.profile_config])
 
-  const ownFallbackRef = useRef(ownProfileFallback)
-  useEffect(() => { ownFallbackRef.current = ownProfileFallback }, [ownProfileFallback])
+  // A brand-new user has no row yet; show their local settings rather than a
+  // "not found" wall on their own page.
+  const profile = profileQuery.data ?? (isOwn ? ownProfileFallback : null)
+  const publicDecks = decksQuery.data || []
+  const notFound = !profileQuery.isLoading && !profileQuery.data && !isOwn
+  const gameStats = profile?.game_stats || null
 
-  // ── Load ───────────────────────────────────────────────────────────────────
-  const loadProfile = useCallback(async () => {
-    setLoading(true)
-    setNotFound(false)
-    const { data, error } = await sb.rpc('get_public_profile', { p_username: decodedUsername })
-    if (error || !data) {
-      if (isOwn) { setProfile(ownFallbackRef.current); setPublicDecks([]) }
-      else setNotFound(true)
-      setLoading(false)
-      return
-    }
-    setProfile(data)
-    sb.rpc('get_public_decks', { p_username: decodedUsername })
-      .then(async ({ data: decks }) => setPublicDecks(await enrichPublicDecksWithCommanderArt(decks || [])))
+  // Own numbers are served from the nightly profile_stats cache, so rebuild the
+  // row once after first paint — that is what keeps your own totals honest right
+  // after an import instead of showing last night's figures.
+  const refreshedRef = useRef(false)
+  useEffect(() => {
+    if (!canEdit || refreshedRef.current) return
+    refreshedRef.current = true
+    refreshMyProfileStats()
+      .then(() => queryClient.invalidateQueries({ queryKey: profileKeys.profile(decodedUsername) }))
       .catch(() => {})
-    setLoading(false)
-  }, [decodedUsername, isOwn])
+  }, [canEdit, decodedUsername, queryClient])
 
-  useEffect(() => { loadProfile() }, [loadProfile])
-
-  // Resolve authoritative ownership from the server. Re-runs when the viewed
-  // profile or the signed-in user changes.
-  useEffect(() => {
-    let alive = true
-    setServerIsOwner(null)
-    if (!user) { setServerIsOwner(false); return }
-    getUserFollowStats(decodedUsername)
-      .then(stats => { if (alive) setServerIsOwner(!!stats?.is_self) })
-      .catch(() => { if (alive) setServerIsOwner(false) })
-    return () => { alive = false }
-  }, [decodedUsername, user?.id])
-
-  // Sync own profile fields when settings change
-  useEffect(() => {
-    if (!isOwn) return
-    setProfile(prev => prev ? {
-      ...prev,
-      nickname:     settings.nickname,
-      bio:          settings.profile_bio   ?? prev.bio,
-      accent:       settings.profile_accent ?? prev.accent,
-      bento_config: settings.profile_config ?? prev.bento_config,
-      premium:      settings.premium,
-    } : prev)
-  }, [isOwn, settings.nickname, settings.profile_bio, settings.profile_accent, settings.profile_config, settings.premium])
-
-  // Fetch overall game stats (owner only)
-  useEffect(() => {
-    if (!isOwn || !user) return
-    sb.from('game_results').select('placement, format').eq('user_id', user.id)
-      .then(({ data: rows }) => {
-        if (!rows?.length) return
-        const wins = rows.filter(r => r.placement === 1).length
-        const fmt  = {}
-        rows.forEach(r => { if (r.format) fmt[r.format] = (fmt[r.format] || 0) + 1 })
-        const fav_format = Object.entries(fmt).sort((a, b) => b[1] - a[1])[0]?.[0] || null
-        setGameStats({ wins, losses: rows.length - wins, total: rows.length, fav_format })
-      })
-      .catch(() => {})
-  }, [isOwn, user?.id])
-
-  // Fetch featured deck stats (owner only)
+  // Featured deck record. Owner only — game_results carries no public per-deck
+  // exposure, so a visitor simply sees the deck without a W/L line.
   const savedFeaturedDeckId = profile?.bento_config?.featured_deck_id || publicDecks?.[0]?.id || null
-  useEffect(() => {
-    if (!isOwn || !user || !savedFeaturedDeckId) return
-    sb.from('game_results').select('placement').eq('user_id', user.id).eq('deck_id', savedFeaturedDeckId)
-      .then(({ data: rows }) => {
-        if (!rows?.length) { setFeaturedDeckStats({ wins: 0, losses: 0, total: 0 }); return }
-        const wins = rows.filter(r => r.placement === 1).length
-        setFeaturedDeckStats({ wins, losses: rows.length - wins, total: rows.length })
-      })
-      .catch(() => {})
-  }, [isOwn, user?.id, savedFeaturedDeckId])
+  const featuredStatsQuery = useQuery({
+    queryKey: ['featuredDeckStats', user?.id, savedFeaturedDeckId],
+    enabled: !!(canEdit && user && savedFeaturedDeckId),
+    staleTime: PROFILE_STALE_MS,
+    queryFn: async () => {
+      const { data, error } = await sb.from('game_results')
+        .select('placement').eq('user_id', user.id).eq('deck_id', savedFeaturedDeckId)
+      if (error) throw error
+      const rows = data || []
+      const wins = rows.filter(r => r.placement === 1).length
+      return { wins, losses: rows.length - wins, total: rows.length }
+    },
+  })
+  const featuredDeckStats = featuredStatsQuery.data || null
 
-  // Track milestone earn dates for owner
+  // Record milestone earn dates for the owner. Profile stats are richer than the
+  // watcher's IDB-derived shape, so this catches ones the watcher can't see.
   useEffect(() => {
-    if (!isOwn || !user || !profile?.stats) return
-    // Profile stats are richer than the watcher's IDB-derived shape (collection
-    // value, game stats), so this catches milestones the watcher can't see.
-    // Unlocks go to the notification bell, not a toast.
+    if (!canEdit || !user || !profile?.stats) return
     checkAndNotifyMilestones({
       stats: profile.stats,
       profile,
@@ -1016,10 +1024,47 @@ export default function ProfilePage() {
     sb.from('user_settings').update({ profile_config: newConfig, updated_at: now }).eq('user_id', user.id)
       .then(() => {
         settings.save({ profile_config: newConfig })
-        setProfile(prev => prev ? { ...prev, bento_config: newConfig } : prev)
+        queryClient.setQueryData(profileKeys.profile(decodedUsername),
+          prev => prev ? { ...prev, bento_config: newConfig } : prev)
       })
       .catch(() => {})
-  }, [isOwn, user?.id, profile?.stats, profile?.public_deck_count, profile?.collection_value])
+  }, [canEdit, user?.id, profile?.stats, profile?.public_deck_count, profile?.collection_value])
+
+  // ── Follow ─────────────────────────────────────────────────────────────────
+  const toggleFollow = useCallback(async () => {
+    if (!user || !followStats || followStats.is_self || followBusy) return
+    const next = !followStats.viewer_following
+    const key  = ['followStats', decodedUsername, user.id]
+    setFollowBusy(true)
+    queryClient.setQueryData(key, s => s ? {
+      ...s,
+      viewer_following: next,
+      follower_count: Math.max(0, (s.follower_count || 0) + (next ? 1 : -1)),
+    } : s)
+    try {
+      await setFollow(user.id, followStats.user_id, next)
+      queryClient.invalidateQueries({ queryKey: profileKeys.follows(decodedUsername, 'followers') })
+    } catch {
+      queryClient.setQueryData(key, s => s ? {
+        ...s,
+        viewer_following: !next,
+        follower_count: Math.max(0, (s.follower_count || 0) + (next ? -1 : 1)),
+      } : s)
+      showToast('Could not update follow', { tone: 'error' })
+    } finally {
+      setFollowBusy(false)
+    }
+  }, [user, followStats, followBusy, decodedUsername, queryClient, showToast])
+
+  const shareProfile = useCallback(async () => {
+    const url = getPublicAppUrl(`/profile/${encodeURIComponent(decodedUsername)}`)
+    try {
+      await navigator.clipboard.writeText(url)
+      showToast('Profile link copied')
+    } catch {
+      showToast('Could not copy the link', { tone: 'error' })
+    }
+  }, [decodedUsername, showToast])
 
   // ── Edit mode ──────────────────────────────────────────────────────────────
   function enterEdit() {
@@ -1032,6 +1077,7 @@ export default function ProfilePage() {
     setDraftTextContent(cfg.text_content || '')
     setDraftFeaturedDeckId(cfg.featured_deck_id || '')
     setDraftStandoutCards(cfg.featured_deck_standout_cards || [])
+    setDraftPinnedDecks(cfg.pinned_deck_ids || [])
     setEditMode(true)
   }
 
@@ -1050,90 +1096,116 @@ export default function ProfilePage() {
       text_content:                 draftTextContent,
       featured_deck_id:             draftFeaturedDeckId,
       featured_deck_standout_cards: draftStandoutCards,
+      pinned_deck_ids:              draftPinnedDecks,
       milestone_earned_at:          profile?.bento_config?.milestone_earned_at || {},
     }
-    await sb.from('user_settings').update({
+    const { error } = await sb.from('user_settings').update({
       profile_bio:    draftBio,
       profile_accent: draftAccent,
       profile_config: newConfig,
       updated_at:     new Date().toISOString(),
     }).eq('user_id', user.id)
+
+    if (error) {
+      showToast('Could not save your profile', { tone: 'error' })
+      setSaving(false)
+      return
+    }
+
     settings.save({ profile_bio: draftBio, profile_accent: draftAccent, profile_config: newConfig })
-    setProfile(prev => prev ? { ...prev, bio: draftBio, accent: draftAccent, bento_config: newConfig } : prev)
+    queryClient.setQueryData(profileKeys.profile(decodedUsername),
+      prev => prev ? { ...prev, bio: draftBio, accent: draftAccent, bento_config: newConfig } : prev)
+    // Block visibility changes what the RPC returns, so the cached row is stale.
+    queryClient.invalidateQueries({ queryKey: profileKeys.profile(decodedUsername) })
     setEditMode(false)
     setSaving(false)
+    showToast('Profile saved')
   }
 
   function hideBlock(id) { setDraftBlocks(prev => prev.map(b => b.id === id ? { ...b, enabled: false } : b)) }
   function showBlock(id) { setDraftBlocks(prev => prev.map(b => b.id === id ? { ...b, enabled: true  } : b)) }
+  function togglePin(id) {
+    setDraftPinnedDecks(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])
+  }
 
-  // ── dnd-kit handlers ───────────────────────────────────────────────────────
-  const gridIds = useMemo(() => draftBlocks.filter(b => b.enabled).map(b => b.id),  [draftBlocks])
-  const trayIds = useMemo(() => draftBlocks.filter(b => !b.enabled).map(b => b.id), [draftBlocks])
+  // ── dnd ────────────────────────────────────────────────────────────────────
+  const ledgerIds = useMemo(() => draftBlocks.filter(b => b.enabled && isStat(b.id)).map(b => b.id), [draftBlocks])
+  const panelIds  = useMemo(() => draftBlocks.filter(b => b.enabled && !isStat(b.id)).map(b => b.id), [draftBlocks])
+  const trayIds   = useMemo(() => draftBlocks.filter(b => !b.enabled).map(b => b.id), [draftBlocks])
 
-  function handleDragStart({ active }) { setActiveId(active.id) }
   function handleDragEnd({ active, over }) {
     setActiveId(null)
     if (!over || active.id === over.id) return
-    const overId   = over.id
-    const fromGrid = gridIds.includes(active.id)
-    const toGrid   = gridIds.includes(overId) || overId === GRID_DROP_ID
-    const toTray   = trayIds.includes(overId) || overId === TRAY_DROP_ID
+    const dropId    = over.id
+    const toTray    = dropId === TRAY_DROP_ID || trayIds.includes(dropId)
+    const wasHidden = trayIds.includes(active.id)
+
     setDraftBlocks(prev => {
-      const gridBlocks  = prev.filter(b => b.enabled)
-      const trayBlocks  = prev.filter(b => !b.enabled)
-      const activeBlock = prev.find(b => b.id === active.id)
-      if (!activeBlock) return prev
-      if (fromGrid && toGrid) {
-        const oldIdx = gridBlocks.findIndex(b => b.id === active.id)
-        const newIdx = overId === GRID_DROP_ID ? gridBlocks.length - 1 : gridBlocks.findIndex(b => b.id === overId)
-        if (newIdx < 0 || oldIdx === newIdx) return prev
-        return [...arrayMove(gridBlocks, oldIdx, newIdx), ...trayBlocks]
+      const block = prev.find(b => b.id === active.id)
+      if (!block) return prev
+
+      // A block's kind fixes which zone it belongs to, so dropping only ever
+      // decides shown vs hidden — never which zone. That is what stops a stat
+      // ending up as a full-width panel.
+      if (toTray) {
+        if (wasHidden) return prev
+        return prev.map(b => b.id === active.id ? { ...b, enabled: false } : b)
       }
-      if (!fromGrid && toTray) {
-        const oldIdx = trayBlocks.findIndex(b => b.id === active.id)
-        const newIdx = overId === TRAY_DROP_ID ? trayBlocks.length - 1 : trayBlocks.findIndex(b => b.id === overId)
-        if (newIdx < 0 || oldIdx === newIdx) return prev
-        return [...gridBlocks, ...arrayMove(trayBlocks, oldIdx, newIdx)]
+      if (wasHidden) {
+        return prev.map(b => b.id === active.id ? { ...b, enabled: true } : b)
       }
-      if (fromGrid && toTray) {
-        return [...gridBlocks.filter(b => b.id !== active.id), ...trayBlocks, { ...activeBlock, enabled: false }]
-      }
-      if (!fromGrid && toGrid) {
-        const overIdx  = overId === GRID_DROP_ID ? gridBlocks.length : gridBlocks.findIndex(b => b.id === overId)
-        const insertAt = overIdx < 0 ? gridBlocks.length : overIdx
-        const newGrid  = [...gridBlocks]
-        newGrid.splice(insertAt, 0, { ...activeBlock, enabled: true })
-        return [...newGrid, ...trayBlocks.filter(b => b.id !== active.id)]
-      }
-      return prev
+
+      // Reorder inside the block's own zone.
+      const zone = isStat(active.id) ? ledgerIds : panelIds
+      const from = zone.indexOf(active.id)
+      const to   = zone.indexOf(dropId)
+      if (from < 0 || to < 0 || from === to) return prev
+
+      // Rebuild the array with this zone's blocks in their new order. Render
+      // order comes from draftBlocks order, and `rest` (the other zone plus the
+      // hidden blocks) keeps its own relative order either way.
+      const reordered = arrayMove(zone, from, to)
+      const inZone    = new Set(reordered)
+      const rest      = prev.filter(b => !inZone.has(b.id))
+      const moved     = reordered.map(id => prev.find(b => b.id === id))
+      return isStat(active.id) ? [...moved, ...rest] : [...rest, ...moved]
     })
   }
 
-  // ── Block renderer ─────────────────────────────────────────────────────────
-  function renderBlock(block) {
-    const { stats, top_card, joined_at, collection_value, public_deck_count, recent_cards } = profile || {}
-    const cfg   = profile?.bento_config || {}
-    const featId = editMode ? draftFeaturedDeckId : cfg.featured_deck_id
-    const standout = editMode ? draftStandoutCards : (cfg.featured_deck_standout_cards || [])
-    switch (block.id) {
+  // ── Rendering ──────────────────────────────────────────────────────────────
+  const cfg      = profile?.bento_config || {}
+  const stats    = profile?.stats
+  const featId   = editMode ? draftFeaturedDeckId : cfg.featured_deck_id
+  const standout = editMode ? draftStandoutCards : (cfg.featured_deck_standout_cards || [])
+  const pinned   = editMode ? draftPinnedDecks : (cfg.pinned_deck_ids || [])
+
+  function renderStat(id) {
+    switch (id) {
+      case 'total':      return <StatCell label="Cards"         value={fmtNum(stats?.total_cards)} />
+      case 'unique':     return <StatCell label="Unique prints" value={fmtNum(stats?.unique_cards)} />
+      case 'foils':      return <StatCell label="Foils"         value={fmtNum(stats?.foil_count)} />
+      case 'sets':       return <StatCell label="Sets"          value={fmtNum(stats?.sets_count)} />
+      case 'since':      return <StatCell label="Collecting since" value={profile?.joined_at ? new Date(profile.joined_at).getFullYear() : '—'} />
+      case 'value':      return <StatCell label="Est. value"    value={profile?.collection_value != null ? `€${Number(profile.collection_value).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'} />
+      case 'deck_count': return <StatCell label="Public decks"  value={fmtNum(profile?.public_deck_count)} />
+      case 'winrate':    return <WinRateBlock gameStats={gameStats} />
+      case 'fav_format': return <FavFormatBlock gameStats={gameStats} decks={publicDecks} />
+      default:           return null
+    }
+  }
+
+  function renderPanel(id) {
+    switch (id) {
       case 'bio':           return <TextBlock text={editMode ? draftTextContent : (cfg.text_content || '')} editMode={editMode} onChangeText={setDraftTextContent} />
-      case 'total':         return <StatBlock label="Total Cards"    value={fmtNum(stats?.total_cards)} />
-      case 'unique':        return <StatBlock label="Unique Prints"  value={fmtNum(stats?.unique_cards)} />
-      case 'foils':         return <StatBlock label="Foil Count"     value={fmtNum(stats?.foil_count)} />
-      case 'sets':          return <StatBlock label="Sets Collected" value={fmtNum(stats?.sets_count)} />
-      case 'since':         return <StatBlock label="Member Since"   value={joined_at ? new Date(joined_at).getFullYear() : '—'} />
-      case 'value':         return <StatBlock label="Est. Value"     value={collection_value != null ? `€${Number(collection_value).toFixed(2)}` : '—'} />
-      case 'deck_count':    return <StatBlock label="Public Decks"   value={fmtNum(public_deck_count)} />
-      case 'winrate':       return <WinRateBlock gameStats={gameStats} />
-      case 'fav_format':    return <FavFormatBlock gameStats={gameStats} decks={publicDecks} />
       case 'color_pie':     return <ColorPieBlock distribution={stats?.color_distribution} />
       case 'rarity':        return <RarityBlock breakdown={stats?.rarity_breakdown} />
       case 'formats':       return <FormatsBlock decks={publicDecks} />
       case 'fav_commander': return <FavCommanderBlock decks={publicDecks} />
-      case 'crown':         return <CrownBlock topCard={top_card} />
+      case 'crown':         return <CrownBlock topCard={profile?.top_card} />
       case 'top_cards':     return <TopCardsBlock cards={profile?.top_cards} />
       case 'milestones':    return <MilestonesBlock stats={stats} profile={profile} />
+      case 'recent_cards':  return <RecentCardsBlock cards={profile?.recent_cards} />
+      case 'decks':         return <DecksBlock decks={publicDecks} pinnedIds={pinned} editMode={editMode} onTogglePin={togglePin} />
       case 'featured_deck': return (
         <FeaturedDeckBlock
           decks={publicDecks}
@@ -1145,137 +1217,215 @@ export default function ProfilePage() {
           onChangeStandoutCards={setDraftStandoutCards}
         />
       )
-      case 'recent_cards':  return <RecentCardsBlock cards={recent_cards} />
-      case 'decks':         return <DecksBlock decks={publicDecks} />
-      default:              return null
+      default: return null
     }
   }
 
-  const headerArt   = editMode ? draftHeaderArt : (profile?.bento_config?.header_art || '')
+  const headerArt   = editMode ? draftHeaderArt : (cfg.header_art || '')
   const accentColor = (editMode ? draftAccent : profile?.accent) || 'var(--gold)'
-  const displayName = profile?.nickname || username
-  const viewBlocks  = mergeBlocks(profile?.bento_config?.blocks).filter(b => b.enabled)
+  const displayName = profile?.nickname || decodedUsername
   const headerBio   = editMode ? draftBio : (profile?.bio || '')
 
-  if (loading) return <div className={styles.page}><div className={styles.loadingMsg}>Loading profile…</div></div>
+  const viewBlocks  = mergeBlocks(cfg.blocks).filter(b => b.enabled)
+  const viewLedger  = viewBlocks.filter(b => isStat(b.id))
+  const viewPanels  = viewBlocks.filter(b => !isStat(b.id))
+
+  if (profileQuery.isLoading) {
+    return (
+      <div className={styles.page}>
+        <div className={styles.skeletonBanner} />
+        <div className={styles.shell}><div className={styles.skeletonLedger} /></div>
+      </div>
+    )
+  }
 
   if (notFound) return (
     <div className={styles.page}>
-      <div className={styles.notFound}>
-        <div className={styles.notFoundTitle}>Profile not found</div>
-        <div className={styles.notFoundSub}>No user with the nickname "{username}" was found.</div>
-        <Link to="/" className={styles.notFoundLink}>← Back to Home</Link>
+      <div className={styles.shell}>
+        <EmptyState>
+          <h1 className={styles.notFoundTitle}>No collector called “{decodedUsername}”</h1>
+          <p>Check the spelling, or head back and find them from a shared deck.</p>
+          <Link to="/" className={styles.textLink}>Back to home</Link>
+        </EmptyState>
       </div>
     </div>
   )
 
   return (
-    <div className={styles.page}>
-      {/* ── Profile header ── */}
-      <div className={styles.header} style={{ '--profile-accent': accentColor }}>
-        {headerArt && <div className={styles.headerArtBg} style={{ backgroundImage: `url(${headerArt})` }} />}
-        <div className={styles.headerAccentBar} />
-        <div className={styles.headerContent}>
-          <div className={styles.avatar} style={{ borderColor: accentColor, color: accentColor }}>
-            {(displayName[0] || '?').toUpperCase()}
-          </div>
+    <div className={styles.page} style={{ '--profile-accent': accentColor }}>
+      {/* ── Banner ── */}
+      <header className={styles.banner}>
+        {headerArt
+          ? <div className={styles.bannerArt} style={{ backgroundImage: `url(${headerArt})` }} />
+          : <div className={styles.bannerFallback} />}
+        <div className={styles.bannerScrim} />
 
-          <div className={styles.headerInfo}>
-            <div className={styles.displayName}>
-              {displayName}
-              {profile?.premium && <span className={styles.premiumBadge}>✦ Supporter</span>}
-            </div>
-            {editMode
-              ? <textarea className={styles.headerBioEdit} value={draftBio}
+        <div className={`${styles.shell} ${styles.bannerInner}`}>
+          <div className={styles.identity}>
+            <div className={styles.avatar}>{(displayName[0] || '?').toUpperCase()}</div>
+            <div className={styles.identityText}>
+              <h1 className={styles.name}>
+                {displayName}
+                {profile?.premium && <span className={styles.supporter}>Supporter</span>}
+              </h1>
+
+              {editMode ? (
+                <textarea className={styles.bioEdit} value={draftBio}
                   onChange={e => setDraftBio(e.target.value)}
-                  placeholder="Tell the community about yourself…" maxLength={300} rows={2} />
-              : headerBio && <p className={styles.headerBio}>{headerBio}</p>
-            }
-            {!editMode && profile && <FollowButton username={decodedUsername} user={user} />}
+                  placeholder="One line about what you collect…" maxLength={300} rows={2} />
+              ) : headerBio ? (
+                <p className={styles.bio}>{headerBio}</p>
+              ) : null}
+
+              <div className={styles.metaRow}>
+                {profile?.joined_at && <span>Joined {new Date(profile.joined_at).getFullYear()}</span>}
+                {profile?.public_deck_count > 0 && <span>{profile.public_deck_count} public decks</span>}
+                {followStats && (
+                  <>
+                    <button className={styles.metaLink} onClick={() => setFollowDialog('followers')}>
+                      <strong>{followStats.follower_count}</strong> follower{followStats.follower_count === 1 ? '' : 's'}
+                    </button>
+                    <button className={styles.metaLink} onClick={() => setFollowDialog('following')}>
+                      <strong>{followStats.following_count}</strong> following
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
 
-          <div className={styles.headerActions}>
-            {canEdit && !editMode && (
-              <button className={styles.editBtn} onClick={enterEdit}>Edit Profile</button>
-            )}
-            {canEdit && editMode && (
+          <div className={styles.bannerActions}>
+            {!editMode && (
               <>
-                <div className={styles.accentPalette}>
-                  {ACCENT_PALETTE.map(color => (
-                    <button key={color}
-                      className={`${styles.accentSwatch}${(draftAccent || '#c9a84c') === color ? ' ' + styles.accentSwatchActive : ''}`}
-                      style={{ background: color }}
-                      onClick={() => setDraftAccent(color)}
-                      title={color} aria-label={`Accent color ${color}`} />
-                  ))}
-                </div>
-                <button className={styles.artBtn} onClick={() => setShowArtPicker(true)}
-                  title={draftHeaderArt ? 'Change header background' : 'Set header background'}>
-                  <ImageIcon size={13} />
-                  {draftHeaderArt ? 'Change Art' : 'Add Art'}
-                </button>
-                {draftHeaderArt && (
-                  <button className={styles.artRemoveBtn} onClick={() => setDraftHeaderArt('')}><CloseIcon size={11} /> Art</button>
+                <FollowButton stats={followStats} user={user} busy={followBusy} onToggle={toggleFollow} />
+                <Button variant="secondary" size="sm" onClick={shareProfile}>
+                  <ShareIcon size={13} /> Share
+                </Button>
+                <Link to={`/trade/${encodeURIComponent(decodedUsername)}`} className={styles.tradeLink}>
+                  <TradingIcon size={13} /> Trade post
+                </Link>
+                {canEdit && (
+                  <Button variant="secondary" size="sm" onClick={enterEdit}>
+                    <EditIcon size={13} /> Edit profile
+                  </Button>
                 )}
-                <button className={styles.saveBtn} onClick={saveEdit} disabled={saving}>
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-                <button className={styles.cancelBtn} onClick={cancelEdit}>Cancel</button>
+              </>
+            )}
+            {editMode && (
+              <>
+                <Button variant="green" size="sm" onClick={saveEdit} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save changes'}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={cancelEdit}>Cancel</Button>
               </>
             )}
           </div>
         </div>
-      </div>
+      </header>
+
+      {/* ── Edit toolbar ── */}
+      {editMode && (
+        <div className={styles.shell}>
+          <div className={styles.editToolbar}>
+            <div className={styles.editToolbarGroup}>
+              <span className={styles.editToolbarLabel}>Accent</span>
+              <div className={styles.swatches}>
+                {ACCENT_PALETTE.map(color => (
+                  <button key={color}
+                    className={`${styles.swatch}${(draftAccent || '#c9a84c') === color ? ' ' + styles.swatchOn : ''}`}
+                    style={{ background: color }}
+                    onClick={() => setDraftAccent(color)}
+                    title={color} aria-label={`Accent colour ${color}`} />
+                ))}
+              </div>
+            </div>
+            <div className={styles.editToolbarGroup}>
+              <span className={styles.editToolbarLabel}>Banner</span>
+              <Button variant="secondary" size="sm" onClick={() => setShowArtPicker(true)}>
+                <ImageIcon size={13} /> {draftHeaderArt ? 'Change art' : 'Add art'}
+              </Button>
+              {draftHeaderArt && (
+                <Button variant="danger" size="sm" onClick={() => setDraftHeaderArt('')}>Remove</Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── View mode ── */}
       {!editMode && (
-        <div className={styles.bento}>
-          {viewBlocks.map(block => (
-            <div key={block.id} className={`${styles.blockOuter} ${spanClass(block.id)}`}>
-              {renderBlock(block)}
+        <div className={styles.shell}>
+          {viewLedger.length > 0 && (
+            <div className={styles.ledger}>
+              {viewLedger.map(b => <div key={b.id} className={styles.ledgerCell}>{renderStat(b.id)}</div>)}
             </div>
-          ))}
+          )}
+          <div className={styles.panels}>
+            {viewPanels.map(b => (
+              <div key={b.id} className={spanClass(b.id)}>{renderPanel(b.id)}</div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* ── Edit mode ── */}
       {editMode && (
         <DndContext sensors={sensors} collisionDetection={closestCenter}
-          onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className={`${styles.bentoEditor} ${styles.bentoEditorActive}`}>
-            <div className={`${styles.bento} ${styles.bentoEdit}`}>
-              <div className={styles.editHint}>Drag blocks to reorder. Use the remove button to hide a block or + to show it.</div>
-              <SortableContext items={gridIds} strategy={noDisplace}>
-                {draftBlocks.filter(b => b.enabled).map(block => (
-                  <SortableBentoBlock key={block.id} id={block.id} editMode={editMode} onHide={hideBlock}>
-                    {renderBlock(block)}
-                  </SortableBentoBlock>
-                ))}
-              </SortableContext>
+          onDragStart={({ active }) => setActiveId(active.id)} onDragEnd={handleDragEnd}>
+          <div className={`${styles.shell} ${styles.editLayout}`}>
+            <div className={styles.editMain}>
+              <p className={styles.editHint}>
+                Drag to reorder. Stats stay in the ledger strip, panels stay in the showcase.
+              </p>
+
+              <Zone id={LEDGER_DROP_ID} className={styles.editLedgerZone}>
+                <span className={styles.zoneLabel}>Ledger</span>
+                <SortableContext items={ledgerIds} strategy={noDisplace}>
+                  <div className={styles.ledger}>
+                    {ledgerIds.map(id => (
+                      <SortableBlock key={id} id={id} onHide={hideBlock} cell>
+                        {renderStat(id)}
+                      </SortableBlock>
+                    ))}
+                  </div>
+                </SortableContext>
+                {ledgerIds.length === 0 && <p className={styles.zoneEmpty}>Drag a stat here.</p>}
+              </Zone>
+
+              <Zone id={PANEL_DROP_ID} className={styles.editPanelZone}>
+                <span className={styles.zoneLabel}>Showcase</span>
+                <SortableContext items={panelIds} strategy={noDisplace}>
+                  <div className={styles.panels}>
+                    {panelIds.map(id => (
+                      <SortableBlock key={id} id={id} onHide={hideBlock}>
+                        {renderPanel(id)}
+                      </SortableBlock>
+                    ))}
+                  </div>
+                </SortableContext>
+                {panelIds.length === 0 && <p className={styles.zoneEmpty}>Drag a panel here.</p>}
+              </Zone>
             </div>
 
-            <DroppableTray className={styles.availablePanel}>
-              <div className={styles.availableTitle}>Available</div>
-              <div className={styles.availableSub}>Drag here to hide, or drag back to show.</div>
-              <div className={styles.availableList}>
+            <Zone id={TRAY_DROP_ID} className={styles.tray}>
+              <h2 className={styles.trayTitle}>Hidden</h2>
+              <p className={styles.traySub}>Drag a block here to hide it.</p>
+              <div className={styles.trayList}>
                 {trayIds.length === 0
-                  ? <div className={styles.availableEmpty}>All blocks are on the grid.</div>
+                  ? <p className={styles.zoneEmpty}>Everything is on your profile.</p>
                   : (
                     <SortableContext items={trayIds} strategy={verticalListSortingStrategy}>
-                      {draftBlocks.filter(b => !b.enabled).map(block => (
-                        <SortableTrayItem key={block.id} id={block.id} onShow={showBlock} />
-                      ))}
+                      {trayIds.map(id => <SortableTrayItem key={id} id={id} onShow={showBlock} />)}
                     </SortableContext>
-                  )
-                }
+                  )}
               </div>
-            </DroppableTray>
+            </Zone>
           </div>
 
           <DragOverlay dropAnimation={{ duration: 150, easing: 'ease' }}>
             {activeId && (
               <div className={styles.dragGhost}>
-                <span>⠿</span>{BLOCK_DEFS[activeId]?.label}
+                <span aria-hidden="true">⠿</span>{BLOCK_DEFS[activeId]?.label}
               </div>
             )}
           </DragOverlay>
@@ -1284,10 +1434,15 @@ export default function ProfilePage() {
 
       {showArtPicker && (
         <CardArtPicker
-          title="Choose Header Background Art"
+          title="Choose banner art"
           onSelect={url => { setDraftHeaderArt(url); setShowArtPicker(false) }}
           onClose={() => setShowArtPicker(false)}
         />
+      )}
+
+      {followDialog && (
+        <FollowListDialog username={decodedUsername} kind={followDialog}
+          onClose={() => setFollowDialog(null)} />
       )}
     </div>
   )
