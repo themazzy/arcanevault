@@ -1,0 +1,43 @@
+-- oracle_cards was more than half empty space, on a 500MB database.
+--
+-- Measured 2026-08-01 with pgstattuple:
+--   table_len   103 MB
+--   tuple_len    48 MB   (46.5%)
+--   free_space   55 MB   (52.9%)
+--   dead_tuples   0
+--
+-- Zero dead tuples, yet half the table is air. That combination is the
+-- signature of a high-water mark, not a vacuum problem: `sync-oracle-cards.mjs`
+-- blind-upserted all ~38k rows every week (n_tup_upd was 153,010 = four full
+-- rewrites), Postgres implements UPDATE as insert-new + mark-old-dead, and
+-- autovacuum then reclaims those tuples for REUSE without ever returning the
+-- pages to the OS. So the file only ever grew.
+--
+-- Fixed in two places:
+--   1. At the source — the sync script now skips rows whose Scryfall
+--      `updated_at` is unchanged (`needsWrite()`, tested in
+--      src/lib/oracleSyncSkip.test.js), so a normal weekly run rewrites a
+--      handful of rows instead of 38,351. `--force` restores the old behaviour
+--      and is REQUIRED whenever oracleCardRow() changes shape, because the
+--      timestamp only tracks Scryfall's data, not our storage format.
+--   2. Once, by hand — `VACUUM FULL ANALYZE oracle_cards` returned the 55MB.
+--      It also rebuilt the indexes (18MB -> 7.2MB, they were bloated too).
+--      Whole table: 118MB -> 58MB. Database: 427MB -> 351MB.
+--      Card-name search got twice as fast as a side effect (search_card_names
+--      ('lightning'): 1,282ms -> 652ms) because the seq scan now covers half
+--      the pages.
+--
+-- VACUUM FULL cannot run inside a transaction, so it is NOT in this migration.
+-- If bloat returns (check with the pgstattuple query below), run it by hand and
+-- off-peak — it takes an ACCESS EXCLUSIVE lock, so card autocomplete stalls for
+-- the rewrite:
+--
+--   create extension if not exists pgstattuple;
+--   select * from pgstattuple('oracle_cards');   -- free_percent > 30 = worth it
+--   vacuum full analyze oracle_cards;
+--
+-- Tighter autovacuum below so free space is reused promptly and the high-water
+-- mark climbs more slowly between manual rewrites. This does NOT shrink the
+-- file on its own — only VACUUM FULL does that.
+alter table oracle_cards set (autovacuum_vacuum_scale_factor  = 0.05,
+                              autovacuum_analyze_scale_factor = 0.02);

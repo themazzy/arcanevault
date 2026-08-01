@@ -16,6 +16,12 @@ const UPSERT_BATCH = 500
 const DOWNLOAD_DIR = path.join(process.cwd(), '.tmp')
 const SYNCED_AT = new Date().toISOString()
 const ORACLE_TEXT_CAP = 600
+const FETCH_PAGE = 1000
+
+// `--force` rewrites every row. Needed whenever oracleCardRow() itself changes
+// shape (new column, different slimming), because the skip below only knows
+// whether SCRYFALL changed the card, not whether we changed how we store it.
+const FORCE = process.argv.includes('--force')
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
   console.error('Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.')
@@ -87,6 +93,51 @@ export function oracleCardRow(card) {
   }
 }
 
+/**
+ * True when this row needs writing. Scryfall stamps every card with its own
+ * `updated_at`, so an unchanged card can be skipped entirely.
+ *
+ * Why this matters: Postgres implements UPDATE as insert-new-tuple +
+ * mark-old-dead, so blind-upserting all 38k rows every week produced 38k dead
+ * tuples a run. Autovacuum reclaimed them but never returns pages to the OS, so
+ * the table sat at its high-water mark: measured 2026-08-01 at 103MB allocated
+ * for 48MB of live rows — **52.9% empty**, on a 500MB database. A VACUUM FULL
+ * recovered 60MB. This keeps it from filling back up.
+ *
+ * @param {{oracle_id: string, source_updated_at: string|null}} row
+ * @param {Map<string, string|null>} existing  oracle_id -> stored source_updated_at
+ * @param {boolean} force
+ */
+export function needsWrite(row, existing, force = false) {
+  if (force) return true
+  if (!existing.has(row.oracle_id)) return true
+  const stored = existing.get(row.oracle_id)
+  // A null on either side means we cannot prove it is unchanged — write it.
+  if (!stored || !row.source_updated_at) return true
+  return stored !== row.source_updated_at
+}
+
+// Keyset pagination, not .range() — an OFFSET walk over tens of thousands of
+// rows degrades into a statement timeout on this instance.
+async function fetchExistingTimestamps() {
+  const map = new Map()
+  let cursor = null
+  for (;;) {
+    let q = sb.from('oracle_cards')
+      .select('oracle_id,source_updated_at')
+      .order('oracle_id', { ascending: true })
+      .limit(FETCH_PAGE)
+    if (cursor) q = q.gt('oracle_id', cursor)
+    const { data, error } = await q
+    if (error) throw error
+    if (!data?.length) break
+    for (const r of data) map.set(r.oracle_id, r.source_updated_at)
+    cursor = data[data.length - 1].oracle_id
+    if (data.length < FETCH_PAGE) break
+  }
+  return map
+}
+
 async function flush(rows) {
   if (!rows.length) return
   const { error } = await sb
@@ -98,14 +149,22 @@ async function flush(rows) {
 async function processBulkFile(bulk) {
   let scanned = 0
   let upserted = 0
+  let skipped = 0
   let pending = []
   const seen = new Set()
+
+  const existing = FORCE ? new Map() : await fetchExistingTimestamps()
+  if (!FORCE) {
+    console.log(`[Oracle Sync] ${existing.size.toLocaleString()} rows already stored; skipping unchanged.`)
+  }
 
   for await (const card of streamBulkCardsFromFile(bulk.path, bulk.format)) {
     scanned++
     const row = oracleCardRow(card)
     if (!row || seen.has(row.oracle_id)) continue
     seen.add(row.oracle_id)
+
+    if (!needsWrite(row, existing, FORCE)) { skipped++; continue }
     pending.push(row)
 
     if (pending.length >= UPSERT_BATCH) {
@@ -122,7 +181,7 @@ async function processBulkFile(bulk) {
     await flush(pending)
     upserted += pending.length
   }
-  return { scanned, upserted }
+  return { scanned, upserted, skipped }
 }
 
 async function main() {
@@ -132,8 +191,8 @@ async function main() {
     console.log('[Oracle Sync] Downloading oracle_cards bulk file…')
     bulk = await downloadBulkData(BULK_DATA_TYPE, { dir: DOWNLOAD_DIR, userAgent: USER_AGENT })
     console.log('[Oracle Sync] Streaming rows into Supabase…')
-    const { scanned, upserted } = await processBulkFile(bulk)
-    console.log(`[Oracle Sync] Done. Scanned ${scanned.toLocaleString()}, upserted ${upserted.toLocaleString()}.`)
+    const { scanned, upserted, skipped } = await processBulkFile(bulk)
+    console.log(`[Oracle Sync] Done. Scanned ${scanned.toLocaleString()}, upserted ${upserted.toLocaleString()}, skipped ${skipped.toLocaleString()} unchanged.`)
   } finally {
     try { if (bulk?.path) fs.rmSync(bulk.path, { force: true }) } catch {}
   }
