@@ -90,6 +90,7 @@ import {
   additiveSaveOwnedCards,
   additiveSaveWishlistItems,
 } from '../lib/deckBuilderWrites'
+import { makeDeckCopyMeta, getNextCopyDeckName } from '../lib/deckDuplicate'
 import {
   ListViewIcon,
   StacksViewIcon,
@@ -1741,40 +1742,18 @@ export default function DeckBuilderPage() {
     }
   }, [copyShareLink, deckId, deckMeta, shareBusy])
 
-  function makePrivateCopyMeta(meta) {
-    const next = { ...(meta || {}) }
-    next.is_public = false
-    delete next.linked_deck_id
-    delete next.linked_builder_id
-    delete next.sync_state
-    delete next.last_sync_at
-    delete next.last_sync_snapshot
-    delete next.unsynced_builder
-    delete next.unsynced_collection
-    delete next.hideFromBuilder
-    return next
-  }
-
-  async function getNextCopyDeckName(baseName) {
-    const base = String(baseName || 'Deck').trim() || 'Deck'
-    const { data } = await sb.from('folders')
-      .select('name')
-      .eq('user_id', user.id)
-      .in('type', ['builder_deck', 'deck'])
-    const taken = new Set((data || []).map(row => String(row.name || '').toLowerCase()))
-    let n = 1
-    while (taken.has(`${base} copy ${n}`.toLowerCase())) n += 1
-    return `${base} copy ${n}`
-  }
-
+  // Naming + meta rules are shared with the Builder index's tile menu
+  // (src/lib/deckDuplicate.js) so a copy behaves the same from either surface.
+  // The insert path stays here because it copies the already-loaded deck rather
+  // than refetching it.
   async function handleCopyDeck() {
     if (!deckId || !user?.id || copyDeckBusy) return
     setCopyDeckBusy(true)
     let createdDeckId = null
     try {
       const now = new Date().toISOString()
-      const copyName = await getNextCopyDeckName(deckName)
-      const copyMeta = makePrivateCopyMeta(deckMeta)
+      const copyName = await getNextCopyDeckName(user.id, deckName)
+      const copyMeta = makeDeckCopyMeta(deckMeta)
       const { data: newDeck, error: deckError } = await sb.from('folders').insert({
         user_id: user.id,
         type: 'builder_deck',

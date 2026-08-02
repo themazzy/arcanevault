@@ -32,6 +32,20 @@ export function matchColorIdentity(deckColors, selected, mode = 'includes') {
   return true
 }
 
+export const TAG_MATCH_MODES = ['any', 'all']
+
+export const TAG_MODE_LABELS = {
+  any: 'Any tag',
+  all: 'All tags',
+}
+
+export const COMPLETION_LABELS = {
+  all:      'Any size',
+  complete: 'At target',
+  under:    'Under target',
+  over:     'Over target',
+}
+
 export const EMPTY_DECK_INDEX_FILTERS = {
   search: '',
   type: 'all',          // all | builder | collection
@@ -40,12 +54,41 @@ export const EMPTY_DECK_INDEX_FILTERS = {
   colors: [],           // subset of W U B R G C
   colorMode: 'includes',
   bracket: 'all',       // all | 1..5
-  tags: [],             // deck matches when it has ANY selected tag
+  tags: [],
+  tagMode: 'any',       // any = matches ANY selected tag | all = must have every one
+  completion: 'all',    // all | complete | under | over (vs the format's deck size)
+  unsyncedOnly: false,  // only linked pairs with pending drift
 }
 
 const metaOf = deck => deck.__meta || {}
 
 export const deckFormatId = meta => meta.format || 'commander'
+
+// Mirrors getSyncState() in deckSync.js. Duplicated rather than imported so this
+// module stays dependency-free (deckSync pulls in the Supabase client).
+export function isDeckUnsynced(meta) {
+  const m = meta || {}
+  if (!(m.linked_deck_id || m.linked_builder_id)) return false
+  const s = m.sync_state || {}
+  return !!(s.unsynced_builder || s.unsynced_collection)
+}
+
+/**
+ * How a deck's card count sits against its format's target size.
+ * `deckSizeFor(formatId)` resolves the target — callers pass a resolver over
+ * FORMATS rather than this module importing it, so the size stays defined in
+ * exactly one place (deckBuilderApi.FORMATS) and this file stays pure.
+ * Returns null when the count or the target is unknown.
+ */
+export function deckCompletion(deck, deckSizeFor) {
+  if (typeof deckSizeFor !== 'function') return null
+  const count = deck?.card_count
+  if (count == null) return null
+  const target = deckSizeFor(deckFormatId(metaOf(deck)))
+  if (!target) return null
+  if (count === target) return 'complete'
+  return count < target ? 'under' : 'over'
+}
 
 // Prefer colors aggregated from actual deck cards (RPC field); fall back to
 // the stored commander identity — same rule the deck tiles use for pips.
@@ -54,7 +97,7 @@ export function deckColorsOf(deck) {
   return raw && raw.length > 0 ? raw : (metaOf(deck).commanderColorIdentity || [])
 }
 
-export function filterDeckIndex(decks, filters) {
+export function filterDeckIndex(decks, filters, opts = {}) {
   const f = { ...EMPTY_DECK_INDEX_FILTERS, ...filters }
   const q = f.search.trim().toLowerCase()
   return (decks || []).filter(deck => {
@@ -76,38 +119,88 @@ export function filterDeckIndex(decks, filters) {
     if (f.bracket !== 'all' && Number(meta.bracket) !== Number(f.bracket)) return false
     if (f.tags.length) {
       const deckTags = meta.tags || []
-      if (!f.tags.some(t => deckTags.includes(t))) return false
+      const match = f.tagMode === 'all'
+        ? f.tags.every(t => deckTags.includes(t))
+        : f.tags.some(t => deckTags.includes(t))
+      if (!match) return false
     }
+    if (f.completion !== 'all' && deckCompletion(deck, opts.deckSizeFor) !== f.completion) return false
+    if (f.unsyncedOnly && !isDeckUnsynced(meta)) return false
     return true
   })
 }
 
+// Sort keys are direction-free — direction is a separate axis so every key can
+// be reversed, not just name (which used to need a hand-paired `name_desc`).
 export const DECK_INDEX_SORTS = {
-  name:      'Name A→Z',
-  name_desc: 'Name Z→A',
-  format:    'Format',
-  bracket:   'Bracket',
-  count:     'Card Count',
-  created:   'Newest',
-  updated:   'Recently Updated',
+  updated: 'Last updated',
+  created: 'Date created',
+  name:    'Name',
+  format:  'Format',
+  bracket: 'Bracket',
+  count:   'Card count',
+}
+
+// The direction each key opens on — the one people mean when they pick it.
+export const DECK_INDEX_SORT_DEFAULT_DIR = {
+  updated: 'desc',
+  created: 'desc',
+  name:    'asc',
+  format:  'asc',
+  bracket: 'desc',
+  count:   'desc',
+}
+
+// Human labels for the direction toggle, per key.
+const SORT_DIR_LABELS = {
+  updated: { asc: 'Oldest first',   desc: 'Newest first' },
+  created: { asc: 'Oldest first',   desc: 'Newest first' },
+  name:    { asc: 'A→Z',            desc: 'Z→A' },
+  format:  { asc: 'A→Z',            desc: 'Z→A' },
+  bracket: { asc: 'Lowest first',   desc: 'Highest first' },
+  count:   { asc: 'Fewest first',   desc: 'Most first' },
 }
 
 const updatedTs = d => Date.parse(d.deck_modified_at || d.updated_at || d.created_at || 0) || 0
 const createdTs = d => Date.parse(d.created_at || d.updated_at || 0) || 0
 const byName = (a, b) => (a.name || '').localeCompare(b.name || '')
 
-export function sortDeckIndex(decks, sortBy) {
-  const arr = [...(decks || [])]
-  if (sortBy === 'name')      return arr.sort(byName)
-  if (sortBy === 'name_desc') return arr.sort((a, b) => byName(b, a))
-  if (sortBy === 'created')   return arr.sort((a, b) => createdTs(b) - createdTs(a))
-  if (sortBy === 'format')    return arr.sort((a, b) =>
-    deckFormatId(metaOf(a)).localeCompare(deckFormatId(metaOf(b))) || byName(a, b))
-  if (sortBy === 'bracket')   return arr.sort((a, b) =>
-    (Number(metaOf(b).bracket) || 0) - (Number(metaOf(a).bracket) || 0) || byName(a, b))
-  if (sortBy === 'count')     return arr.sort((a, b) =>
-    (b.card_count || 0) - (a.card_count || 0) || byName(a, b))
-  return arr.sort((a, b) => updatedTs(b) - updatedTs(a)) // 'updated' (default)
+// Every comparator is written ascending; sortDeckIndex flips the sign for
+// 'desc'. Name is always the tiebreak, applied after the flip so ties stay A→Z.
+const ASC_COMPARATORS = {
+  name:    byName,
+  updated: (a, b) => updatedTs(a) - updatedTs(b),
+  created: (a, b) => createdTs(a) - createdTs(b),
+  format:  (a, b) => deckFormatId(metaOf(a)).localeCompare(deckFormatId(metaOf(b))),
+  bracket: (a, b) => (Number(metaOf(a).bracket) || 0) - (Number(metaOf(b).bracket) || 0),
+  count:   (a, b) => (a.card_count || 0) - (b.card_count || 0),
+}
+
+/**
+ * Resolve a stored sort preference into a valid { sortBy, dir } pair.
+ * Accepts the retired `name_desc` key so saved localStorage prefs (and any
+ * caller still passing it) keep working.
+ */
+export function normalizeDeckSort(sortBy, dir) {
+  if (sortBy === 'name_desc') return { sortBy: 'name', dir: 'desc' }
+  const key = DECK_INDEX_SORTS[sortBy] ? sortBy : 'updated'
+  const direction = dir === 'asc' || dir === 'desc' ? dir : DECK_INDEX_SORT_DEFAULT_DIR[key]
+  return { sortBy: key, dir: direction }
+}
+
+export function describeSortDirection(sortBy, dir) {
+  const { sortBy: key, dir: direction } = normalizeDeckSort(sortBy, dir)
+  return SORT_DIR_LABELS[key][direction]
+}
+
+export function sortDeckIndex(decks, sortBy, dir) {
+  const { sortBy: key, dir: direction } = normalizeDeckSort(sortBy, dir)
+  const compare = ASC_COMPARATORS[key]
+  const sign = direction === 'asc' ? 1 : -1
+  return [...(decks || [])].sort((a, b) => {
+    const r = compare(a, b) * sign
+    return r !== 0 ? r : byName(a, b)
+  })
 }
 
 // ── Active-filter chips ──────────────────────────────────────────────────────
@@ -122,7 +215,11 @@ export function describeActiveFilters(filters, opts = {}) {
   if (f.format !== 'all') chips.push({ key: 'format', label: opts.formatLabel || f.format })
   if (f.colors.length) chips.push({ key: 'colors', label: `${COLOR_MODE_LABELS[f.colorMode] || 'Includes'} ${f.colors.join('')}` })
   if (f.bracket !== 'all') chips.push({ key: 'bracket', label: `Bracket ${f.bracket}` })
+  if (f.completion !== 'all') chips.push({ key: 'completion', label: COMPLETION_LABELS[f.completion] })
+  if (f.unsyncedOnly) chips.push({ key: 'unsyncedOnly', label: 'Unsynced' })
   for (const t of f.tags) chips.push({ key: `tag:${t}`, label: t })
+  // Only meaningful with more than one tag selected — with one, any === all.
+  if (f.tags.length > 1 && f.tagMode === 'all') chips.push({ key: 'tagMode', label: 'All tags' })
   return chips
 }
 

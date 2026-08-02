@@ -229,20 +229,20 @@
 }
 
 .filterInput {
-  min-height: 32px;
+  min-height: var(--control-height);
   background: var(--s3);
   border: 1px solid var(--s-border2);
-  border-radius: 10px;
-  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--control-padding-x);
   color: var(--text);
-  font-size: 0.88rem;
+  font-size: var(--font-md);
   outline: none;
   width: 200px;
   transition: border-color 0.15s, background 0.15s;
 }
 .filterInput::placeholder { color: var(--text-faint); font-style: italic; }
 .filterInput:hover { background: var(--s2); border-color: var(--border-hi); }
-.filterInput:focus { background: var(--s2); border-color: rgba(201,168,76,0.4); }
+.filterInput:focus { background: var(--s2); border-color: var(--border-hi); box-shadow: var(--input-focus); }
 
 .filterGroup {
   display: flex;
@@ -250,29 +250,54 @@
   gap: 4px;
 }
 
+/* Filter pills are buttons, so they take the control tokens and the button
+   radius — they are deliberately NOT --radius-pill (DESIGN.md §4: a chip and a
+   button must never be mistakable). */
 .filterPill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  min-height: 32px;
+  gap: 5px;
+  min-height: var(--control-height);
   background: transparent;
   border: 1px solid var(--s-border2);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   color: var(--text-dim);
   cursor: pointer;
   font-family: var(--font-display);
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  padding: 6px 13px;
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  line-height: 1;
+  padding: 0 var(--control-padding-x);
   transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
-.filterPill:hover { color: var(--text); background: var(--s-medium); border-color: var(--s-border2); }
+.filterPill:hover:not(.filterPillActive) {
+  color: var(--text);
+  background: var(--s-medium);
+  border-color: var(--s-border3);
+}
 
 .filterPillActive {
   background: rgba(201,168,76,0.12);
   border-color: rgba(201,168,76,0.35);
   color: var(--gold);
 }
+.filterPillActive:hover { background: rgba(201,168,76,0.18); border-color: rgba(201,168,76,0.55); }
+
+/* Sort direction toggle — an icon-only sibling of the sort pill. */
+.sortDirBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  background: transparent;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.sortDirBtn:hover { color: var(--gold); background: var(--s-medium); border-color: var(--s-border3); }
 
 .sortMenuWrap { position: relative; }
 
@@ -289,10 +314,8 @@
   padding-bottom: 4px;
 }
 .filtersMenuLabel {
+  composes: labelSm from '../styles/typography.module.css';
   font-family: var(--font-display);
-  font-size: 0.6rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
   color: var(--text-faint);
   margin-top: 4px;
 }
@@ -306,13 +329,17 @@
 .filtersClearBtn {
   align-self: flex-start;
   margin-top: 6px;
+  min-height: var(--control-height);
   background: none;
   border: 1px solid var(--s-border2);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 0.72rem;
-  padding: 6px 12px;
+  font-family: var(--font-display);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  line-height: 1;
+  padding: 0 var(--control-padding-x);
 }
 .filtersClearBtn:hover { color: var(--text); background: var(--s-medium); }
 
@@ -348,26 +375,80 @@
 }
 
 /* ── Deck card tile ─────────────────────────────────────────────── */
+/* Border + hover match Home's .featuredTile: one uniform 1px edge that turns
+   gold on hover. No heavier top edge, no lift, no drop shadow. */
 .card {
   position: relative;
   background: var(--bg2);
   border: 1px solid var(--s-border2);
-  border-top: 2px solid var(--s-border3);
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   display: flex;
   flex-direction: row;
   height: 300px;
   cursor: pointer;
-  transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+  transition: border-color 0.18s;
 }
 
-.card:hover {
-  border-color: rgba(201,168,76,0.55);
-  border-top-color: rgba(201,168,76,0.65);
-  box-shadow: 0 8px 28px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(201,168,76,0.06);
-  transform: translateY(-2px);
+.card:hover { border-color: rgba(201,168,76,0.45); }
+
+/* ── Loading skeleton ───────────────────────────────────────────── */
+/* Mirrors .card's geometry exactly (height, art-panel width, padding) so the
+   grid does not reflow when the real tiles replace it. `shimmer` is the shared
+   keyframe in index.css; reduce-motion is handled globally. */
+.skeletonCard {
+  display: flex;
+  flex-direction: row;
+  height: 300px;
+  background: var(--bg2);
+  border: 1px solid var(--s-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
+
+.skeletonLine,
+.skeletonArt {
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeletonArt { flex: 0 0 150px; }
+
+.skeletonContent {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px 12px 12px;
+}
+
+.skeletonLine {
+  display: block;
+  border-radius: var(--radius-xs);
+}
+
+.skeletonBadges { display: flex; gap: 4px; }
+.skeletonBadge  { width: 76px; height: 16px; }
+
+.skeletonBottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeletonTitle { width: 66%; height: 18px; }
+.skeletonSub   { width: 44%; height: 12px; }
+.skeletonPips  { width: 52px; height: 14px; }
+.skeletonDesc  { width: 88%; height: 12px; }
+
+.skeletonActions {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--s-border);
+}
+.skeletonMeta { width: 104px; height: 11px; }
 
 /* Left art panel */
 .deckArtPanel {
@@ -423,7 +504,13 @@
   overflow: hidden;
 }
 
-.cardTop { flex-shrink: 0; }
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
 
 .cardBottom {
   margin-top: auto;
@@ -438,47 +525,42 @@
   gap: 4px;
   flex-wrap: wrap;
   margin-bottom: 4px;
+  min-width: 0;
 }
 
-.formatBadge {
+.formatBadge,
+.bracketBadge,
+.collectionBadge,
+.unsyncedBadge,
+.publicBadge {
+  composes: labelSm from '../styles/typography.module.css';
   display: inline-block;
-  font-size: 0.62rem;
-  color: var(--text-dim);
-  background: var(--s2);
   border: 1px solid var(--s-border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  letter-spacing: 0.02em;
+  border-radius: var(--radius-xs);
+  padding: 2px 6px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
+.formatBadge  { color: var(--text-dim); background: var(--s2); }
+.bracketBadge { color: var(--text-dim); background: var(--s2); }
+
+/* Status colours come from the tokens, which carry their own light-theme and
+   high-contrast values — the hex literals these replaced did not. */
 .collectionBadge {
-  display: inline-block;
-  font-size: 0.62rem;
-  color: #4a9a5a;
-  background: rgba(74,154,90,0.12);
-  border: 1px solid rgba(74,154,90,0.3);
-  border-radius: 4px;
-  padding: 1px 6px;
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  border-color: color-mix(in srgb, var(--green) 30%, transparent);
 }
-
 .unsyncedBadge {
-  display: inline-block;
-  font-size: 0.62rem;
-  color: #e0b04c;
-  background: rgba(224,176,76,0.12);
-  border: 1px solid rgba(224,176,76,0.3);
-  border-radius: 4px;
-  padding: 1px 6px;
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 12%, transparent);
+  border-color: color-mix(in srgb, var(--orange) 30%, transparent);
 }
-
-.bracketBadge {
-  display: inline-block;
-  font-size: 0.62rem;
-  background: var(--s2);
-  border: 1px solid var(--s-border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  letter-spacing: 0.02em;
+.publicBadge {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  border-color: color-mix(in srgb, var(--blue) 30%, transparent);
 }
 
 /* Name & commander */
@@ -488,6 +570,7 @@
   color: var(--gold);
   line-height: 1.22;
   margin-top: 4px;
+  text-decoration: none;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -497,17 +580,16 @@
 }
 
 .commanderName {
-  font-size: 0.74rem;
+  font-size: var(--font-sm);
   color: var(--text-faint);
   font-style: italic;
-  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .deckDescription {
-  font-size: 0.74rem;
+  font-size: var(--font-sm);
   color: var(--text-dim);
   line-height: 1.38;
   margin-top: 6px;
@@ -519,20 +601,10 @@
   word-break: break-word;
 }
 
-.publicBadge {
-  display: inline-block;
-  font-size: 0.62rem;
-  color: #4a8fc9;
-  background: rgba(74,143,201,0.12);
-  border: 1px solid rgba(74,143,201,0.3);
-  border-radius: 4px;
-  padding: 1px 6px;
-}
-
 .creatorNick {
-  font-size: 0.67rem;
+  font-size: var(--font-xs);
   color: var(--text-faint);
-  margin-top: 1px;
+  white-space: nowrap;
 }
 .creatorNickLink {
   color: var(--gold);
@@ -561,97 +633,79 @@
 .cardActions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--s-border);
-  gap: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
-.editedDate {
-  font-size: 0.62rem;
+.cardCount {
+  font-size: var(--font-xs);
   color: var(--text-faint);
-  margin-left: auto;
-  margin-right: 4px;
   white-space: nowrap;
 }
 
-.deleteBtn {
+.editedDate {
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+  margin-left: auto;
+  white-space: nowrap;
+  flex: none;
+}
+
+/* Per-tile action menu trigger — replaces the bare Delete button that used to
+   sit inside the tile's own click target. */
+.tileMenuWrap { flex: none; display: inline-flex; }
+
+.tileMenuBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 24px;
+  height: 24px;
   background: none;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-faint);
   cursor: pointer;
-  padding: 3px 6px;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
-.deleteBtn:hover {
-  color: #e07070;
-  background: rgba(224,112,112,0.1);
-  border-color: rgba(224,112,112,0.2);
+.tileMenuBtn:hover {
+  color: var(--gold);
+  background: var(--s-medium);
+  border-color: var(--s-border2);
+}
+
+.menuDivider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--s-border);
 }
 
 /* ── Selection ──────────────────────────────────────────────────── */
-/* .cardSelected is defined further down (identical rule, kept there). */
+/* .cardSelected is defined at the end of the file. Selection is border-only
+   (Collection-style) — the checkbox styles that used to live here were dead. */
 
-.deckCheckbox {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 10;
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-  border: 1.5px solid rgba(201,168,76,0.55);
-  background: var(--s2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--gold);
-}
-.deckCheckboxChecked {
-  background: rgba(201,168,76,0.22);
-  border-color: var(--gold);
-}
-
-/* Bulk action bar */
+/* Bulk action bar — buttons come from the Button primitive, so this only owns
+   the strip itself. It used to style bare <button> elements locally and then
+   need four !important declarations to make the delete variant win. */
 .bulkBar {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 10px 14px;
+  padding: 8px 12px;
   background: rgba(201,168,76,0.06);
   border: 1px solid rgba(201,168,76,0.22);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   margin-bottom: 14px;
-  font-size: 0.83rem;
-  color: var(--text-dim);
 }
 
-.bulkBar button {
-  background: var(--s2);
-  border: 1px solid var(--s-border2);
-  border-radius: 8px;
+.bulkCount {
+  font-size: var(--font-md);
   color: var(--text-dim);
-  padding: 4px 10px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.bulkBar button:hover { background: var(--s4); color: var(--text); }
-
-.bulkDelete {
-  background: rgba(200,60,60,0.1) !important;
-  border: 1px solid rgba(200,60,60,0.28) !important;
-  color: #e07070 !important;
-}
-.bulkDelete:hover {
-  background: rgba(200,60,60,0.2) !important;
-  border-color: rgba(200,60,60,0.5) !important;
+  margin-right: 2px;
 }
 
 /* ── Tags ───────────────────────────────────────────────────────── */
@@ -665,21 +719,21 @@
 }
 
 .cardTag {
-  font-size: 0.62rem;
+  composes: labelSm from '../styles/typography.module.css';
   color: var(--text-faint);
   background: var(--s2);
   border: 1px solid var(--s-border);
-  border-radius: 3px;
-  padding: 1px 6px;
-  letter-spacing: 0.02em;
+  border-radius: var(--radius-xs);
+  padding: 2px 6px;
+  line-height: 1;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 /* ── Community deck browser extras ─────────────────────────────────── */
 .colorFilterPip {
-  width: 26px;
-  height: 26px;
+  width: var(--control-height);
+  height: var(--control-height);
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -700,27 +754,36 @@
 }
 
 .communityStats {
-  font-size: 0.66rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
   color: var(--text-faint);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  flex: none;
 }
 
-/* Color match-mode cycle button (Includes / Exactly / At most) */
-.colorModeBtn {
-  min-height: 26px;
+/* Match-mode cycle button — shared by the colour filter (Includes / Exactly /
+   At most) and the tag filter (Any tag / All tags). */
+.modeCycleBtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
   background: var(--s2);
   border: 1px solid var(--s-border2);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   color: var(--gold);
   cursor: pointer;
   font-family: var(--font-display);
-  font-size: 0.62rem;
-  letter-spacing: 0.05em;
-  padding: 3px 10px;
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  line-height: 1;
+  padding: 0 10px;
   white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
 }
-.colorModeBtn:hover { background: var(--s-medium); }
+.modeCycleBtn:hover { background: var(--s-medium); border-color: var(--s-border3); }
 
 /* ── Active-filter chips row ── */
 .chipsRow {
@@ -761,13 +824,6 @@
 }
 .chipsClearAll:hover { color: var(--text-dim); }
 
-/* Card count on deck tiles (My Decks + community) */
-.cardCount {
-  font-size: 0.62rem;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-
 .trendingSection {
   margin-bottom: 26px;
   padding: 16px 18px 20px;
@@ -778,44 +834,34 @@
   border-radius: 14px;
 }
 .trendingLabel {
+  composes: labelLg from '../styles/typography.module.css';
   display: flex;
   align-items: center;
   gap: 8px;
   font-family: var(--font-display);
-  font-size: 0.74rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
   color: var(--gold);
   margin-bottom: 12px;
 }
-.trendingLabel::before { content: '🔥'; font-size: 0.9rem; }
 .trendingLabel::after {
   content: '';
   flex: 1;
   height: 1px;
   background: rgba(201,168,76,0.25);
 }
+/* Intrinsic columns instead of the 1000px/700px one-offs this used to carry. */
 .trendingGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-@media (max-width: 1000px) {
-  .trendingGrid { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 700px) {
-  .trendingGrid { grid-template-columns: 1fr; }
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
 }
 
 /* Section label that separates the trending headliner from the full grid. */
 .communityAllLabel {
+  composes: labelLg from '../styles/typography.module.css';
   display: flex;
   align-items: center;
   gap: 8px;
   font-family: var(--font-display);
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--text-faint);
   margin: 4px 0 14px;
 }
@@ -826,6 +872,21 @@
   background: var(--s-border);
 }
 
+/* ── Pagination ─────────────────────────────────────────────────── */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px 0 4px;
+}
+
+.paginationLabel {
+  font-size: var(--font-md);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .page { padding-bottom: 16px; }
@@ -834,8 +895,11 @@
     grid-template-columns: 1fr;
     gap: 12px;
   }
-  .card { height: 262px; }
-  .deckArtPanel { flex: 0 0 130px; }
+  .trendingGrid { grid-template-columns: 1fr; }
+  .card,
+  .skeletonCard { height: 262px; }
+  .deckArtPanel,
+  .skeletonArt { flex: 0 0 130px; }
 }
 
 @media (max-width: 480px) {
@@ -845,10 +909,13 @@
   .filterBar { gap: 6px; }
   .filterGroup { flex-wrap: wrap; }
   .grid { grid-template-columns: 1fr; gap: 10px; }
-  .card { height: 240px; }
-  .deckArtPanel { flex: 0 0 110px; }
+  .card,
+  .skeletonCard { height: 240px; }
+  .deckArtPanel,
+  .skeletonArt { flex: 0 0 110px; }
   .cardName { font-size: 0.95rem; }
-  .cardContent { padding: 10px 12px; }
+  .cardContent,
+  .skeletonContent { padding: 10px 12px; }
   .bulkBar { gap: 6px; }
 }
 

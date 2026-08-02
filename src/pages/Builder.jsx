@@ -5,21 +5,28 @@ import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { Button, ConfirmModal, Modal, EmptyState, SectionHeader, ResponsiveMenu, SearchInput } from '../components/UI'
 import { parseDeckMeta, serializeDeckMeta, FORMATS } from '../lib/deckBuilderApi'
-import { unlinkPairedDeck, getSyncState, patchDeckMeta } from '../lib/deckSync'
+import { unlinkPairedDeck, patchDeckMeta, setLinkedDeckVisibility, renameFolder } from '../lib/deckSync'
 import { useDeckArts, enrichDecksWithCommanderArt } from '../lib/deckArt'
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import { useToast } from '../components/ToastContext'
-import { CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon, FilterIcon, LightningIcon, ImportIcon, DeckIcon, BuilderDeckIcon } from '../icons'
+import {
+  CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon, ChevronUpIcon, ChevronLeftIcon, ChevronRightIcon,
+  FilterIcon, LightningIcon, ImportIcon, DeckIcon, BuilderDeckIcon, SettingsIcon, EditIcon, CopyIcon,
+  GlobeIcon, LockIcon, SyncIcon, HeartIcon, CommentIcon, FlameIcon,
+} from '../icons'
 import { GuidedCommanderPicker } from '../components/deckBuilder/GuidedCommanderPicker'
 import GuidedBuildOverlay from '../components/deckBuilder/GuidedBuildOverlay'
 import { resolveBracketBadge, analyzeBracket, fetchGameChangerNames, computeBracketMetaPatch, BRACKET_LABELS } from '../lib/commanderBracket'
 import {
   EMPTY_DECK_INDEX_FILTERS, DECK_INDEX_SORTS, COLOR_MODE_LABELS, COLOR_MATCH_MODES,
+  TAG_MODE_LABELS, COMPLETION_LABELS,
   filterDeckIndex, sortDeckIndex, describeActiveFilters, clearFilterChip,
+  normalizeDeckSort, describeSortDirection, isDeckUnsynced,
   loadViewPrefs, saveViewPrefs,
 } from '../lib/deckIndexFilters'
+import { duplicateBuilderDeck } from '../lib/deckDuplicate'
 import { fetchDeckCards, fetchDeckAllocations } from '../lib/deckData'
 import { normalizeDeckBuilderCards } from '../components/DeckStats'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -118,7 +125,47 @@ function attachDeckMeta(decks) {
 
 // enrichDecksWithCommanderArt now lives in src/lib/deckArt.js
 
-function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSelect, onEnterSelectMode, onDelete, navigate }) {
+// Target deck size for a format id — the single source is FORMATS, so the
+// deck-size filter never re-declares "Commander is 100 cards".
+const deckSizeFor = id => FORMATS.find(f => f.id === id)?.deckSize || null
+
+// Loading placeholder shaped like a real tile — same height, same art panel
+// width, same content rhythm — so the grid doesn't reflow when decks arrive.
+function DeckTileSkeleton() {
+  return (
+    <div className={styles.skeletonCard}>
+      <div className={styles.skeletonArt} />
+      <div className={styles.skeletonContent}>
+        <div className={styles.skeletonBadges}>
+          <span className={`${styles.skeletonLine} ${styles.skeletonBadge}`} />
+          <span className={`${styles.skeletonLine} ${styles.skeletonBadge}`} />
+        </div>
+        <div className={styles.skeletonBottom}>
+          <span className={`${styles.skeletonLine} ${styles.skeletonTitle}`} />
+          <span className={`${styles.skeletonLine} ${styles.skeletonSub}`} />
+          <span className={`${styles.skeletonLine} ${styles.skeletonPips}`} />
+          <span className={`${styles.skeletonLine} ${styles.skeletonDesc}`} />
+          <div className={styles.skeletonActions}>
+            <span className={`${styles.skeletonLine} ${styles.skeletonMeta}`} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function DeckGridSkeleton({ count = 6, label = 'Loading decks' }) {
+  return (
+    <div className={styles.grid} role="status" aria-label={label} aria-busy="true">
+      {Array.from({ length: count }, (_, i) => <DeckTileSkeleton key={i} />)}
+    </div>
+  )
+}
+
+function DeckTile({
+  deck, meta, fmt, colors, selectMode, isSelected, onToggleSelect, onEnterSelectMode,
+  onDelete, onRename, onDuplicate, onToggleVisibility, busy, navigate,
+}) {
   const longPress = useLongPress(() => {
     if (selectMode) return
     onEnterSelectMode?.()
@@ -126,22 +173,33 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
   }, { delay: 500 })
   const { consumeFired, ...lpRest } = longPress
   const effectiveId = (deck.type === 'deck' && meta.linked_builder_id) ? meta.linked_builder_id : deck.id
-  const syncState = getSyncState(meta)
-  const hasValidLink = !!(meta.linked_deck_id || meta.linked_builder_id)
-  const isUnsynced = hasValidLink && !!(syncState.unsynced_builder || syncState.unsynced_collection)
+  const isUnsynced = isDeckUnsynced(meta)
   const isCollection = deck.type === 'deck'
+  const isPublic = meta.is_public === true || meta.is_public === 'true'
   const description = plainPreview(meta.deckDescription)
   const tags = clampTags(meta.tags)
   const bracketMeta = fmt?.isEDH ? resolveBracketBadge(meta.bracket) : null
+  const href = `/builder/${effectiveId}`
+  // Unsynced pairs open straight into the sync prompt (was the Edit link's job)
+  const linkState = isUnsynced ? { openSync: true, source: 'builder' } : undefined
+
+  function open() {
+    if (selectMode) { onToggleSelect(deck.id); return }
+    navigate(href, linkState ? { state: linkState } : undefined)
+  }
 
   return (
     <div
       className={`${styles.card}${isSelected ? ' ' + styles.cardSelected : ''}`}
-      onClick={() => {
-        if (consumeFired()) return
-        if (selectMode) { onToggleSelect(deck.id); return }
-        // Unsynced pairs open straight into the sync prompt (was the Edit link's job)
-        navigate(`/builder/${effectiveId}`, isUnsynced ? { state: { openSync: true, source: 'builder' } } : undefined)
+      role="button"
+      tabIndex={0}
+      aria-label={[deck.name, meta.commanderName, deck.card_count != null && `${deck.card_count} cards`]
+        .filter(Boolean).join(', ')}
+      aria-pressed={selectMode ? isSelected : undefined}
+      onClick={() => { if (consumeFired()) return; open() }}
+      onKeyDown={e => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() }
       }}
       {...lpRest}
     >
@@ -165,17 +223,26 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
                 B{meta.bracket} · {bracketMeta.label}
               </span>
             )}
-            {isUnsynced && (
-              <span className={styles.unsyncedBadge}>Unsynced</span>
-            )}
-            {meta.is_public && (
-              <span className={styles.publicBadge}>Public</span>
-            )}
+            {isUnsynced && <span className={styles.unsyncedBadge}>Unsynced</span>}
+            {isPublic && <span className={styles.publicBadge}>Public</span>}
           </div>
         </div>
 
         <div className={styles.cardBottom}>
-          <div className={styles.cardName}>{deck.name}</div>
+          {/* A real link so Ctrl/middle-click opens the deck in a new tab — the
+              tile itself is a role=button and cannot offer that. */}
+          <Link
+            to={href}
+            state={linkState}
+            tabIndex={-1}
+            className={styles.cardName}
+            onClick={e => {
+              e.stopPropagation()
+              if (selectMode) { e.preventDefault(); onToggleSelect(deck.id) }
+            }}
+          >
+            {deck.name}
+          </Link>
           {meta.commanders?.length > 0 ? (
             <div className={styles.commanderName}>
               {meta.commanders.map((c, i) => (
@@ -197,29 +264,79 @@ function DeckTile({ deck, meta, fmt, colors, selectMode, isSelected, onToggleSel
           )}
           {tags.length > 0 && (
             <div className={styles.cardTags}>
-              {tags.map(t => (
-                <span key={t} className={styles.cardTag}>{t}</span>
-              ))}
+              {tags.map(t => <span key={t} className={styles.cardTag}>{t}</span>)}
             </div>
           )}
-          {!selectMode && (
-            <div className={styles.cardActions}>
-              {deck.card_count != null && (
-                <span className={styles.cardCount}>{deck.card_count} cards</span>
-              )}
-              <div className={styles.editedDate}>{fmtRelDate(deck.deck_modified_at || deck.updated_at)}</div>
-              <button
-                className={styles.deleteBtn}
-                onClick={e => { e.stopPropagation(); onDelete(deck.id) }}
-                title="Delete deck"
-              >
-                <DeleteIcon size={13} />
-              </button>
-            </div>
-          )}
+          <div className={styles.cardActions}>
+            {deck.card_count != null && (
+              <span className={styles.cardCount}>{deck.card_count} cards</span>
+            )}
+            <div className={styles.editedDate}>{fmtRelDate(deck.deck_modified_at || deck.updated_at)}</div>
+            {!selectMode && (
+              <DeckTileMenu
+                deck={deck}
+                isCollection={isCollection}
+                isPublic={isPublic}
+                busy={busy}
+                onDelete={onDelete}
+                onRename={onRename}
+                onDuplicate={onDuplicate}
+                onToggleVisibility={onToggleVisibility}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>
+  )
+}
+
+// Per-tile actions. Delete used to be a bare icon button sitting inside the
+// tile's own click target; everything else required opening the deck first.
+// `portal` is required — .card sets overflow: hidden (DESIGN.md §6).
+function DeckTileMenu({ deck, isCollection, isPublic, busy, onDelete, onRename, onDuplicate, onToggleVisibility }) {
+  return (
+    <ResponsiveMenu
+      title={deck.name}
+      portal
+      wrapClassName={styles.tileMenuWrap}
+      trigger={({ toggle, open }) => (
+        <button
+          className={styles.tileMenuBtn}
+          onClick={e => { e.stopPropagation(); toggle() }}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={`Actions for ${deck.name}`}
+        >
+          <SettingsIcon size={14} />
+        </button>
+      )}
+    >
+      {({ close }) => (
+        <div className={uiStyles.responsiveMenuList} onClick={e => e.stopPropagation()}>
+          <button className={uiStyles.responsiveMenuAction} disabled={busy}
+            onClick={() => { close(); onRename(deck) }}>
+            <span>Rename</span><EditIcon size={13} />
+          </button>
+          {!isCollection && (
+            <button className={uiStyles.responsiveMenuAction} disabled={busy}
+              onClick={() => { close(); onDuplicate(deck) }}>
+              <span>Duplicate</span><CopyIcon size={13} />
+            </button>
+          )}
+          <button className={uiStyles.responsiveMenuAction} disabled={busy}
+            onClick={() => { close(); onToggleVisibility(deck, !isPublic) }}>
+            <span>{isPublic ? 'Make private' : 'Make public'}</span>
+            {isPublic ? <LockIcon size={13} /> : <GlobeIcon size={13} />}
+          </button>
+          <div className={styles.menuDivider} />
+          <button className={`${uiStyles.responsiveMenuAction} ${uiStyles.responsiveMenuActionDanger}`} disabled={busy}
+            onClick={() => { close(); onDelete(deck.id) }}>
+            <span>{isCollection ? 'Hide from builder' : 'Delete deck'}</span><DeleteIcon size={13} />
+          </button>
+        </div>
+      )}
+    </ResponsiveMenu>
   )
 }
 
@@ -238,8 +355,25 @@ export function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigat
   const description = plainPreview(meta.deckDescription)
   const bracketMeta = fmt?.isEDH ? resolveBracketBadge(meta.bracket) : null
 
+  const href = `/d/${deck.id}`
+
   return (
-    <div className={styles.card} onClick={() => navigate(`/d/${deck.id}`)}>
+    <div
+      className={styles.card}
+      role="button"
+      tabIndex={0}
+      aria-label={[
+        deck.name,
+        commanderNames,
+        deck.card_count != null && `${deck.card_count} cards`,
+        creatorNick && !isOwn && `by ${creatorNick}`,
+      ].filter(Boolean).join(', ')}
+      onClick={() => navigate(href)}
+      onKeyDown={e => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(href) }
+      }}
+    >
       <DeckArtBackground meta={meta} />
       <div className={styles.cardContent}>
         <div className={styles.cardTop}>
@@ -260,10 +394,17 @@ export function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigat
             )}
             {isOwn && <span className={styles.collectionBadge}>Yours</span>}
           </div>
-          {creatorNick && !isOwn && <div className={styles.creatorNick}>by <Link to={`/profile/${encodeURIComponent(creatorNick)}`} className={styles.creatorNickLink} onClick={e => e.stopPropagation()}>{creatorNick}</Link></div>}
+          {creatorNick && !isOwn && (
+            <div className={styles.creatorNick}>
+              by <Link to={`/profile/${encodeURIComponent(creatorNick)}`} className={styles.creatorNickLink}
+                onClick={e => e.stopPropagation()}>{creatorNick}</Link>
+            </div>
+          )}
         </div>
         <div className={styles.cardBottom}>
-          <div className={styles.cardName}>{deck.name}</div>
+          <Link to={href} tabIndex={-1} className={styles.cardName} onClick={e => e.stopPropagation()}>
+            {deck.name}
+          </Link>
           {commanderNames && <div className={styles.commanderName}>{commanderNames}</div>}
           {colors.length > 0 && (
             <div className={styles.colorPips}>
@@ -277,9 +418,7 @@ export function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigat
           )}
           {tags.length > 0 && (
             <div className={styles.cardTags}>
-              {tags.map(t => (
-                <span key={t} className={styles.cardTag}>{t}</span>
-              ))}
+              {tags.map(t => <span key={t} className={styles.cardTag}>{t}</span>)}
             </div>
           )}
           <div className={styles.cardActions}>
@@ -287,7 +426,10 @@ export function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigat
               <span className={styles.cardCount}>{deck.card_count} cards</span>
             )}
             {(deck.like_count > 0 || deck.comment_count > 0) && (
-              <span className={styles.communityStats}>♥ {deck.like_count || 0} · 💬 {deck.comment_count || 0}</span>
+              <span className={styles.communityStats}>
+                <HeartIcon size={11} /> {deck.like_count || 0}
+                <CommentIcon size={11} /> {deck.comment_count || 0}
+              </span>
             )}
             <div className={styles.editedDate}>{fmtRelDate(deck.deck_modified_at || deck.updated_at)}</div>
           </div>
@@ -298,6 +440,8 @@ export function CommunityDeckTile({ deck, meta, fmt, isOwn, creatorNick, navigat
 }
 
 const TYPE_LABELS = [['all', 'All'], ['builder', 'Builder'], ['collection', 'Collection']]
+const VISIBILITY_OPTIONS = [['all', 'All'], ['public', 'Public'], ['private', 'Private']]
+const COMPLETION_OPTIONS = Object.entries(COMPLETION_LABELS)
 
 const MYDECKS_VIEW_KEY   = 'deckloom_mydecks_view_v1'
 const COMMUNITY_VIEW_KEY = 'deckloom_community_view_v1'
@@ -321,8 +465,9 @@ function PillMenu({ label, title, options, value, onChange, active }) {
     <ResponsiveMenu
       title={title || label}
       wrapClassName={styles.sortMenuWrap}
-      trigger={({ toggle }) => (
-        <button className={`${styles.filterPill}${isActive ? ' ' + styles.filterPillActive : ''}`} onClick={toggle}>
+      trigger={({ toggle, open }) => (
+        <button className={`${styles.filterPill}${isActive ? ' ' + styles.filterPillActive : ''}`}
+          onClick={toggle} aria-haspopup="menu" aria-expanded={open}>
           {label ? `${label}: ` : ''}{current?.[1] ?? value} <ChevronDownIcon size={10} />
         </button>
       )}
@@ -346,48 +491,63 @@ function PillMenu({ label, title, options, value, onChange, active }) {
 }
 
 // Multi-select tag menu — stays open so several tags can be toggled in a row.
-function TagsMenu({ tags, selected, onToggle }) {
+// `tagMode` mirrors the colour filter's match-mode cycle: with more than one tag
+// picked, "Any tag" and "All tags" are genuinely different questions.
+function TagsMenu({ tags, selected, onToggle, tagMode, onCycleTagMode }) {
   return (
-    <ResponsiveMenu
-      title="Tags"
-      wrapClassName={styles.sortMenuWrap}
-      trigger={({ toggle }) => (
-        <button className={`${styles.filterPill}${selected.length ? ' ' + styles.filterPillActive : ''}`} onClick={toggle}>
-          Tags{selected.length ? ` (${selected.length})` : ''} <ChevronDownIcon size={10} />
+    <div className={styles.filterGroup}>
+      <ResponsiveMenu
+        title="Tags"
+        wrapClassName={styles.sortMenuWrap}
+        trigger={({ toggle, open }) => (
+          <button className={`${styles.filterPill}${selected.length ? ' ' + styles.filterPillActive : ''}`}
+            onClick={toggle} aria-haspopup="menu" aria-expanded={open}>
+            Tags{selected.length ? ` (${selected.length})` : ''} <ChevronDownIcon size={10} />
+          </button>
+        )}
+      >
+        {() => (
+          <div className={uiStyles.responsiveMenuList}>
+            {tags.map(t => (
+              <button key={t}
+                className={`${uiStyles.responsiveMenuAction} ${selected.includes(t) ? uiStyles.responsiveMenuActionActive : ''}`}
+                onClick={() => onToggle(t)} aria-pressed={selected.includes(t)}>
+                <span>{t}</span>
+                <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
+                  {selected.includes(t) ? <CheckIcon size={11} /> : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </ResponsiveMenu>
+      {onCycleTagMode && selected.length > 1 && (
+        <button className={styles.modeCycleBtn} onClick={onCycleTagMode}
+          title="How the selected tags match a deck">
+          {TAG_MODE_LABELS[tagMode] || 'Any tag'}
         </button>
       )}
-    >
-      {() => (
-        <div className={uiStyles.responsiveMenuList}>
-          {tags.map(t => (
-            <button key={t}
-              className={`${uiStyles.responsiveMenuAction} ${selected.includes(t) ? uiStyles.responsiveMenuActionActive : ''}`}
-              onClick={() => onToggle(t)}>
-              <span>{t}</span>
-              <span className={uiStyles.responsiveMenuCheck} aria-hidden="true">
-                {selected.includes(t) ? <CheckIcon size={11} /> : ''}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </ResponsiveMenu>
+    </div>
   )
 }
 
+const COLOR_NAMES = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' }
+
 function ColorPipsFilter({ colors, colorMode, onToggleColor, onCycleMode }) {
   return (
-    <div className={styles.filterGroup}>
+    <div className={styles.filterGroup} role="group" aria-label="Color identity">
       {COMMUNITY_COLOR_ORDER.map(c => (
         <button key={c}
           className={`${styles.colorFilterPip}${colors.includes(c) ? ' ' + styles.colorFilterPipActive : ''}`}
-          title={`Filter ${c}`}
+          title={COLOR_NAMES[c]}
+          aria-label={COLOR_NAMES[c]}
+          aria-pressed={colors.includes(c)}
           onClick={() => onToggleColor(c)}>
-          <img src={MANA_SYMBOL_URL(c)} alt={c} />
+          <img src={MANA_SYMBOL_URL(c)} alt="" aria-hidden="true" />
         </button>
       ))}
       {colors.length > 0 && (
-        <button className={styles.colorModeBtn} onClick={onCycleMode}
+        <button className={styles.modeCycleBtn} onClick={onCycleMode}
           title="How selected colors match the deck's color identity">
           {COLOR_MODE_LABELS[colorMode] || 'Includes'}
         </button>
@@ -399,6 +559,28 @@ function ColorPipsFilter({ colors, colorMode, onToggleColor, onCycleMode }) {
 function cycleColorMode(mode) {
   const i = COLOR_MATCH_MODES.indexOf(mode)
   return COLOR_MATCH_MODES[(i + 1) % COLOR_MATCH_MODES.length]
+}
+
+// Sort key + direction. Direction used to be baked into the key, so only name
+// could be reversed; now every key can.
+function SortControl({ sortBy, sortDir, onChangeSort, onToggleDir }) {
+  const dirLabel = describeSortDirection(sortBy, sortDir)
+  return (
+    <div className={styles.filterGroup}>
+      <PillMenu
+        title="Sort By"
+        label="Sort"
+        options={Object.entries(DECK_INDEX_SORTS)}
+        value={sortBy}
+        onChange={onChangeSort}
+        active={false}
+      />
+      <button className={styles.sortDirBtn} onClick={onToggleDir}
+        title={dirLabel} aria-label={`Sort direction: ${dirLabel}`}>
+        {sortDir === 'asc' ? <ChevronUpIcon size={12} /> : <ChevronDownIcon size={12} />}
+      </button>
+    </div>
+  )
 }
 
 // Phone-only "Filters" pill + bottom sheet. The inline pill groups are hidden
@@ -434,25 +616,51 @@ function SheetPills({ options, value, onChange }) {
   return options.map(([v, label]) => (
     <button key={v}
       className={`${styles.filterPill}${value === v ? ' ' + styles.filterPillActive : ''}`}
+      aria-pressed={value === v}
       onClick={() => onChange(v)}>
       {label}
     </button>
   ))
 }
 
+// The result count lives here but must not disappear with the chips — knowing
+// how many decks you're looking at matters most when nothing is filtered.
 function FilterChips({ chips, countLabel, onClearChip, onClearAll }) {
-  if (!chips.length) return null
+  if (!chips.length && !countLabel) return null
   return (
     <div className={styles.chipsRow}>
       {countLabel && <span className={styles.chipsCount}>{countLabel}</span>}
       {chips.map(chip => (
         <button key={chip.key} className={styles.filterChip} onClick={() => onClearChip(chip.key)}
-          title="Remove filter">
+          aria-label={`Remove filter: ${chip.label}`}>
           {chip.label} <CloseIcon size={9} />
         </button>
       ))}
-      <button className={styles.chipsClearAll} onClick={onClearAll}>Clear all</button>
+      {chips.length > 0 && (
+        <button className={styles.chipsClearAll} onClick={onClearAll}>Clear all</button>
+      )}
     </div>
+  )
+}
+
+function Pagination({ page, totalPages, onChange }) {
+  if (totalPages <= 1) return null
+  const go = next => {
+    onChange(next)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  return (
+    <nav className={styles.pagination} aria-label="Deck browser pages">
+      <Button size="sm" variant="secondary" disabled={page === 1}
+        onClick={() => go(Math.max(1, page - 1))} aria-label="Previous page">
+        <ChevronLeftIcon size={12} />
+      </Button>
+      <span className={styles.paginationLabel} aria-live="polite">Page {page} of {totalPages}</span>
+      <Button size="sm" variant="secondary" disabled={page === totalPages}
+        onClick={() => go(Math.min(totalPages, page + 1))} aria-label="Next page">
+        <ChevronRightIcon size={12} />
+      </Button>
+    </nav>
   )
 }
 
@@ -488,6 +696,7 @@ export default function BuilderPage() {
   const [communityLoaded,  setCommunityLoaded]  = useState(false)
   const [communitySearch,  setCommunitySearch]  = useState('')
   const [communityQuery,   setCommunityQuery]   = useState('')  // debounced communitySearch
+  const [communityTags, setCommunityTags] = useState([])
   const [communityFilters, setCommunityFilters] = useState(() => {
     const saved = loadViewPrefs(COMMUNITY_VIEW_KEY, {})
     return {
@@ -495,6 +704,7 @@ export default function BuilderPage() {
       colors:    Array.isArray(saved.colors) ? saved.colors : [],
       colorMode: COLOR_MATCH_MODES.includes(saved.colorMode) ? saved.colorMode : 'includes',
       bracket:   saved.bracket || 'all',
+      tags:      Array.isArray(saved.tags) ? saved.tags : [],
     }
   })
   const [communitySort, setCommunitySort] = useState(() => {
@@ -510,15 +720,18 @@ export default function BuilderPage() {
     const saved = loadViewPrefs(MYDECKS_VIEW_KEY, {})
     return { ...EMPTY_DECK_INDEX_FILTERS, ...(saved.filters || {}), search: '' }
   })
-  const [sortBy, setSortBy] = useState(() => {
+  // normalizeDeckSort also migrates the retired 'name_desc' key that older
+  // saved prefs may still hold.
+  const [sort, setSort] = useState(() => {
     const saved = loadViewPrefs(MYDECKS_VIEW_KEY, {})
-    return DECK_INDEX_SORTS[saved.sortBy] ? saved.sortBy : 'updated'
+    return normalizeDeckSort(saved.sortBy, saved.sortDir)
   })
+  const { sortBy, dir: sortDir } = sort
 
   // Remember view preferences (search box intentionally not persisted)
   useEffect(() => {
-    saveViewPrefs(MYDECKS_VIEW_KEY, { sortBy, filters: { ...filters, search: '' } })
-  }, [sortBy, filters])
+    saveViewPrefs(MYDECKS_VIEW_KEY, { sortBy, sortDir, filters: { ...filters, search: '' } })
+  }, [sortBy, sortDir, filters])
   useEffect(() => {
     saveViewPrefs(COMMUNITY_VIEW_KEY, { sort: communitySort, ...communityFilters })
   }, [communitySort, communityFilters])
@@ -531,6 +744,8 @@ export default function BuilderPage() {
 
   const [selectMode, setSelectMode]   = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const [renameState, setRenameState] = useState(null)   // { deck, value, busy }
+  const [busyDeckId, setBusyDeckId]   = useState(null)
   const backfillRunningRef = useRef(false)
 
   const COLOR_ORDER = ['W', 'U', 'B', 'R', 'G', 'C']
@@ -620,6 +835,7 @@ export default function BuilderPage() {
         p_colors:     communityFilters.colors.length ? communityFilters.colors : null,
         p_color_mode: communityFilters.colorMode,
         p_bracket:    communityFilters.bracket === 'all' ? null : Number(communityFilters.bracket),
+        p_tags:       communityFilters.tags.length ? communityFilters.tags : null,
         p_sort:       communitySort,
         p_limit:      COMMUNITY_PAGE_SIZE,
         p_offset:     (communityPage - 1) * COMMUNITY_PAGE_SIZE,
@@ -627,6 +843,9 @@ export default function BuilderPage() {
       if (error) throw error
       const rows = Array.isArray(data?.decks) ? data.decks : []
       setCommunityTotal(Number(data?.total) || 0)
+      // Tag vocabulary is computed server-side over ALL public decks, so a tag
+      // you've selected never vanishes from the menu as the result set narrows.
+      if (Array.isArray(data?.tags)) setCommunityTags(data.tags)
       setCommunityDecks(attachDeckMeta(await enrichDecksWithCommanderArt(rows)))
       setCommunityLoaded(true)
       fetchNicknames(rows)
@@ -795,6 +1014,71 @@ export default function BuilderPage() {
     }
   }
 
+  // ── Per-tile actions ──────────────────────────────────────────────────────
+  // These used to require opening the deck first; the tile's only action was a
+  // bare Delete button sitting inside its own click target.
+
+  function patchDeckRow(id, patch) {
+    setDecks(prev => prev.map(d => (d.id === id ? { ...d, ...patch } : d)))
+  }
+
+  async function submitRename() {
+    const target = renameState?.deck
+    const name = renameState?.value?.trim()
+    if (!target || !name || name === target.name) { setRenameState(null); return }
+    setRenameState(s => ({ ...s, busy: true }))
+    // renameFolder resolves the linked counterpart and renames both rows — a
+    // plain folders.update renames one half of a pair (CLAUDE.md, Deck Model).
+    try {
+      await renameFolder(target.id, name)
+      patchDeckRow(target.id, { name })
+      await invalidateHomeSnapshot(queryClient, user.id)
+      setRenameState(null)
+      showToast('Deck renamed')
+    } catch (err) {
+      console.error('[Builder] rename failed:', err)
+      setRenameState(s => ({ ...s, busy: false }))
+      showToast(
+        err?.code === '23505' ? 'You already have a deck with that name.' : `Rename failed: ${err?.message || 'unknown error'}`,
+        { tone: 'error', duration: 4000 },
+      )
+    }
+  }
+
+  async function handleDuplicate(deck) {
+    if (busyDeckId) return
+    setBusyDeckId(deck.id)
+    try {
+      const copy = await duplicateBuilderDeck({ userId: user.id, deck })
+      await invalidateHomeSnapshot(queryClient, user.id)
+      await loadDecks()
+      showToast(`Created "${copy.name}"`)
+    } catch (err) {
+      console.error('[Builder] duplicate failed:', err)
+      showToast(`Could not duplicate deck: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+    } finally {
+      setBusyDeckId(null)
+    }
+  }
+
+  async function handleToggleVisibility(deck, nextPublic) {
+    if (busyDeckId) return
+    setBusyDeckId(deck.id)
+    const meta = deck.__meta || parseDeckMeta(deck.description)
+    const nextMeta = { ...meta, is_public: nextPublic }
+    patchDeckRow(deck.id, { __meta: nextMeta, description: serializeDeckMeta(nextMeta) })
+    try {
+      await setLinkedDeckVisibility(deck.id, nextPublic)
+      showToast(nextPublic ? 'Deck is now public' : 'Deck is now private')
+    } catch (err) {
+      console.error('[Builder] visibility toggle failed:', err)
+      patchDeckRow(deck.id, { __meta: meta, description: serializeDeckMeta(meta) })
+      showToast(`Could not change visibility: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+    } finally {
+      setBusyDeckId(null)
+    }
+  }
+
   function toggleSelectMode() {
     setSelectMode(v => !v)
     setSelectedIds(new Set())
@@ -858,7 +1142,7 @@ export default function BuilderPage() {
 
   const currentFormat = FORMATS.find(f => f.id === newFormat) || FORMATS[0]
 
-  const filtered = sortDeckIndex(filterDeckIndex(decks, filters), sortBy)
+  const filtered = sortDeckIndex(filterDeckIndex(decks, filters, { deckSizeFor }), sortBy, sortDir)
 
   // Filter-menu source data for the My Decks bar
   const myFormatOptions = [
@@ -867,6 +1151,9 @@ export default function BuilderPage() {
   ]
   const allDeckTags = [...new Set(decks.flatMap(d => d.__meta?.tags || []).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b))
+  // The unsynced pill is only meaningful once a linked pair has actually
+  // drifted — otherwise it's a control that can only ever return nothing.
+  const hasUnsyncedDecks = decks.some(d => isDeckUnsynced(d.__meta))
   const myChips = describeActiveFilters(filters, {
     formatLabel: FORMATS.find(f => f.id === filters.format)?.label,
   })
@@ -874,14 +1161,22 @@ export default function BuilderPage() {
   // Community page comes pre-filtered/sorted/paged from the server
   const communityFiltersActive = !!communityQuery || communityFilters.format !== 'all'
     || communityFilters.colors.length > 0 || communityFilters.bracket !== 'all'
+    || communityFilters.tags.length > 0
   const showTrending = !communityFiltersActive && communityPage === 1 && trendingDecks.length > 0
   const trendingIds = new Set(trendingDecks.map(d => d.id))
   const communityPageDecks = showTrending ? communityDecks.filter(d => !trendingIds.has(d.id)) : communityDecks
   const communityTotalPages = Math.max(1, Math.ceil(communityTotal / COMMUNITY_PAGE_SIZE))
+  // The community RPC matches tags with AND, so describe them that way.
   const communityChips = describeActiveFilters(
-    { ...EMPTY_DECK_INDEX_FILTERS, ...communityFilters },
+    { ...EMPTY_DECK_INDEX_FILTERS, ...communityFilters, tagMode: 'all' },
     { formatLabel: FORMATS.find(f => f.id === communityFilters.format)?.label },
   )
+  const clearCommunityFilters = () =>
+    setCommunityFilters({ format: 'all', colors: [], colorMode: 'includes', bracket: 'all', tags: [] })
+  const toggleCommunityTag = t => setCommunityFilters(f => ({
+    ...f,
+    tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t],
+  }))
 
   return (
     <div className={styles.page}>
@@ -903,24 +1198,26 @@ export default function BuilderPage() {
             placeholder="Search decks, commanders, tags…"
           />
           <div className={styles.inlineFilters}>
-            <div className={styles.filterGroup}>
+            {/* Type stays a segmented group; visibility moved into a labelled
+                menu because two adjacent unlabelled "All" pills gave no clue
+                which axis either one belonged to. */}
+            <div className={styles.filterGroup} role="group" aria-label="Deck type">
               {TYPE_LABELS.map(([v, label]) => (
                 <button key={v}
                   className={`${styles.filterPill}${filters.type === v ? ' ' + styles.filterPillActive : ''}`}
+                  aria-pressed={filters.type === v}
                   onClick={() => setFilters(f => ({ ...f, type: v }))}>
                   {label}
                 </button>
               ))}
             </div>
-            <div className={styles.filterGroup}>
-              {[['all','All'],['public','Public'],['private','Private']].map(([v, label]) => (
-                <button key={v}
-                  className={`${styles.filterPill}${filters.visibility === v ? ' ' + styles.filterPillActive : ''}`}
-                  onClick={() => setFilters(f => ({ ...f, visibility: v }))}>
-                  {label}
-                </button>
-              ))}
-            </div>
+            <PillMenu
+              title="Visibility"
+              label="Visibility"
+              options={VISIBILITY_OPTIONS}
+              value={filters.visibility}
+              onChange={v => setFilters(f => ({ ...f, visibility: v }))}
+            />
             <PillMenu
               title="Format"
               options={myFormatOptions}
@@ -942,15 +1239,32 @@ export default function BuilderPage() {
               value={String(filters.bracket)}
               onChange={v => setFilters(f => ({ ...f, bracket: v }))}
             />
+            <PillMenu
+              title="Deck Size"
+              options={COMPLETION_OPTIONS}
+              value={filters.completion}
+              onChange={v => setFilters(f => ({ ...f, completion: v }))}
+            />
             {allDeckTags.length > 0 && (
               <TagsMenu
                 tags={allDeckTags}
                 selected={filters.tags}
+                tagMode={filters.tagMode}
+                onCycleTagMode={() => setFilters(f => ({ ...f, tagMode: f.tagMode === 'all' ? 'any' : 'all' }))}
                 onToggle={t => setFilters(f => ({
                   ...f,
                   tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t],
                 }))}
               />
+            )}
+            {hasUnsyncedDecks && (
+              <button
+                className={`${styles.filterPill}${filters.unsyncedOnly ? ' ' + styles.filterPillActive : ''}`}
+                aria-pressed={filters.unsyncedOnly}
+                title="Only decks whose linked pair has drifted"
+                onClick={() => setFilters(f => ({ ...f, unsyncedOnly: !f.unsyncedOnly }))}>
+                <SyncIcon size={12} /> Unsynced
+              </button>
             )}
           </div>
           <FiltersSheet count={myChips.length}>
@@ -959,7 +1273,7 @@ export default function BuilderPage() {
                 onChange={v => setFilters(f => ({ ...f, type: v }))} />
             </SheetSection>
             <SheetSection label="Visibility">
-              <SheetPills options={[['all','All'],['public','Public'],['private','Private']]} value={filters.visibility}
+              <SheetPills options={VISIBILITY_OPTIONS} value={filters.visibility}
                 onChange={v => setFilters(f => ({ ...f, visibility: v }))} />
             </SheetSection>
             <SheetSection label="Format">
@@ -981,11 +1295,16 @@ export default function BuilderPage() {
               <SheetPills options={BRACKET_OPTIONS} value={String(filters.bracket)}
                 onChange={v => setFilters(f => ({ ...f, bracket: v }))} />
             </SheetSection>
+            <SheetSection label="Deck size">
+              <SheetPills options={COMPLETION_OPTIONS} value={filters.completion}
+                onChange={v => setFilters(f => ({ ...f, completion: v }))} />
+            </SheetSection>
             {allDeckTags.length > 0 && (
-              <SheetSection label="Tags">
+              <SheetSection label={`Tags — ${TAG_MODE_LABELS[filters.tagMode]}`}>
                 {allDeckTags.map(t => (
                   <button key={t}
                     className={`${styles.filterPill}${filters.tags.includes(t) ? ' ' + styles.filterPillActive : ''}`}
+                    aria-pressed={filters.tags.includes(t)}
                     onClick={() => setFilters(f => ({
                       ...f,
                       tags: f.tags.includes(t) ? f.tags.filter(x => x !== t) : [...f.tags, t],
@@ -993,6 +1312,22 @@ export default function BuilderPage() {
                     {t}
                   </button>
                 ))}
+                {filters.tags.length > 1 && (
+                  <button className={styles.modeCycleBtn}
+                    onClick={() => setFilters(f => ({ ...f, tagMode: f.tagMode === 'all' ? 'any' : 'all' }))}>
+                    {TAG_MODE_LABELS[filters.tagMode]}
+                  </button>
+                )}
+              </SheetSection>
+            )}
+            {hasUnsyncedDecks && (
+              <SheetSection label="Sync">
+                <button
+                  className={`${styles.filterPill}${filters.unsyncedOnly ? ' ' + styles.filterPillActive : ''}`}
+                  aria-pressed={filters.unsyncedOnly}
+                  onClick={() => setFilters(f => ({ ...f, unsyncedOnly: !f.unsyncedOnly }))}>
+                  <SyncIcon size={12} /> Unsynced only
+                </button>
               </SheetSection>
             )}
             {myChips.length > 0 && (
@@ -1002,15 +1337,15 @@ export default function BuilderPage() {
               </button>
             )}
           </FiltersSheet>
-          <PillMenu
-            title="Sort By"
-            options={Object.entries(DECK_INDEX_SORTS)}
-            value={sortBy}
-            onChange={setSortBy}
-            active
+          <SortControl
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onChangeSort={next => setSort(normalizeDeckSort(next))}
+            onToggleDir={() => setSort(s => ({ ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' }))}
           />
           <button
             className={`${styles.filterPill}${selectMode ? ' ' + styles.filterPillActive : ''}`}
+            aria-pressed={selectMode}
             onClick={toggleSelectMode}>
             {selectMode ? 'Cancel' : 'Select'}
           </button>
@@ -1018,22 +1353,34 @@ export default function BuilderPage() {
 
         <FilterChips
           chips={myChips}
-          countLabel={`${filtered.length} of ${decks.length} decks`}
+          countLabel={loading ? '' : `${filtered.length} of ${decks.length} deck${decks.length === 1 ? '' : 's'}`}
           onClearChip={key => setFilters(f => clearFilterChip(f, key))}
           onClearAll={() => setFilters(f => ({ ...EMPTY_DECK_INDEX_FILTERS, search: f.search }))}
         />
 
-        {selectMode && selectedIds.size > 0 && (
+        {/* Shown for the whole of select mode, not just once something is
+            picked — "Select all" was previously unreachable from zero. */}
+        {selectMode && (
           <div className={styles.bulkBar}>
-            <span>{selectedIds.size} selected</span>
-            <button onClick={() => setSelectedIds(new Set(filtered.map(d => d.id)))}>Select all</button>
-            <button onClick={() => setSelectedIds(new Set())}>Deselect</button>
-            <button className={styles.bulkDelete} onClick={bulkDelete}>Delete {selectedIds.size}</button>
-            <button onClick={toggleSelectMode}>Cancel</button>
+            <span className={styles.bulkCount}>
+              {selectedIds.size ? `${selectedIds.size} selected` : 'Select decks to act on'}
+            </span>
+            <Button size="sm" variant="secondary"
+              onClick={() => setSelectedIds(new Set(filtered.map(d => d.id)))}>
+              Select all
+            </Button>
+            <Button size="sm" variant="secondary" disabled={!selectedIds.size}
+              onClick={() => setSelectedIds(new Set())}>
+              Deselect
+            </Button>
+            <Button size="sm" variant="danger" disabled={!selectedIds.size} onClick={bulkDelete}>
+              Delete{selectedIds.size ? ` ${selectedIds.size}` : ''}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={toggleSelectMode}>Cancel</Button>
           </div>
         )}
 
-        {loading && <EmptyState>Loading…</EmptyState>}
+        {loading && <DeckGridSkeleton label="Loading your decks" />}
 
         {!loading && filtered.length === 0 && decks.length === 0 && (
           <EmptyState>
@@ -1067,6 +1414,10 @@ export default function BuilderPage() {
                   onToggleSelect={toggleSelected}
                   onEnterSelectMode={() => setSelectMode(true)}
                   onDelete={deleteDeck}
+                  onRename={d => setRenameState({ deck: d, value: d.name, busy: false })}
+                  onDuplicate={handleDuplicate}
+                  onToggleVisibility={handleToggleVisibility}
+                  busy={busyDeckId === deck.id}
                   navigate={navigate}
                 />
               )
@@ -1108,10 +1459,14 @@ export default function BuilderPage() {
               value={String(communityFilters.bracket)}
               onChange={v => setCommunityFilters(f => ({ ...f, bracket: v }))}
             />
-            <div className={styles.filterGroup}>
+            {communityTags.length > 0 && (
+              <TagsMenu tags={communityTags} selected={communityFilters.tags} onToggle={toggleCommunityTag} />
+            )}
+            <div className={styles.filterGroup} role="group" aria-label="Sort decks">
               {COMMUNITY_SORTS.map(([v, label]) => (
                 <button key={v}
                   className={`${styles.filterPill}${communitySort === v ? ' ' + styles.filterPillActive : ''}`}
+                  aria-pressed={communitySort === v}
                   onClick={() => setCommunitySort(v)}>
                   {label}
                 </button>
@@ -1139,12 +1494,23 @@ export default function BuilderPage() {
               <SheetPills options={BRACKET_OPTIONS} value={String(communityFilters.bracket)}
                 onChange={v => setCommunityFilters(f => ({ ...f, bracket: v }))} />
             </SheetSection>
+            {communityTags.length > 0 && (
+              <SheetSection label="Tags">
+                {communityTags.map(t => (
+                  <button key={t}
+                    className={`${styles.filterPill}${communityFilters.tags.includes(t) ? ' ' + styles.filterPillActive : ''}`}
+                    aria-pressed={communityFilters.tags.includes(t)}
+                    onClick={() => toggleCommunityTag(t)}>
+                    {t}
+                  </button>
+                ))}
+              </SheetSection>
+            )}
             <SheetSection label="Sort">
               <SheetPills options={COMMUNITY_SORTS} value={communitySort} onChange={setCommunitySort} />
             </SheetSection>
             {communityChips.length > 0 && (
-              <button className={styles.filtersClearBtn}
-                onClick={() => setCommunityFilters({ format: 'all', colors: [], colorMode: 'includes', bracket: 'all' })}>
+              <button className={styles.filtersClearBtn} onClick={clearCommunityFilters}>
                 Clear filters
               </button>
             )}
@@ -1156,14 +1522,17 @@ export default function BuilderPage() {
           countLabel={communityLoaded ? `${communityTotal} deck${communityTotal !== 1 ? 's' : ''}` : ''}
           onClearChip={key => setCommunityFilters(f => {
             const cleared = clearFilterChip({ ...EMPTY_DECK_INDEX_FILTERS, ...f }, key)
-            return { format: cleared.format, colors: cleared.colors, colorMode: cleared.colorMode, bracket: cleared.bracket }
+            return {
+              format: cleared.format, colors: cleared.colors, colorMode: cleared.colorMode,
+              bracket: cleared.bracket, tags: cleared.tags,
+            }
           })}
-          onClearAll={() => setCommunityFilters({ format: 'all', colors: [], colorMode: 'includes', bracket: 'all' })}
+          onClearAll={clearCommunityFilters}
         />
 
         {!communityLoading && showTrending && (
           <div className={styles.trendingSection}>
-            <div className={styles.trendingLabel}>Trending now</div>
+            <div className={styles.trendingLabel}><FlameIcon size={13} /> Trending now</div>
             <div className={styles.trendingGrid}>
               {trendingDecks.map(deck => {
                 const meta  = deck.__meta || parseDeckMeta(deck.description)
@@ -1185,8 +1554,9 @@ export default function BuilderPage() {
           </div>
         )}
 
-        {communityLoading && <EmptyState>Loading community decks…</EmptyState>}
-        {!communityLoading && !communityLoaded && <EmptyState>Loading…</EmptyState>}
+        {/* Covers both the first visit (not yet loaded) and every later page /
+            filter change, which previously swapped the grid for a text line. */}
+        {(communityLoading || !communityLoaded) && <DeckGridSkeleton label="Loading community decks" />}
 
         {!communityLoading && communityLoaded && communityDecks.length === 0 && (
           <EmptyState>
@@ -1216,26 +1586,41 @@ export default function BuilderPage() {
                 )
               })}
             </div>
-            {communityTotalPages > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px 0' }}>
-                <button
-                  onClick={() => setCommunityPage(p => Math.max(1, p - 1))}
-                  disabled={communityPage === 1}
-                  style={{ padding: '5px 14px', background: 'var(--s3)', border: '1px solid var(--s-border2)', borderRadius: 6, color: 'var(--text)', cursor: communityPage === 1 ? 'default' : 'pointer', opacity: communityPage === 1 ? 0.4 : 1 }}
-                >←</button>
-                <span style={{ fontSize: '0.82rem', color: 'var(--text-dim)' }}>
-                  Page {communityPage} of {communityTotalPages}
-                </span>
-                <button
-                  onClick={() => setCommunityPage(p => Math.min(communityTotalPages, p + 1))}
-                  disabled={communityPage === communityTotalPages}
-                  style={{ padding: '5px 14px', background: 'var(--s3)', border: '1px solid var(--s-border2)', borderRadius: 6, color: 'var(--text)', cursor: communityPage === communityTotalPages ? 'default' : 'pointer', opacity: communityPage === communityTotalPages ? 0.4 : 1 }}
-                >→</button>
-              </div>
-            )}
+            <Pagination page={communityPage} totalPages={communityTotalPages} onChange={setCommunityPage} />
           </>
         )}
       </>}
+
+      {renameState && (
+        <Modal onClose={() => setRenameState(null)}>
+          <h2 className={styles.newDeckTitle}>Rename deck</h2>
+          <p className={styles.newDeckSubtitle}>
+            {renameState.deck.type === 'deck' || renameState.deck.__meta?.linked_deck_id
+              ? 'Linked decks are renamed on both sides.'
+              : 'Deck names are unique across your decks.'}
+          </p>
+          <div className={styles.newDeckForm}>
+            <input
+              autoFocus
+              className={styles.newDeckInput}
+              value={renameState.value}
+              disabled={renameState.busy}
+              onChange={e => setRenameState(s => ({ ...s, value: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') submitRename() }}
+              aria-label="Deck name"
+            />
+            <div className={styles.newDeckActions}>
+              <Button variant="ghost" onClick={() => setRenameState(null)}>Cancel</Button>
+              <Button
+                onClick={submitRename}
+                disabled={renameState.busy || !renameState.value.trim() || renameState.value.trim() === renameState.deck.name}
+              >
+                {renameState.busy ? 'Renaming…' : 'Rename'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {confirmState && (
         <ConfirmModal
@@ -1314,7 +1699,9 @@ export default function BuilderPage() {
                     aria-expanded={open}
                   >
                     <span>{currentFormat?.label || 'Select format'}</span>
-                    <span className={styles.newDeckSelectChevron} aria-hidden="true">{open ? '▲' : '▼'}</span>
+                    <span className={styles.newDeckSelectChevron} aria-hidden="true">
+                      {open ? <ChevronUpIcon size={12} /> : <ChevronDownIcon size={12} />}
+                    </span>
                   </button>
                 )}
               >

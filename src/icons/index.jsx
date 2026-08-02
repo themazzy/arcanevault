@@ -464,6 +464,30 @@ export function StarIcon(p) {
   )
 }
 
+export function HeartIcon(p) {
+  return (
+    <Icon {...p}>
+      <path d="M8 13.2 2.9 8.3a3 3 0 1 1 4.24-4.24L8 4.92l.86-.86A3 3 0 1 1 13.1 8.3L8 13.2Z" fill={p.color ?? 'currentColor'} />
+    </Icon>
+  )
+}
+
+export function CommentIcon(p) {
+  return (
+    <Icon {...p}>
+      <path d="M2.6 3.6h10.8v7.2H6.4L3.6 13.2v-2.4H2.6V3.6Z" stroke={p.color ?? 'currentColor'} strokeWidth="1.2" strokeLinejoin="round" />
+    </Icon>
+  )
+}
+
+export function FlameIcon(p) {
+  return (
+    <Icon {...p}>
+      <path d="M8.6 1.4c.4 2.1-.5 3.3-1.6 4.4C5.7 7.1 4.4 8.3 4.4 10.1a3.6 3.6 0 0 0 7.2 0c0-1.5-.6-2.4-1.3-3.3-.3 1-.9 1.4-1.5 1.6.5-2.1.6-4.7-.2-7Z" fill={p.color ?? 'currentColor'} />
+    </Icon>
+  )
+}
+
 // ─── Game ──────────────────────────────────────────────────────────────────────
 
 export function SwordIcon(p) {
