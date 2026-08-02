@@ -1,93 +1,157 @@
-.panel { display: flex; flex-direction: column; gap: 16px; }
-.intro {
-  font-size: 0.9rem; line-height: 1.5; color: var(--text-dim);
-  padding: 12px 14px; background: var(--s2); border: 1px solid var(--s-border); border-radius: 10px;
+/* Styles for TradePostPanel.jsx: the Trade Post status card + the proposals
+   inbox. The owner-editing form that used to live here moved to
+   TradePostWizard.module.css. */
+
+/* ── Trade post status card ──────────────────────────────────────────────────
+   A summary + entry point. Everything editable lives in TradePostWizard. */
+.statusCard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  background: var(--bg2);
+  border: 1px solid var(--s-border);
+  border-radius: 12px;
 }
 
-.row {
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  padding: 12px 14px; background: var(--bg2); border: 1px solid var(--s-border); border-radius: 10px;
+.statusHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
-.rowTitle { font-weight: 600; font-size: 0.92rem; }
-.rowSub { font-size: 0.8rem; color: var(--text-faint); margin-top: 2px; }
+.statusWho { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.statusDot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.statusDotLive {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(93, 186, 112, 0.18);
+}
+.statusTitle { font-weight: 600; font-size: 0.95rem; }
 
-.toggle {
-  flex: 0 0 auto; width: 46px; height: 26px; border-radius: 999px;
-  background: var(--s3); border: 1px solid var(--s-border2); cursor: pointer; position: relative;
-  transition: background 0.15s, border-color 0.15s;
+.statusBlocker {
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  font-size: 0.82rem;
+  color: var(--text-dim);
 }
-.toggleOn { background: rgba(201,168,76,0.35); border-color: var(--gold); }
-.knob {
-  position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%;
-  background: var(--text); transition: transform 0.15s;
-}
-.toggleOn .knob { transform: translateX(20px); background: var(--gold); }
 
-.block {
-  padding: 12px 14px; background: var(--bg2); border: 1px solid var(--s-border); border-radius: 10px;
+.statusStats { display: flex; gap: 10px; }
+.statusStat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 11px 13px;
+  background: var(--s2);
+  border: 1px solid var(--s-border);
+  border-radius: 9px;
 }
-.blockLabel {
-  font-family: var(--font-display); font-size: 0.68rem; letter-spacing: var(--label-tracking-wide);
-  text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px;
+.statusNum {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  line-height: 1.1;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
 }
+.statusLabel {
+  font-size: var(--label-size-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--label-tracking);
+  color: var(--text-faint);
+}
+
 .linkRow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .linkInput {
-  flex: 1; min-width: 200px; background: var(--s2); border: 1px solid var(--s-border2);
-  border-radius: 6px; padding: 8px 11px; color: var(--text); font-size: 0.82rem; outline: none;
+  flex: 1;
+  min-width: 200px;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+  padding: 8px 11px;
+  color: var(--text);
+  font-size: 0.82rem;
+  outline: none;
 }
 .previewLink { font-size: 0.82rem; color: var(--text-dim); text-decoration: none; }
 .previewLink:hover { color: var(--gold); }
 
-.haveHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.manageLink { font-size: 0.82rem; color: var(--gold); text-decoration: none; white-space: nowrap; }
-.manageLink:hover { text-decoration: underline; }
-
-.haveList { display: flex; flex-direction: column; gap: 8px; }
-.haveRow {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 8px; background: var(--s2); border: 1px solid var(--s-border); border-radius: 8px;
-}
-.haveThumb, .haveThumbEmpty {
-  flex: 0 0 auto; width: 38px; height: 53px; border-radius: 4px; object-fit: cover;
-  background: var(--s3);
-}
-.haveMain { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.haveName { font-size: 0.86rem; font-weight: 600; line-height: 1.2; }
-.haveSet { font-size: 0.7rem; color: var(--text-faint); }
-.haveNote {
-  margin-top: 3px; width: 100%;
-  background: var(--bg2); border: 1px solid var(--s-border2); border-radius: 6px;
-  padding: 5px 9px; color: var(--text); font-size: 0.8rem; outline: none; font-family: inherit;
-}
-.haveNote:focus { border-color: rgba(201,168,76,0.5); }
-.anyToggle {
-  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
-  font-size: 0.74rem; color: var(--text-dim); cursor: pointer; padding-top: 2px;
-  white-space: nowrap;
-}
-.anyToggle input { width: 15px; height: 15px; accent-color: var(--gold); }
-
-.wishlist { display: flex; flex-direction: column; gap: 8px; }
-.wishItem { display: flex; align-items: center; gap: 9px; font-size: 0.88rem; cursor: pointer; }
-.wishItem input { width: 16px; height: 16px; accent-color: var(--gold); }
-
 /* ── Inbox ── */
-.inbox { display: flex; flex-direction: column; gap: 12px; }
+.propList { display: flex; flex-direction: column; gap: 12px; }
+
 .proposal {
   padding: 14px; background: var(--bg2); border: 1px solid var(--s-border);
   border-left: 3px solid var(--s-border2); border-radius: 10px;
 }
-.status_pending  { border-left-color: var(--gold); }
-.status_accepted { border-left-color: var(--green); opacity: 0.9; }
-.status_declined, .status_cancelled { border-left-color: var(--text-faint); opacity: 0.7; }
+.status_pending   { border-left-color: var(--gold); }
+.status_accepted  { border-left-color: var(--blue); }
+.status_completed { border-left-color: var(--green); }
+.status_declined, .status_cancelled { border-left-color: var(--text-faint); opacity: 0.65; }
 
-.propHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.propStatus { font-size: var(--label-size-md); text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--text-faint); }
+.propHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.propWho { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.propWho strong { font-size: 0.95rem; }
+.propDir {
+  font-size: var(--label-size-sm); text-transform: uppercase;
+  letter-spacing: var(--label-tracking); color: var(--text-faint);
+}
+.propTime { font-size: 0.72rem; color: var(--text-faint); white-space: nowrap; }
+
+.propStatus {
+  flex: 0 0 auto; padding: 2px 9px; border-radius: 999px;
+  border: 1px solid var(--s-border2); background: var(--s2);
+  font-size: var(--label-size-sm); text-transform: uppercase;
+  letter-spacing: var(--label-tracking); color: var(--text-faint);
+}
+.pill_pending   { color: var(--gold);  border-color: var(--s-border3); }
+.pill_accepted  { color: var(--blue);  border-color: var(--s-border3); }
+.pill_completed { color: var(--green); border-color: var(--s-border3); }
+
+/* Stage strip — makes "accepted ≠ cards moved" legible at a glance. */
+.stages {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 0 0 12px; padding-bottom: 11px; border-bottom: 1px solid var(--s-border);
+}
+.stage {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--label-size-sm); text-transform: uppercase;
+  letter-spacing: var(--label-tracking); color: var(--text-faint);
+}
+.stageDot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--s4); border: 1px solid var(--s-border2);
+}
+.stageOn { color: var(--text-dim); }
+.stageOn .stageDot { background: var(--gold); border-color: var(--gold); }
+
 .propGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 600px) { .propGrid { grid-template-columns: 1fr; } }
-.propLabel { display: block; font-size: 0.68rem; text-transform: uppercase; letter-spacing: var(--label-tracking); color: var(--text-faint); margin-bottom: 5px; }
+.propLabel {
+  display: block; font-size: var(--label-size-md); text-transform: uppercase;
+  letter-spacing: var(--label-tracking); color: var(--text-faint); margin-bottom: 5px;
+}
 .propCards { display: flex; flex-wrap: wrap; gap: 5px; }
 .propChip { padding: 2px 8px; border-radius: 999px; background: var(--s2); border: 1px solid var(--s-border2); font-size: 0.76rem; }
-.propEmpty { color: var(--text-faint); }
+.propEmpty { color: var(--text-faint); font-size: 0.8rem; }
 .propNote { margin-top: 10px; font-style: italic; color: var(--text-dim); font-size: 0.86rem; }
+
+.propHint {
+  margin-top: 12px; padding: 8px 11px; border-radius: 8px;
+  background: var(--s2); border: 1px solid var(--s-border);
+  font-size: 0.8rem; line-height: 1.45; color: var(--text-dim);
+}
+.propDone {
+  margin-top: 12px; font-size: 0.82rem; color: var(--green); font-weight: 600;
+}
 .propActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+@media (max-width: 600px) {
+  .propActions { flex-direction: column-reverse; }
+  .propActions > * { width: 100%; }
+}

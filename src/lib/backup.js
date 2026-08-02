@@ -72,7 +72,7 @@ function fetchOwnedCards(userId) {
 
 function fetchFolderCardsFull(folderIds) {
   return pagedSelectByIds(folderIds, (ids, from, to) => sb.from('folder_cards')
-    .select('folder_id,card_id,qty,trade_any_version,trade_note')
+    .select('folder_id,card_id,qty,trade_note')
     .in('folder_id', ids)
     .order('id')
     .range(from, to))
@@ -230,7 +230,9 @@ export function buildFolderCardInsertRows(folderCards, folderIdMap, cardIdMap, g
     if (!folderId || !cardId) continue
     rows.push({
       id: genId(), folder_id: folderId, card_id: cardId, qty: fc.qty || 1,
-      trade_any_version: !!fc.trade_any_version, trade_note: fc.trade_note || null,
+      // trade_any_version was dropped 2026-08-02; older backup files may still
+      // carry it, and ignoring it here is what makes them restorable.
+      trade_note: fc.trade_note || null,
     })
   }
   return rows

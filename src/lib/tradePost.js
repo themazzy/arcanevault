@@ -27,14 +27,14 @@ export async function setTradeSettings(userId, patch) {
   if (error) throw error
 }
 
-// Load the cards in the For Trade binder with their per-card trade options
-// (any-version toggle + note), joined to display fields. Flat queries — never
-// the nested folder_cards(cards(*)) select, which silently returns empty.
+// Load the cards in the For Trade binder with their per-card note, joined to
+// display fields. Flat queries — never the nested folder_cards(cards(*))
+// select, which silently returns empty.
 export async function getTradeBinderCards(folderId) {
   if (!folderId) return []
   const { data: fc } = await sb
     .from('folder_cards')
-    .select('id, card_id, qty, trade_any_version, trade_note')
+    .select('id, card_id, qty, trade_note')
     .eq('folder_id', folderId)
   if (!fc?.length) return []
   const ids = fc.map(r => r.card_id)
@@ -48,7 +48,6 @@ export async function getTradeBinderCards(folderId) {
       folderCardId: r.id,
       cardId: r.card_id,
       qty: r.qty,
-      anyVersion: !!r.trade_any_version,
       note: r.trade_note || '',
       ...(byId[r.card_id] || {}),
     }))
@@ -81,12 +80,19 @@ export async function proposeTrade(ownerUsername, { requested, offered, note }) 
   return data // proposal id
 }
 
+// Both directions in one call: { incoming, outgoing }. `incoming` are proposals
+// sent to you; `outgoing` are ones you sent. Each row carries `is_owner` so the
+// caller can derive give/receive — see deriveProposalSides in tradeProposals.js.
 export async function getTradeProposals() {
   const { data, error } = await sb.rpc('get_trade_proposals')
   if (error) throw error
-  return Array.isArray(data) ? data : []
+  return {
+    incoming: Array.isArray(data?.incoming) ? data.incoming : [],
+    outgoing: Array.isArray(data?.outgoing) ? data.outgoing : [],
+  }
 }
 
+// Owner accepts/declines. Accepting is a scheduling signal — it moves no cards.
 export async function respondToTradeProposal(id, status) {
   const { error } = await sb.rpc('respond_to_trade_proposal', { p_id: id, p_status: status })
   if (error) throw error
@@ -94,5 +100,19 @@ export async function respondToTradeProposal(id, status) {
 
 export async function cancelTradeProposal(id) {
   const { error } = await sb.rpc('cancel_trade_proposal', { p_id: id })
+  if (error) throw error
+}
+
+// Either party confirms the cards physically changed hands (accepted → completed).
+// Still moves no cards; it only unlocks each side's own settlement.
+export async function completeTradeProposal(id) {
+  const { error } = await sb.rpc('complete_trade_proposal', { p_id: id })
+  if (error) throw error
+}
+
+// Records that the caller has applied this trade to their own collection, so the
+// same trade can't be committed twice. Called after commit_trade succeeds.
+export async function markTradeSettled(id) {
+  const { error } = await sb.rpc('mark_trade_settled', { p_id: id })
   if (error) throw error
 }

@@ -127,13 +127,24 @@ describe('buildFolderCardInsertRows', () => {
     const folderIdMap = new Map([['f-old', 'f-new']])
     const cardIdMap = new Map([['c-old', 'c-new']])
     const rows = buildFolderCardInsertRows([
-      { folder_id: 'f-old', card_id: 'c-old', qty: 3, trade_any_version: true, trade_note: 'note' },
+      { folder_id: 'f-old', card_id: 'c-old', qty: 3, trade_note: 'note' },
       { folder_id: 'f-old', card_id: 'missing-card', qty: 1 },
       { folder_id: 'missing-folder', card_id: 'c-old', qty: 1 },
     ], folderIdMap, cardIdMap, genId)
     expect(rows).toEqual([
-      { id: 'new-0', folder_id: 'f-new', card_id: 'c-new', qty: 3, trade_any_version: true, trade_note: 'note' },
+      { id: 'new-0', folder_id: 'f-new', card_id: 'c-new', qty: 3, trade_note: 'note' },
     ])
+  })
+
+  it('ignores trade_any_version from backups taken before it was dropped', () => {
+    counter = 0
+    const rows = buildFolderCardInsertRows(
+      [{ folder_id: 'f-old', card_id: 'c-old', qty: 1, trade_any_version: true, trade_note: null }],
+      new Map([['f-old', 'f-new']]),
+      new Map([['c-old', 'c-new']]),
+      genId,
+    )
+    expect(rows[0]).not.toHaveProperty('trade_any_version')
   })
 })
 

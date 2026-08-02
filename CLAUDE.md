@@ -245,6 +245,35 @@ In `Builder.jsx`, clicking a collection deck that has `linked_builder_id` naviga
 
 Format legality and commander color identity checks are in `src/lib/deckLegality.js` via `getCardLegalityWarnings({ card, formatId, formatLabel, isEDH, commanderColorIdentity })`.
 
+### Trade Post
+
+A per-user public trade listing at `/trade/:username` (`src/pages/Trade.jsx`, a **public** route — `get_trade_post` is granted to `anon`). Haves = the protected **"For Trade"** binder (a normal binder flagged `{"isTradeBinder": true}`; `src/lib/tradeBinder.js`, un-renameable/un-deletable in `Folders.jsx`). Wants = the wishlists selected into `user_settings.trade_wants`. Opt-in via `user_settings.trade_open`. Owner surfaces are the **Trade Post** and **Proposals** tabs of `/trading`.
+
+**Agreeing to a trade and the trade having happened are two different events, and nothing settles on the first one.** This mirrors how Lootstack/Cardsphere/Deckbox work and is the whole point of the status model — do not collapse it:
+
+```
+pending → accepted        "yes, let's meet up"   — moves NO cards
+        → completed       "we actually traded"   — moves NO cards
+        → per-user settle  user reviews in Compare, presses Complete Trade
+```
+
+- `respond_to_trade_proposal` (owner only) and `complete_trade_proposal` (either party) only change `status` and notify the counterpart via a `trade_response` notification.
+- **Settlement is per-user**, tracked by `owner_settled` / `proposer_settled`. Each side applies the trade to *their own* collection through the existing `commit_trade` flow; `mark_trade_settled` then stops a double-commit. It is deliberately **not** two-sided-atomic: the proposer's `offered` entries are free-text names that can't be resolved to their inventory, and `cards` is RLS owner-only — one user's action must never write another user's rows.
+- `get_trade_proposals()` returns `{ incoming, outgoing }`; `requested`/`offered` stay proposer-relative, so **always** derive give/receive via `deriveProposalSides()` in `src/lib/tradeProposals.js` rather than re-deriving per call site.
+- Settling deep-links to `/trading?tab=compare&settle=<id>`, which *stages* both sides (give resolved against owned placements, receive best-guessed to a printing) and warns about anything unresolved. `Complete Trade` remains the only thing that touches inventory.
+
+**`/trading` has exactly two tabs — Trade Post · Compare — and no sub-navigation.** There are only two activities: your public listing and the proposals it produces (async, social), and working out what a trade is worth and committing it (a tool). They're one lifecycle, not separate destinations — a settled proposal hands off from `post` into `compare` via `?settle=<id>`. Legacy `?tab=proposals` / `?tab=log` links alias onto the two survivors (`TAB_ALIASES`).
+
+Three rules that keep it flat, all of which were violated once and shouldn't be again:
+
+- **Proposal direction is a row property, not a place.** Received and sent render as one list with a "From"/"To" marker; `sortProposals()` floats whatever is waiting on the viewer to the top. No Received/Sent switch.
+- **Trade history is not a tab.** It's a collapsed *Past trades* section under the Compare tool that produces it, fetched on first expand.
+- **Trade post settings are a wizard, not a page.** `components/trade/TradePostWizard.jsx` is a Build-Assistant-style modal (node stepper, one concern per step: availability → trading away → looking for → share) and deliberately shares that stepper's visual language. The tab itself shows only a compact status card (`TradePostManager`) plus the proposals list. The previous single-page form stacked all three concerns in one column, so picking which wishlists to feature meant scrolling past every card in the For Trade binder.
+
+The tab badge comes from `countActionable()`, which is why proposal state lives in `Trading.jsx` rather than inside `ProposalsInbox` — the count must exist before the tab is opened.
+
+**There is no per-card "any version" flag.** `folder_cards.trade_any_version` was dropped 2026-08-02 (zero rows had ever set it): the For Trade binder holds *specific owned rows* — an exact print, finish, language and condition — so "I'd trade any printing of this" was a statement about a card the user may not own, wrongly hung off a concrete placement. `trade_note` stays; condition/language remarks are genuinely per-copy. `buildFolderCardInsertRows` in `src/lib/backup.js` ignores the field so pre-drop backup files still restore.
+
 ### Wishlist Rules
 
 Wishlists are not part of owned collection inventory.

@@ -35,6 +35,22 @@
 .tabBtn:hover { color: var(--text); }
 .tabBtnActive { color: var(--gold); border-bottom-color: var(--gold); }
 
+/* Count of proposals waiting on you — the reason Proposals is a tab at all. */
+.tabBadge {
+  display: inline-block;
+  min-width: 17px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--gold);
+  color: var(--bg);
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  vertical-align: 1px;
+}
+
 .notice {
   background: var(--s2);
   border: 1px solid rgba(74,154,90,0.3);
@@ -47,6 +63,52 @@
 .noticeError {
   border-color: rgba(196,96,96,0.4);
   color: var(--red);
+}
+
+/* Shown when the Compare tab was opened from a confirmed proposal (?settle=id).
+   Its job is to make clear the trade is staged, not applied. */
+.settleBanner {
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  border-left: 3px solid var(--gold);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.settleHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settleTitle {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.settleDismiss {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.settleDismiss:hover { color: var(--text); text-decoration: underline; }
+.settleBody {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.settleWarn {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--red-bright);
 }
 
 .summaryGrid {
@@ -146,18 +208,82 @@
   gap: 8px;
 }
 
+/* The post tab is the whole async side: your listing, then what it produced. */
+.postTab {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.proposalsBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.proposalsHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.proposalsTitle {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--label-size-lg);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.proposalsNeed {
+  font-size: 0.76rem;
+  color: var(--gold);
+}
+
+/* Collapsible history under the Compare tool. */
+.logSection {
+  border-top: 1px solid var(--s-border);
+  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.logToggle {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 2px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: left;
+}
+.logToggle:hover { color: var(--text); }
+.logToggleLabel {
+  font-family: var(--font-display);
+  font-size: var(--label-size-lg);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+}
+.logToggleCount {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+.logToggleChevron {
+  margin-left: auto;
+  font-size: 0.62rem;
+  color: var(--text-faint);
+}
+
 .logToolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   margin-bottom: 4px;
-}
-
-.logCount {
-  font-size: 0.74rem;
-  color: var(--text-faint);
-  letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
 }
 
 .logRefreshBtn {

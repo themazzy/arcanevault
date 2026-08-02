@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { queryClient } from '../lib/queryClient'
@@ -27,14 +27,34 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, Modal, ProgressBar, SectionHeader, SearchInput } from '../components/UI'
 import { TradePostManager, ProposalsInbox } from '../components/trade/TradePostPanel'
+import { getTradeProposals, markTradeSettled } from '../lib/tradePost'
+import {
+  deriveProposalSides, matchGiveToOwnedRows, pickPrintingForReceive, receiveCardNames,
+  countActionable,
+} from '../lib/tradeProposals'
+import { isTradeBinder } from '../lib/tradeBinder'
 import styles from './Trading.module.css'
 
 const SEARCH_LIMIT = 8
-const TRADE_TABS = ['compare', 'post', 'proposals', 'log']
+// Two tabs, because there are only two activities here:
+//   post    — your public listing and the proposals it produces (async, social)
+//   compare — working out what a trade is worth, and committing it (a tool)
+// They're one lifecycle, not four destinations: a settled proposal hands off
+// from `post` into `compare` via ?settle=<id>. History lives under the tool
+// that produces it, and proposal direction is a row property, not a sub-tab.
+const TRADE_TABS = ['post', 'compare']
+
+// Legacy deep links (?tab=proposals from notifications, ?tab=log from old
+// bookmarks) still have to land somewhere sensible.
+const TAB_ALIASES = { proposals: 'post', log: 'compare' }
 
 function parseTradeTab(search) {
-  const t = new URLSearchParams(search).get('tab')
-  return TRADE_TABS.includes(t) ? t : 'compare'
+  const raw = new URLSearchParams(search).get('tab')
+  const t = TAB_ALIASES[raw] || raw
+  if (TRADE_TABS.includes(t)) return t
+  // No tab given: land on Compare only when settling a trade, otherwise on the
+  // post, which is where anything needing attention shows up.
+  return new URLSearchParams(search).get('settle') ? 'compare' : 'post'
 }
 
 function getCollectionCardName(card, sf) {
@@ -426,8 +446,8 @@ function TradeLogSection({ rows, loading, onRefresh, fmt }) {
 
   return (
     <div className={styles.logList}>
+      {/* The count now lives in the section header that expands this. */}
       <div className={styles.logToolbar}>
-        <span className={styles.logCount}>{rows.length} trade{rows.length !== 1 ? 's' : ''}</span>
         <button className={styles.logRefreshBtn} onClick={onRefresh}>Refresh</button>
       </div>
       {rows.map(row => {
@@ -502,7 +522,7 @@ export default function TradingPage() {
   const location = useLocation()
 
   const [cards, setCards] = useState([])
-  const [, setFolders] = useState([])
+  const [folders, setFolders] = useState([])
   const [cardFolderMap, setCardFolderMap] = useState({})
   const [sfMap, setSfMap] = useState({})
   const [collectionLoaded, setCollectionLoaded] = useState(false)
@@ -528,6 +548,14 @@ export default function TradingPage() {
   const [partnerName, setPartnerName] = useState('')
   const [tradeLogRows, setTradeLogRows] = useState([])
   const [tradeLogLoading, setTradeLogLoading] = useState(false)
+  const [logOpen, setLogOpen] = useState(false)
+  // Proposals live here rather than inside the tab so the tab badge can show a
+  // count before you've ever opened it.
+  const [proposals, setProposals] = useState(null)
+  // Set when arriving from a confirmed proposal via ?settle=<id>. Holds what the
+  // prefill could not resolve, so the user is told rather than silently shorted.
+  const [settleInfo, setSettleInfo] = useState(null)
+  const settledPrefillRef = useRef(null)
 
   const cardsById = useMemo(
     () => Object.fromEntries(cards.map(card => [card.id, card])),
@@ -1054,9 +1082,28 @@ export default function TradingPage() {
     }
   }, [user.id])
 
+  // Past trades are collapsed by default and fetched on first expand, so the
+  // Compare tab doesn't pay for history nobody opened.
+  const toggleLog = useCallback(() => {
+    setLogOpen(open => {
+      if (!open && !tradeLogRows.length) loadTradeLog()
+      return !open
+    })
+  }, [loadTradeLog, tradeLogRows.length])
+
   useEffect(() => {
-    if (tab === 'log') loadTradeLog()
-  }, [tab, loadTradeLog])
+    let cancelled = false
+    getTradeProposals()
+      .then(d => { if (!cancelled) setProposals(d) })
+      .catch(() => { if (!cancelled) setProposals({ incoming: [], outgoing: [] }) })
+    return () => { cancelled = true }
+  }, [])
+
+  // Anything waiting on this user, across both directions.
+  const proposalBadge = useMemo(
+    () => proposals ? countActionable(proposals.incoming, proposals.outgoing) : 0,
+    [proposals]
+  )
 
   const settlement = useMemo(() => {
     if (!offerItems.length && !wantItems.length) return 'Add cards to at least one side to compare the trade.'
@@ -1064,6 +1111,148 @@ export default function TradingPage() {
     if (delta > 0) return `You still need to pay ${formatPrice(delta, price_source)}.`
     return `You should receive ${formatPrice(Math.abs(delta), price_source)} back.`
   }, [delta, offerItems.length, wantItems.length, price_source])
+
+  // ── Settle a confirmed proposal ────────────────────────────────────────────
+  // Deep-linked from the Proposals tab as ?settle=<id>. This only *stages* the
+  // trade in the Compare tab — the user still reviews printings and prices and
+  // presses Complete Trade, which stays the sole thing that touches inventory.
+  const settleId = useMemo(
+    () => new URLSearchParams(location.search).get('settle'),
+    [location.search]
+  )
+
+  useEffect(() => {
+    if (!settleId || !collectionLoaded) return
+    if (settledPrefillRef.current === settleId) return
+    settledPrefillRef.current = settleId
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { incoming, outgoing } = await getTradeProposals()
+        const proposal = [...incoming, ...outgoing].find(p => p.id === settleId)
+        if (cancelled) return
+        if (!proposal) {
+          setTradeError('That trade proposal could not be found.')
+          return
+        }
+        if (proposal.status !== 'completed') {
+          setTradeError('That trade has not been marked as traded yet.')
+          return
+        }
+
+        const { give, receive } = deriveProposalSides(proposal)
+
+        // Give side: resolve against the exact owned placements. Prefer copies
+        // sitting in the For Trade binder when a card is in several folders.
+        const tradeBinderId = folders.find(isTradeBinder)?.id || null
+        const { matched, unmatched } = matchGiveToOwnedRows(give, tradeSearchRows, {
+          preferSourceId: tradeBinderId,
+        })
+
+        const matchedCards = [...new Map(
+          matched.map(m => [m.row.cardId, cardsById[m.row.cardId]]).filter(([, c]) => c)
+        ).values()]
+        const freshSf = matchedCards.length
+          ? (await loadCardMapWithSharedPrices(matchedCards)) || {}
+          : {}
+        if (cancelled) return
+        if (Object.keys(freshSf).length) setSfMap(prev => ({ ...prev, ...freshSf }))
+
+        // One card can be split across two matched entries, so merge by placement.
+        const offerById = new Map()
+        for (const m of matched) {
+          const card = cardsById[m.row.cardId]
+          if (!card) continue
+          const existing = offerById.get(m.row.id)
+          if (existing) {
+            existing.qty = Math.min(existing.maxQty, existing.qty + m.qty)
+            continue
+          }
+          const key = `${card.set_code}-${card.collector_number}`
+          const sf = freshSf[key] || sfMap[key]
+          offerById.set(m.row.id, {
+            id: m.row.id,
+            cardId: card.id,
+            name: getCollectionCardName(card, sf),
+            setName: sf?.set_name || card.set_code?.toUpperCase() || '',
+            setCode: card.set_code,
+            collectorNumber: card.collector_number,
+            image: getImageUri(sf, 'small'),
+            foil: !!card.foil,
+            qty: m.qty,
+            maxQty: m.row.qty || m.qty,
+            sourceId: m.row.sourceId,
+            sourceType: m.row.sourceType,
+            sourceName: m.row.sourceName,
+            priceSource: price_source,
+            customPrice: null,
+          })
+        }
+
+        // Receive side: often just free-text names, so this is a best guess at
+        // the printing — flagged in the banner for the user to check.
+        const names = receiveCardNames(receive)
+        const printings = names.length ? await fetchPrintingsForNames(names) : []
+        if (cancelled) return
+
+        const wantById = new Map()
+        const unresolved = []
+        for (const card of receive) {
+          const print = pickPrintingForReceive(card, printings)
+          if (!print?.id) {
+            unresolved.push(card.name || 'Unnamed card')
+            continue
+          }
+          const foil = !!card.foil
+          const id = createWantedItemId(print.id, foil)
+          const qty = Math.max(1, Number(card.qty) || 1)
+          const existing = wantById.get(id)
+          if (existing) { existing.qty += qty; continue }
+          wantById.set(id, {
+            id,
+            scryfallId: print.id,
+            name: print.name,
+            setName: print.set_name,
+            setCode: print.set,
+            collectorNumber: print.collector_number,
+            image: getImageUri(print, 'small'),
+            foil,
+            qty,
+            sf: print,
+            priceSource: price_source,
+            customPrice: null,
+          })
+        }
+
+        setOfferItems([...offerById.values()])
+        setWantItems([...wantById.values()])
+        setPartnerName(proposal.counterpart || '')
+        setTradeError('')
+        setTradeMessage('')
+        setSettleInfo({
+          id: proposal.id,
+          counterpart: proposal.counterpart || 'your trade partner',
+          unmatched: unmatched.map(u => u.card?.name || 'Unnamed card'),
+          unresolved,
+          guessedPrintings: wantById.size > 0,
+        })
+      } catch (err) {
+        if (!cancelled) setTradeError(err.message || 'Could not load that trade.')
+      }
+    })()
+
+    return () => { cancelled = true }
+    // sfMap is read only as a fallback for cards the fresh load already covers;
+    // depending on it would re-run the prefill every time metadata streams in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settleId, collectionLoaded, folders, tradeSearchRows, cardsById, price_source])
+
+  const clearSettle = useCallback(() => {
+    setSettleInfo(null)
+    settledPrefillRef.current = null
+    window.history.replaceState(null, '', '/trading')
+  }, [])
 
   const handleTrade = async () => {
     if (tradeSaving) return
@@ -1137,6 +1326,24 @@ export default function TradingPage() {
         console.error('[Trading] log write failed:', logErr?.message)
       }
 
+      // Record that this side has applied the proposal, so it can't be committed
+      // twice. Non-fatal: the cards have already moved either way.
+      if (settleInfo?.id) {
+        const settledId = settleInfo.id
+        try {
+          await markTradeSettled(settledId)
+          // Reflect it in the open list so the row reads "Applied" and the tab
+          // badge drops, without a refetch.
+          setProposals(prev => prev && {
+            incoming: prev.incoming.map(p => p.id === settledId ? { ...p, my_settled: true } : p),
+            outgoing: prev.outgoing.map(p => p.id === settledId ? { ...p, my_settled: true } : p),
+          })
+        } catch (settleErr) {
+          console.error('[Trading] settle mark failed:', settleErr?.message)
+        }
+        clearSettle()
+      }
+
       setOfferItems([])
       setWantItems([])
       setCollectionQuery('')
@@ -1160,33 +1367,69 @@ export default function TradingPage() {
 
       <div className={styles.tabBar}>
         {[
-          ['compare', 'Compare'],
-          ['post', 'Trade Post'],
-          ['proposals', 'Proposals'],
-          ['log', 'Trade Log'],
-        ].map(([id, label]) => (
+          ['post', 'Trade Post', proposalBadge],
+          ['compare', 'Compare', 0],
+        ].map(([id, label, badge]) => (
           <button
             key={id}
             type="button"
             className={`${styles.tabBtn}${tab === id ? ' ' + styles.tabBtnActive : ''}`}
-            onClick={() => { setTab(id); window.history.replaceState(null, '', id === 'compare' ? '/trading' : `/trading?tab=${id}`) }}
+            onClick={() => { setTab(id); window.history.replaceState(null, '', `/trading?tab=${id}`) }}
           >
             {label}
+            {badge > 0 ? <span className={styles.tabBadge}>{badge}</span> : null}
           </button>
         ))}
       </div>
 
       {tab === 'post' ? (
-        <TradePostManager />
-      ) : tab === 'proposals' ? (
-        <ProposalsInbox />
-      ) : tab === 'log' ? (
-        <TradeLogSection rows={tradeLogRows} loading={tradeLogLoading} onRefresh={loadTradeLog} fmt={v => formatPrice(v, price_source)} />
+        <div className={styles.postTab}>
+          <TradePostManager />
+          <section className={styles.proposalsBlock}>
+            <div className={styles.proposalsHead}>
+              <h3 className={styles.proposalsTitle}>Proposals</h3>
+              {proposalBadge > 0 && (
+                <span className={styles.proposalsNeed}>{proposalBadge} need you</span>
+              )}
+            </div>
+            <ProposalsInbox data={proposals} setData={setProposals} />
+          </section>
+        </div>
       ) : <>
 
-      <div className={styles.intro}>
-        Build both sides of a trade, compare live values, and choose the exact binder or deck copies you are trading away.
-      </div>
+      {settleInfo ? (
+        <div className={styles.settleBanner}>
+          <div className={styles.settleHead}>
+            <span className={styles.settleTitle}>Settling your trade with {settleInfo.counterpart}</span>
+            <button type="button" className={styles.settleDismiss} onClick={clearSettle}>Dismiss</button>
+          </div>
+          <p className={styles.settleBody}>
+            Both sides are filled in from the proposal. Check the printings, finishes and prices —
+            nothing changes in your collection until you press <strong>Complete Trade</strong>.
+          </p>
+          {settleInfo.unmatched.length > 0 && (
+            <p className={styles.settleWarn}>
+              Couldn’t find these in your collection — add them by hand if you did trade them away:{' '}
+              {settleInfo.unmatched.join(', ')}.
+            </p>
+          )}
+          {settleInfo.unresolved.length > 0 && (
+            <p className={styles.settleWarn}>
+              Couldn’t identify these cards you received — search for them above:{' '}
+              {settleInfo.unresolved.join(', ')}.
+            </p>
+          )}
+          {settleInfo.guessedPrintings && (
+            <p className={styles.settleBody}>
+              Received cards were matched to a best-guess printing. Change any that are wrong before completing.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className={styles.intro}>
+          Build both sides of a trade, compare live values, and choose the exact binder or deck copies you are trading away.
+        </div>
+      )}
 
       {(tradeError || tradeMessage) && (
         <div className={`${styles.notice}${tradeError ? ` ${styles.noticeError}` : ''}`}>
@@ -1421,6 +1664,29 @@ export default function TradingPage() {
           </div>
         </section>
       </div>
+
+      {/* History of what this tool committed — folded in under it rather than
+          living as its own tab. */}
+      <section className={styles.logSection}>
+        <button
+          type="button"
+          className={styles.logToggle}
+          onClick={toggleLog}
+          aria-expanded={logOpen}
+        >
+          <span className={styles.logToggleLabel}>Past trades</span>
+          {tradeLogRows.length > 0 && <span className={styles.logToggleCount}>{tradeLogRows.length}</span>}
+          <span className={styles.logToggleChevron} aria-hidden="true">{logOpen ? '▲' : '▼'}</span>
+        </button>
+        {logOpen && (
+          <TradeLogSection
+            rows={tradeLogRows}
+            loading={tradeLogLoading}
+            onRefresh={loadTradeLog}
+            fmt={v => formatPrice(v, price_source)}
+          />
+        )}
+      </section>
 
       {offerPicker && (
         <OptionPickerModal

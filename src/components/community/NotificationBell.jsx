@@ -14,7 +14,16 @@ function timeAgo(iso) {
   return `${Math.floor(h / 24)}d`
 }
 
-const VERB = { like: 'liked', comment: 'commented on', follow: 'started following you', trade_proposal: 'sent you a trade proposal' }
+const VERB = {
+  like: 'liked',
+  comment: 'commented on',
+  follow: 'started following you',
+  trade_proposal: 'sent you a trade proposal',
+  // Covers both an accept/decline and a "we traded" confirmation — the
+  // proposals tab shows which, and it keeps one notification type for the
+  // whole post-proposal conversation.
+  trade_response: 'updated a trade with you',
+}
 
 const MILESTONE_BY_ID = new Map(MILESTONES.map(m => [m.id, m]))
 
@@ -61,7 +70,7 @@ export default function NotificationBell() {
     if (n.type === 'milestone') {
       // The milestones block lives on the owner's own profile.
       if (nickname) navigate(`/profile/${encodeURIComponent(nickname)}`)
-    } else if (n.type === 'trade_proposal') {
+    } else if (n.type === 'trade_proposal' || n.type === 'trade_response') {
       navigate('/trading?tab=proposals')
     } else if (n.type === 'follow') {
       if (n.actor_name) navigate(`/profile/${encodeURIComponent(n.actor_name)}`)

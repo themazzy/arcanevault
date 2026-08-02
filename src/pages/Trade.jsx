@@ -35,7 +35,7 @@ function CardTile({ card, selectable, selected, onToggle }) {
       <div className={styles.cardInfo}>
         <span className={styles.cardName}>{card.name}{card.foil ? ' ✦' : ''}</span>
         <span className={styles.cardMeta}>
-          {card.any_version ? 'Any version' : (card.set_code || '').toUpperCase()}
+          {(card.set_code || '').toUpperCase()}
           {card.qty > 1 ? ` · ×${card.qty}` : ''}
           {card.price != null ? ` · ${eur(card.price)}` : ''}
         </span>
@@ -111,7 +111,7 @@ export default function TradePage() {
         offered: offered.map(o => ({ name: o.name })),
         note,
       })
-      toast.success('Trade proposal sent.')
+      toast.success('Proposal sent — track it under Trading → Proposals → Sent.')
       setRequested(new Set())
       setOffered([])
       setNote('')
@@ -168,7 +168,8 @@ export default function TradePage() {
             <button className={styles.iconBtn} onClick={() => setComposing(false)} aria-label="Cancel"><CloseIcon size={14} /></button>
           </div>
           <p className={styles.composerHint}>
-            Tap cards under <em>{post.nickname}’s haves</em> to request them, list what you’d give, add a note, then send.
+            Tap cards under <em>Trading away</em> to request them, list what you’d give, add a note, then send.
+            A proposal is a message — no cards move until you’ve met up and both of you confirm the trade.
           </p>
           <div className={styles.composerRow}>
             <span className={styles.composerLabel}>You want ({requestedCards.length})</span>
