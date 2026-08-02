@@ -112,6 +112,14 @@ async function fetchCommanderArt(id) {
   }
 }
 
+/** Shallow equality for an art list — the values are URL strings. */
+function sameArts(a, b) {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
 export function useDeckArts(meta = {}) {
   const key = useMemo(() => JSON.stringify({
     coverArtUri: meta.coverArtUri,
@@ -140,20 +148,31 @@ export function useDeckArts(meta = {}) {
     const commanders = normalizeCommanderList(meta)
     const cover = getDeckCoverArt(meta)
     const initial = getInitialDeckArts(meta)
-    setArts(initial)
+    // Bail out when the arts haven't actually changed. getInitialDeckArts
+    // returns a fresh array every call, so a plain setArts(initial) can never
+    // be Object.is-equal to current state and React always re-renders. That is
+    // invisible for one deck and expensive for a wall of them: the profile's
+    // deck shelf mounts this hook once per tile, so thirty-odd decks meant
+    // thirty-odd forced extra render passes on mount.
+    setArts(prev => sameArts(prev, initial) ? prev : initial)
 
     if (!commanders.length) return () => { alive = false }
 
+    // Same bail-out on the async paths. A deck whose cover art was already
+    // known resolves to exactly what the initial state holds, so without this
+    // every tile re-renders a second time for no change.
     const applyFetched = async () => {
       if (commanders.length === 1) {
         const current = cover || commanders[0].art || await fetchCommanderArt(commanders[0].id)
-        if (alive) setArts(current ? [current] : [])
+        const next = current ? [current] : []
+        if (alive) setArts(prev => sameArts(prev, next) ? prev : next)
         return
       }
 
       const resolved = await Promise.all(commanders.map(async c => c.art || await fetchCommanderArt(c.id)))
       const visible = resolved.filter(Boolean)
-      if (alive) setArts(visible.length ? resolved : (cover ? [cover] : []))
+      const next = visible.length ? resolved : (cover ? [cover] : [])
+      if (alive) setArts(prev => sameArts(prev, next) ? prev : next)
     }
 
     applyFetched()

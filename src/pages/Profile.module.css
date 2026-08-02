@@ -1,34 +1,52 @@
-/* Profile — a collector's display case, not a stats dashboard.
+/* Profile — a collector's showcase.
  *
- * Three tiers, and the tiers are the design:
- *   1. banner  — full-bleed art, name, the one primary action
- *   2. ledger  — every numeric stat as a cell in ONE hairline-divided strip
- *   3. panels  — only blocks with real content (art, decks, cards) get a card
+ * The page has one argument: the artwork is the point. A collector showing off
+ * doesn't recite distributions, they spread their best cards on the table and
+ * hand you a deck. So:
  *
- * Previously all twenty blocks shared one treatment, so "Total Cards" carried
- * the same weight as the deck showcase. Numbers annotate; art leads.
+ *   1. nameplate — the collector, at display scale, over their chosen art
+ *   2. ledger    — their figures as ruled, aligned columns; no boxes
+ *   3. sections  — a marker, an accent rule, and open content. No boxes.
+ *
+ * The boxes were the problem. Every block used to be an identical bordered
+ * panel in a bento grid, so a two-digit number sat in the same frame as the
+ * deck showcase and the whole page read as a dashboard. Weight now comes from
+ * the size of the artwork inside a section, and nothing else.
+ *
+ * The collector's accent is structural here, not decorative: it carries every
+ * section rule, the nameplate underline and the sleeve glints. Two profiles
+ * should not look alike.
  */
 
+/* No dot grid here, unlike every other page wrapper (CLAUDE.md §Component
+   conventions). A showcase page is mostly artwork, and a texture running under
+   the binder pockets and deck covers competes with them for the eye. */
 .page {
+  /* Edit mode's hidden-blocks tray. Declared here so both the toolbar shell and
+     the edit grid can widen by exactly the same amount. */
+  --tray-w: 232px;
+  --tray-gap: 20px;
   min-height: 100vh;
   background: var(--bg);
-  background-image: radial-gradient(circle, rgba(201,168,76,0.04) 1px, transparent 1px);
-  background-size: 28px 28px;
   padding-bottom: 64px;
 }
 
 .shell {
-  max-width: 980px;
+  max-width: 1080px;
   margin: 0 auto;
   padding: 0 20px;
 }
 
 /* ── Banner ───────────────────────────────────────────────────────────────── */
+/* Taller than a header strip on purpose: this is the one place the collector
+   picks their own art, so it gets room to actually be a picture. */
 .banner {
   position: relative;
-  margin-bottom: 28px;
-  padding: calc(var(--nav-h) + 40px) 0 24px;
+  margin-bottom: 52px;
+  padding: calc(var(--nav-h) + 96px) 0 28px;
   isolation: isolate;
+  /* Clips the art's bleed — see .bannerArt. */
+  overflow: hidden;
 }
 
 .bannerArt,
@@ -39,9 +57,30 @@
   pointer-events: none;
 }
 
+/* Deliberately soft, because it cannot be sharp. Scryfall's `art_crop` is
+   626×457 and it is the largest crop that exists — `large` and `png` are full
+   card images whose art window works out *smaller* than art_crop once you crop
+   the frame off, so there is nothing better to fetch. A full-bleed banner
+   therefore upscales this ~2.3x on a 1440px viewport and ~4.6x on a 2x display,
+   and background-image bypasses CardImg's re-tiering entirely.
+
+   Blurring turns that upscale into atmosphere instead of a soft photograph, and
+   gives the nameplate a quiet field to sit on. Saturation is nudged up because
+   blurring averages neighbouring pixels and visibly washes the colour out.
+
+   5px is the setting: enough to hide the upscale, light enough that the art's
+   shapes still read as the picture the collector chose. Past roughly 12px it
+   stops being their art and becomes a coloured field.
+
+   The negative inset bleeds the element past the banner on every side so the
+   blur's own faded edge is clipped rather than showing as a light rim; 30px
+   covers the radius several times over. A transform: scale() would do the same
+   job on the horizontal but leaves too little margin on a short banner. */
 .bannerArt {
+  inset: -30px;
   background-size: cover;
   background-position: center 28%;
+  filter: blur(5px) saturate(1.12);
 }
 
 /* No art chosen: a wash of the profile accent so the banner still reads as
@@ -69,25 +108,28 @@
   );
 }
 
+/* Explicit placement, not auto-flow: the ledger spans both columns, and with
+   auto-placement that pushes the action buttons onto a third row instead of
+   holding them beside the name. */
 .bannerInner {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 20px 28px;
 }
 
 .identity {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 20px;
   min-width: 0;
-  flex: 1;
 }
 
 .avatar {
-  width: 76px;
-  height: 76px;
+  width: 68px;
+  height: 68px;
   flex-shrink: 0;
   border-radius: var(--radius-pill);
   border: 2px solid var(--profile-accent, var(--gold));
@@ -97,7 +139,7 @@
   align-items: center;
   justify-content: center;
   font-family: var(--font-display);
-  font-size: 1.9rem;
+  font-size: 1.7rem;
   font-weight: 700;
   line-height: 1;
   box-shadow: 0 6px 20px rgba(0,0,0,0.4);
@@ -105,17 +147,22 @@
 
 .identityText { min-width: 0; }
 
+/* The nameplate. Cinzel is already the product's display face; this is the one
+   screen where it gets to run at real display scale — the name used to sit at
+   2rem, smaller than an ordinary page title. */
 .name {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: baseline;
+  gap: 14px;
   flex-wrap: wrap;
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--font-3xl);
-  font-weight: 600;
-  line-height: 1.1;
+  font-size: clamp(2.1rem, 5.5vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.02;
   color: var(--text);
+  text-shadow: 0 2px 24px rgba(0,0,0,0.55);
 }
 
 /* Static accent rule under the name. The old header ran a 4s opacity pulse on
@@ -125,9 +172,69 @@
   display: block;
   flex-basis: 100%;
   height: 2px;
-  max-width: 120px;
+  max-width: 92px;
+  margin-top: 10px;
   border-radius: var(--radius-pill);
   background: var(--profile-accent, var(--gold));
+}
+
+/* ── Ledger ───────────────────────────────────────────────────────────────── */
+/* The collector's tally: ruled entries in aligned columns.
+ *
+ * Two failed attempts preceded this. A strip of nine bordered stat cells was
+ * the loudest dashboard signal on the page — nine boxes competing with the
+ * showcase. Replacing it with one flowing line of value/label pairs fixed the
+ * noise and created a worse problem: a wrapping flex row on a shared baseline
+ * goes ragged past six entries, nothing lines up between rows, and two type
+ * sizes alternating along one baseline reads as a run-on sentence of numbers.
+ *
+ * Columns are the answer, without the boxes. auto-fit means a wrapped row lands
+ * in the same tracks as the first, so every value sits on a shared line and
+ * every label sits on another, however many stats are switched on. */
+.ledger {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  align-items: start;
+  gap: 18px 24px;
+  margin: 26px 0 0;
+  padding: 0;
+}
+
+.ledgerEntry {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding-top: 11px;
+  /* Ruled along the top of each entry rather than divided between them: a
+     border-left would leave a stray rule at the start of every wrapped row, and
+     CSS cannot know where the wrap falls. A ruled line is what a tally looks
+     like anyway, and it carries the same accent as the section rules below. */
+  border-top: 1px solid color-mix(
+    in srgb, var(--profile-accent, var(--gold)) 30%, var(--s-border2)
+  );
+}
+
+/* Term precedes definition in the markup, as a <dl> requires; the value is
+   lifted above its label here. */
+.ledgerValue {
+  order: -1;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.ledgerLabel {
+  composes: labelSm from '../styles/typography.module.css';
+  color: var(--text-faint);
+  line-height: 1.35;
 }
 
 .supporter {
@@ -202,8 +309,11 @@
 .metaLink:hover strong { color: var(--profile-accent, var(--gold)); }
 
 .bannerActions {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -233,22 +343,18 @@
   border-color: var(--s-border3);
 }
 
-/* ── Ledger ───────────────────────────────────────────────────────────────── */
-.ledger {
+/* ── Edit-mode stat cells ─────────────────────────────────────────────────── */
+/* Only edit mode still shows stats as cells — they are drag targets there, and a
+   drag target needs an edge you can aim at. Visitors get the ruled ledger above.
+   Each .editCell draws its own border, so this is a plain grid; the old version
+   painted a strip background showing through a 1px gap, a divider trick that
+   lost its partner when the view-mode cells went away. */
+.editLedgerGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
-  gap: 1px;
+  gap: 8px;
   margin-bottom: 28px;
-  background: var(--s-border);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
 }
-
-/* The 1px grid gap IS the divider — each cell paints its own background over
-   the strip's, so hairlines appear between cells without per-cell borders that
-   would double up at wrap points. */
-.ledgerCell { background: var(--bg2); }
 
 .statCell {
   display: flex;
@@ -276,47 +382,65 @@
   color: var(--text-faint);
 }
 
-/* ── Panels ───────────────────────────────────────────────────────────────── */
+/* ── Sections ─────────────────────────────────────────────────────────────── */
+/* One column, wide gutters. The two-column bento was what forced every block
+   into a same-sized box; a showcase reads top to bottom, one exhibit at a time. */
 .panels {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 52px;
 }
 
-.panelFull { grid-column: 1 / -1; }
-.panelHalf { grid-column: span 1; }
+/* Kept as no-ops so edit mode's spanClass() still resolves — in view mode every
+   section is full width. */
+.panelFull { min-width: 0; }
+.panelHalf { min-width: 0; }
 
-.panel {
-  position: relative;
-  height: 100%;
-  padding: 20px 22px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
+.section { min-width: 0; }
 
-.panelHead {
+.sectionHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 14px;
+  margin-bottom: 18px;
 }
 
-.panelTitle {
-  composes: labelLg from '../styles/typography.module.css';
+.sectionMarker {
+  composes: labelMd from '../styles/typography.module.css';
   margin: 0;
+  flex-shrink: 0;
   font-family: var(--font-display);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.18em;
   color: var(--text-dim);
 }
 
-.panelAction {
+/* The rule carries the collector's accent — it's the thread that ties the page
+   to the one colour they chose, and the reason two profiles read differently. */
+.sectionRule {
+  flex: 1;
+  height: 1px;
+  min-width: 20px;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--profile-accent, var(--gold)) 55%, transparent),
+    var(--s-border0) 70%
+  );
+}
+
+.sectionNote {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.sectionAction {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
   padding: 4px 8px;
   background: none;
   border: none;
@@ -328,15 +452,16 @@
   transition: color var(--transition-fast), background var(--transition-fast);
 }
 
-.panelAction:hover { color: var(--gold); background: var(--s2); }
+.sectionAction:hover { color: var(--gold); background: var(--s2); }
 
-.panelHint {
+.sectionHint {
+  flex-shrink: 0;
   font-size: var(--font-xs);
   color: var(--text-faint);
   font-style: italic;
 }
 
-.panelEmpty {
+.sectionEmpty {
   margin: 0;
   font-size: var(--font-sm);
   color: var(--text-faint);
@@ -378,71 +503,14 @@
   color: var(--text-faint);
 }
 
-/* Panel whose background is card art (favourite commander). */
-.artPanel { min-height: 132px; }
-
-.artPanelBg {
-  position: absolute;
-  inset: 0;
-  background-size: cover;
-  background-position: center 20%;
-  opacity: 0.28;
-  pointer-events: none;
-  transition: opacity var(--transition-base);
-}
-
-.artPanel:hover .artPanelBg { opacity: 0.4; }
-
-.artPanelBody { position: relative; }
-
-.commanderName {
-  font-family: var(--font-display);
-  font-size: var(--font-xl);
-  line-height: 1.25;
-  color: var(--profile-accent, var(--gold));
-}
-
-/* ── Meters (colour pie, rarity) ──────────────────────────────────────────── */
-.meter {
-  display: flex;
-  gap: 2px;
-  height: 12px;
-  margin-bottom: 14px;
-}
-
-.meterSegment {
-  min-width: 4px;
-  border-radius: var(--radius-xs);
-  transition: flex var(--transition-base);
-}
-
-.pipLegend,
-.chipRow,
-.rarityRows {
-  display: flex;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.pipLegend { flex-wrap: wrap; gap: 8px 16px; }
-
-.pipEntry {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--font-sm);
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
-.pipRow { display: flex; align-items: center; gap: 3px; }
+/* ── Mana pips ────────────────────────────────────────────────────────────── */
+.pipRow { display: flex; align-items: center; gap: 4px; }
 
 .pip {
-  width: 16px;
-  height: 16px;
+  width: 19px;
+  height: 19px;
   object-fit: contain;
-  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4));
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.55));
 }
 
 .pipSm {
@@ -452,38 +520,14 @@
   filter: drop-shadow(0 1px 1px rgba(0,0,0,0.5));
 }
 
-.rarityRows { flex-direction: column; gap: 8px; }
-
-.rarityRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: var(--font-sm);
-}
-
-.rarityDot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: var(--radius-pill);
-}
-
-.rarityLabel { flex: 1; color: var(--text-dim); }
-.rarityCount { color: var(--text); font-variant-numeric: tabular-nums; }
-
 /* ── Chips (static, no border, pill — DESIGN.md §4) ───────────────────────── */
-.chipRow { flex-wrap: wrap; gap: 6px; }
-
-.chip {
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 11px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--chip-tint, var(--text-dim)) 16%, transparent);
-  color: var(--chip-tint, var(--text-dim));
-  font-size: var(--font-xs);
-  line-height: 1;
+.chipRow {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .chipGold {
@@ -518,6 +562,12 @@
   border: 1px solid color-mix(in srgb, var(--gold) 28%, transparent);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--gold) 5%, transparent);
+  /* A badge is an object, not prose. Left to the browser these read as text and
+     hand you an I-beam over the label, which invites a selection drag that does
+     nothing useful. `default` keeps the arrow — not `pointer`, which would
+     promise a click; hovering only reveals the tooltip. */
+  cursor: default;
+  user-select: none;
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
@@ -584,14 +634,19 @@
   color: var(--gold);
 }
 
-/* ── Featured deck — the signature surface ────────────────────────────────── */
+/* ── The deck — hero exhibit ──────────────────────────────────────────────── */
+/* Deep, art-led, and read as one object: commander art bleeding behind the
+   deck's name on the left, the spread of standout cards on the right. */
 .featured {
   position: relative;
-  min-height: 260px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
   isolation: isolate;
+  /* Queried below. The section has to decide its own layout from its own width:
+     in edit mode it sits in a column narrower than the window, so a viewport
+     query would keep the cards side-by-side with the name and clip them. */
+  container-type: inline-size;
 }
 
 .featuredArt {
@@ -601,109 +656,143 @@
   background-size: cover;
   background-position: center 25%;
   transform: scale(1.02);
-  transition: transform var(--transition-base);
+  transition: transform 600ms var(--ease-out, ease);
 }
 
-.featured:hover .featuredArt { transform: scale(1.06); }
+.featured:hover .featuredArt { transform: scale(1.05); }
 
 .featuredScrim {
   position: absolute;
   inset: 0;
   z-index: -1;
   background: linear-gradient(
-    105deg,
-    color-mix(in srgb, var(--bg2) 94%, transparent) 0%,
-    color-mix(in srgb, var(--bg2) 80%, transparent) 48%,
-    color-mix(in srgb, var(--bg2) 42%, transparent) 100%
+    100deg,
+    color-mix(in srgb, var(--bg) 96%, transparent) 0%,
+    color-mix(in srgb, var(--bg) 88%, transparent) 38%,
+    color-mix(in srgb, var(--bg) 50%, transparent) 72%,
+    color-mix(in srgb, var(--bg) 30%, transparent) 100%
   );
 }
 
-.featuredBody { padding: 24px; }
-
-.featuredEyebrow {
-  composes: labelSm from '../styles/typography.module.css';
-  display: block;
-  margin-bottom: 8px;
-  font-family: var(--font-display);
-  color: var(--text-faint);
+/* The text column gets a hard floor rather than 1fr-down-to-nothing: the fan is
+   an `auto` track sized to its cards, so without a minimum it squeezed the deck
+   name to a couple of characters per line and the leftmost card's rotation and
+   28px drop shadow bled over it. Below that floor the two stack (see the 980px
+   query) instead of fighting for the same row. */
+.featuredBody {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) auto;
+  align-items: center;
+  gap: 36px;
+  min-height: 320px;
+  padding: 34px 32px;
 }
+
+.featuredText { min-width: 0; }
 
 .featuredName {
   display: inline-block;
+  margin-top: 10px;
   font-family: var(--font-display);
-  font-size: var(--font-2xl);
-  line-height: 1.15;
-  color: var(--profile-accent, var(--gold));
+  font-size: clamp(1.6rem, 3.2vw, 2.35rem);
+  font-weight: 700;
+  line-height: 1.08;
+  color: var(--text);
   text-decoration: none;
+  text-shadow: 0 2px 18px rgba(0,0,0,0.5);
+  transition: color var(--transition-fast);
 }
 
-.featuredName:hover { text-decoration: underline; }
+.featuredName:hover { color: var(--profile-accent, var(--gold)); }
 
 .featuredCommander {
-  margin: 4px 0 0;
-  font-size: var(--font-md);
+  margin: 6px 0 0;
+  font-size: var(--font-lg);
   font-style: italic;
-  color: var(--text-dim);
+  color: var(--profile-accent, var(--gold));
 }
 
 .featuredMeta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  margin-top: 10px;
+  margin-top: 14px;
   font-size: var(--font-sm);
-  color: var(--text-faint);
+  color: var(--text-dim);
 }
 
 .featuredMeta > * + *::before {
   content: '•';
   margin: 0 8px;
+  color: var(--text-faint);
 }
 
 .featuredDesc {
-  max-width: 62ch;
-  margin: 12px 0 0;
+  max-width: 48ch;
+  margin: 14px 0 0;
   font-size: var(--font-md);
-  line-height: 1.55;
+  line-height: 1.6;
   color: var(--text-dim);
   white-space: pre-wrap;
 }
 
-.featured .pipRow { margin-top: 10px; }
-.featured .chipRow { margin-top: 12px; }
+.featured .chipRow { margin-top: 14px; }
 
-/* The fan: cards overlap like a held hand and spread apart on hover. This is
-   the one place on the page allowed a flourish; everything else stays quiet. */
+/* The spread — cards laid across the table rather than stacked in a pile. Each
+   sits at its own angle off centre, so the group reads as physical objects
+   someone put down, not as a row of thumbnails. Hovering lifts one clear. */
+/* The left padding is not symmetric on purpose: the outermost card rotates
+   counter-clockwise about its bottom edge, so its top corner swings left, and
+   its drop shadow reaches ~28px further still. This absorbs both. */
 .fan {
   display: flex;
-  align-items: flex-end;
-  margin-top: 20px;
-  padding-left: 4px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 26px 30px 26px 44px;
+  perspective: 900px;
+}
+
+.fanEmpty {
+  align-self: center;
+  max-width: 15ch;
+  margin: 0 12px 0 0;
+  font-size: var(--font-sm);
+  color: var(--text-faint);
+  font-style: italic;
+  line-height: 1.5;
 }
 
 .fanCard {
+  --mid: calc((var(--fan-count, 1) - 1) / 2);
+  --offset: calc(var(--i, 0) - var(--mid));
+  /* |offset|, without abs() — that only landed in Chrome 133 and still isn't in
+     Firefox, and a card fan is not worth a browser floor. */
+  --lift: max(var(--offset), calc(-1 * var(--offset)));
   position: relative;
-  width: 132px;
+  width: 150px;
   flex-shrink: 0;
   aspect-ratio: 488 / 680;
-  margin-left: -34px;
+  margin-left: -46px;
   border-radius: var(--radius-md);
   overflow: hidden;
   border: 1px solid var(--s-border2);
-  box-shadow: var(--shadow-sm);
-  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-fast);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.5);
+  transform: rotate(calc(var(--offset) * 5deg)) translateY(calc(var(--lift) * 7px));
+  transform-origin: bottom center;
+  transition:
+    transform 320ms var(--ease-out, ease),
+    box-shadow var(--transition-base),
+    border-color var(--transition-fast);
 }
 
 .fanCard:first-child { margin-left: 0; }
 
-.fan:hover .fanCard { margin-left: -14px; }
-.fan:hover .fanCard:first-child { margin-left: 0; }
-
 .fanCard:hover {
-  transform: translateY(-10px);
-  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
-  box-shadow: var(--shadow-md);
-  z-index: 1;
+  transform: rotate(0deg) translateY(-16px) scale(1.04);
+  border-color: color-mix(in srgb, var(--profile-accent, var(--gold)) 65%, transparent);
+  box-shadow: 0 22px 44px rgba(0,0,0,0.6);
+  z-index: 2;
 }
 
 .fanImg {
@@ -735,7 +824,7 @@
 .fanRemove:focus-visible { opacity: 1; }
 
 .fanAdd {
-  width: 132px;
+  width: 150px;
   flex-shrink: 0;
   aspect-ratio: 488 / 680;
   margin-left: 12px;
@@ -798,11 +887,14 @@
   color: var(--text-faint);
 }
 
-/* ── Deck grid ────────────────────────────────────────────────────────────── */
+/* ── Deck shelf ───────────────────────────────────────────────────────────── */
+/* Taller than the old tiles and with the art carried much further up, so the
+   shelf reads as a row of deck boxes with their covers showing rather than as
+   a grid of list rows that happen to have a faint background. */
 .deckGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(206px, 1fr));
+  gap: 16px;
 }
 
 .deckTileWrap { position: relative; }
@@ -810,7 +902,7 @@
 .deckTile {
   position: relative;
   display: block;
-  height: 158px;
+  height: 210px;
   border-radius: var(--radius-md);
   overflow: hidden;
   border: 1px solid var(--s-border);
@@ -820,40 +912,51 @@
 }
 
 .deckTile:hover {
-  border-color: color-mix(in srgb, var(--gold) 50%, transparent);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-sm);
+  border-color: color-mix(in srgb, var(--profile-accent, var(--gold)) 55%, transparent);
+  transform: translateY(-4px);
+  box-shadow: 0 16px 30px rgba(0,0,0,0.45);
 }
 
 .deckTileArt {
   position: absolute;
   inset: 0;
-  background-size: cover;
-  background-position: center 20%;
-  opacity: 0.35;
-  transition: opacity var(--transition-base);
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 20%;
+  opacity: 0.72;
+  transition: opacity var(--transition-base), transform 600ms var(--ease-out, ease);
 }
 
-.deckTile:hover .deckTileArt { opacity: 0.48; }
+.deckTile:hover .deckTileArt { opacity: 0.86; transform: scale(1.04); }
 
 :global([data-theme-mode="light"]) .deckTileArt { opacity: 0.45; mix-blend-mode: multiply; }
 
+/* Text is bottom-anchored, so the scrim stays fully clear over the top third
+   and only ramps where words begin. */
 .deckTileBody {
   position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  padding: 10px 12px;
+  justify-content: flex-end;
+  padding: 11px 13px;
   background: linear-gradient(
     to bottom,
-    color-mix(in srgb, var(--bg3) 25%, transparent) 0%,
-    color-mix(in srgb, var(--bg3) 82%, transparent) 55%,
-    color-mix(in srgb, var(--bg3) 95%, transparent) 100%
+    transparent 0%,
+    transparent 32%,
+    color-mix(in srgb, var(--bg) 58%, transparent) 56%,
+    color-mix(in srgb, var(--bg) 92%, transparent) 80%,
+    color-mix(in srgb, var(--bg) 98%, transparent) 100%
   );
 }
 
-.deckTileTags { display: flex; gap: 4px; flex-wrap: wrap; }
+.deckTileTags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 5px;
+}
 
 .tag,
 .tagCollection {
@@ -866,13 +969,16 @@
   line-height: 1;
 }
 
+/* Opaque enough to stand on their own. These sit near the top of the scrim
+   where ~40% of the artwork still shows through, and a translucent surface tint
+   over a busy illustration is not a background — it's noise. */
 .tag {
-  background: var(--s2);
-  color: var(--text-dim);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  color: var(--text);
 }
 
 .tagCollection {
-  background: color-mix(in srgb, var(--green) 18%, transparent);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
   color: var(--green);
 }
 
@@ -941,180 +1047,115 @@
   pointer-events: none;
 }
 
-/* ── Crown jewel ──────────────────────────────────────────────────────────── */
-.crown { display: flex; gap: 16px; align-items: flex-start; }
-
-.crownImg {
-  width: 86px;
-  flex-shrink: 0;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
-}
-
-.crownInfo { min-width: 0; }
-
-.crownName {
-  font-size: var(--font-base);
-  color: var(--text);
-  margin-bottom: 4px;
-}
-
-.crownSet {
-  font-size: var(--font-sm);
-  color: var(--text-faint);
-  margin-bottom: 10px;
-}
-
-.crownPrice {
-  font-family: var(--font-display);
-  font-size: var(--font-xl);
-  color: var(--green);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Most valuable ────────────────────────────────────────────────────────── */
-.valueLayout {
+/* ── The binder — signature surface ───────────────────────────────────────── */
+/* Sleeve pockets, three across, holding the collection's best cards at a size
+   where the artwork is legible. This is how a collector physically shows cards
+   to someone, and "binder" is already a first-class object in this app. It
+   replaced a hero-plus-ranked-list: one card large, the rest as 40px thumbs in
+   a numbered leaderboard, which is a table pretending to be a showcase. */
+.binder {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(210px, 0.9fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.valueHero {
-  display: grid;
-  grid-template-columns: minmax(120px, 168px) minmax(0, 1fr);
-  gap: 16px;
-  padding: 14px;
-  background: var(--bg3);
-  border: 1px solid var(--s-border);
-  border-radius: var(--radius-md);
-}
-
-.valueHeroArt {
-  width: 100%;
-  aspect-ratio: 63 / 88;
-  object-fit: cover;
-  display: block;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-md);
-}
-
-.valueHeroPlaceholder {
-  width: 100%;
-  aspect-ratio: 63 / 88;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  background: var(--bg2);
-  font-family: var(--font-display);
-  color: var(--text-faint);
-}
-
-.valueHeroBody { min-width: 0; }
-
-.valueHeroName {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-family: var(--font-display);
-  font-size: var(--font-lg);
-  line-height: 1.25;
-  color: var(--gold);
-}
-
-.valueHeroSet {
-  margin-top: 4px;
-  font-size: var(--font-sm);
-  color: var(--text-dim);
-}
-
-.valueHeroPrice {
-  margin-top: 12px;
-  font-family: var(--font-display);
-  font-size: var(--font-2xl);
-  color: var(--green);
-  font-variant-numeric: tabular-nums;
-}
-
-.valueRail {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 26px 22px;
   margin: 0;
   padding: 0;
   list-style: none;
-  max-height: 300px;
-  overflow-y: auto;
 }
 
-.valueRow {
+.pocket {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 6px 8px;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  text-align: left;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
 }
 
-.valueRow:hover:not(.valueRowActive) {
-  background: var(--s2);
-  border-color: var(--s-border);
-}
-
-.valueRowActive {
-  background: color-mix(in srgb, var(--gold) 9%, transparent);
-  border-color: color-mix(in srgb, var(--gold) 32%, transparent);
-}
-
-.valueRank {
-  width: 16px;
-  flex-shrink: 0;
-  font-family: var(--font-display);
-  font-size: var(--font-xs);
-  color: var(--text-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.valueRowThumb {
-  width: 32px;
-  height: 45px;
-  flex-shrink: 0;
-  border-radius: var(--radius-xs);
+/* The pocket itself: a recessed well with a lip of light along the top edge,
+   the way a filled sleeve catches the light on a real binder page. */
+.pocketSleeve {
+  position: relative;
+  aspect-ratio: 488 / 680;
+  border-radius: var(--radius-md);
   overflow: hidden;
-  background: var(--bg3);
+  background: var(--s2);
   border: 1px solid var(--s-border);
+  box-shadow:
+    inset 0 1px 0 var(--s3),
+    0 10px 24px rgba(0,0,0,0.42);
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-fast);
 }
 
-.valueRowImg {
+.pocket:hover .pocketSleeve {
+  transform: translateY(-5px);
+  border-color: color-mix(in srgb, var(--profile-accent, var(--gold)) 50%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--s3),
+    0 18px 34px rgba(0,0,0,0.55);
+}
+
+.pocketImg {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.valueRowName {
-  flex: 1;
+.pocketBlank {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-display);
+  font-size: 2rem;
+  color: var(--text-faint);
+}
+
+/* Foils get the sheen a real one has under a light, angled across the sleeve.
+   Purely decorative, so it never intercepts a pointer. */
+.pocketFoil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    118deg,
+    transparent 28%,
+    color-mix(in srgb, var(--purple) 30%, transparent) 46%,
+    color-mix(in srgb, var(--gold) 24%, transparent) 56%,
+    transparent 74%
+  );
+  mix-blend-mode: screen;
+  opacity: 0.75;
+}
+
+.pocketMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
   min-width: 0;
-  font-size: var(--font-sm);
-  color: var(--text);
+}
+
+.pocketName {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--font-md);
+  color: var(--text);
 }
 
-.valueRowPrice {
+.pocketPrice {
   flex-shrink: 0;
   font-family: var(--font-display);
-  font-size: var(--font-sm);
+  font-size: var(--font-md);
+  font-weight: 600;
   color: var(--green);
   font-variant-numeric: tabular-nums;
+}
+
+.pocketSet {
+  composes: labelSm from '../styles/typography.module.css';
+  color: var(--text-faint);
 }
 
 /* ── Dialogs ──────────────────────────────────────────────────────────────── */
@@ -1170,6 +1211,11 @@
   border: 1px solid var(--s-border);
   border-radius: var(--radius-sm);
   opacity: 0.55;
+  /* Same reason as .badge: these are rows you read, not text you edit, so the
+     arrow rather than an I-beam. No user-select lock here though — unlike a
+     badge, the requirement text ("Requires 1,000 cards") is worth being able
+     to select. */
+  cursor: default;
 }
 
 .milestoneRowEarned {
@@ -1377,10 +1423,19 @@
   transform: scale(1.12);
 }
 
+/* Edit mode runs wider than the reading shell, by exactly the tray plus its gap.
+   The tray used to be carved out of the shell, so the editing column was 788px
+   against view mode's 1040 — you were laying out a page 250px narrower than the
+   one you were building, and the deck fan clipped against the edge. Now the
+   column keeps its real width and the tray hangs off to the right. */
+.editShell {
+  max-width: calc(1080px + var(--tray-w) + var(--tray-gap));
+}
+
 .editLayout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 232px;
-  gap: 20px;
+  grid-template-columns: minmax(0, 1fr) var(--tray-w);
+  gap: var(--tray-gap);
   align-items: start;
 }
 
@@ -1631,38 +1686,65 @@
 .textLink:hover { text-decoration: underline; }
 
 /* ── Responsive ───────────────────────────────────────────────────────────── */
+/* The spread stops fitting beside the deck's name well before the phone
+   breakpoint — stack it under, still fanned, and left-align it. Measured
+   against the section, not the window; see container-type on .featured. */
+@container (max-width: 1000px) {
+  .featuredBody { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .fan { justify-content: flex-start; padding: 18px 0 0; }
+}
+
 @media (max-width: 900px) {
+  /* Stacked, so the extra tray width would only make the content wider than it
+     is in view mode. */
+  .editShell { max-width: 1080px; }
   .editLayout { grid-template-columns: 1fr; }
   .tray { position: static; order: -1; }
-  .valueLayout { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
   .shell { padding: 0 14px; }
 
-  .banner { padding-top: calc(var(--nav-h) + 24px); }
-  .bannerInner { flex-direction: column; align-items: stretch; gap: 16px; }
+  .banner { padding-top: calc(var(--nav-h) + 40px); margin-bottom: 36px; }
+
+  /* One column — the explicit row/column placement above has to be released or
+     the actions stay pinned to a column that no longer exists. */
+  .bannerInner { grid-template-columns: minmax(0, 1fr); align-items: stretch; gap: 16px; }
+  .identity,
+  .ledger,
+  .bannerActions { grid-column: 1; grid-row: auto; }
   .bannerActions { justify-content: flex-start; }
 
   .identity { gap: 14px; }
-  .avatar { width: 58px; height: 58px; font-size: 1.4rem; }
-  .name { font-size: var(--font-2xl); }
+  .avatar { width: 54px; height: 54px; font-size: 1.3rem; }
 
-  .panels { grid-template-columns: 1fr; }
-  .panelHalf { grid-column: 1 / -1; }
-  .panel { padding: 16px; }
+  .panels { gap: 40px; }
+
+  .ledger { grid-template-columns: repeat(auto-fit, minmax(104px, 1fr)); gap: 14px 16px; margin-top: 20px; }
+  .ledgerValue { font-size: var(--font-xl); }
 
   .ledger { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
   .statCell { padding: 12px 14px; min-height: 72px; }
   .statValue { font-size: var(--font-xl); }
 
-  .featuredBody { padding: 18px; }
-  .featuredName { font-size: var(--font-xl); }
+  .featuredBody { min-height: 0; padding: 20px 18px; }
 
+  /* A five-card fan at full width overflows a phone; tighten the overlap and
+     let the row scroll rather than clip. */
+  .fan { overflow-x: auto; justify-content: flex-start; padding-bottom: 8px; }
   .fanCard,
-  .fanAdd { width: 104px; }
-  .fanCard { margin-left: -28px; }
+  .fanAdd { width: 108px; }
+  .fanCard { margin-left: -34px; }
 
-  .valueHero { grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 12px; }
+  .binder { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 20px 14px; }
   .deckGrid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+
+/* The fan's angles and the hover lift are decoration; flatten them when motion
+   is unwelcome, keeping the cards legible and still overlapping. */
+@media (prefers-reduced-motion: reduce) {
+  .fanCard { transform: none; }
+  .fanCard:hover { transform: none; }
+  .pocket:hover .pocketSleeve { transform: none; }
+  .featured:hover .featuredArt { transform: scale(1.02); }
 }

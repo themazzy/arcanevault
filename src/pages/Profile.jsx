@@ -51,8 +51,8 @@ import styles from './Profile.module.css'
 // small thumbs were pulling a ~78KB image apiece; those ask for `small` by name
 // (nothing is legible at that size, and it is ~7x lighter). Keep in sync with
 // `.standoutCard` and `.valueHeroArt` in the stylesheet.
-const STANDOUT_TILE_W = 132
-const VALUE_HERO_W = 168
+const STANDOUT_TILE_W = 150
+const BINDER_CARD_W = 220
 
 const ACCENT_PALETTE = [
   '#c9a84c', '#e8c96a', '#e07840', '#e05c5c', '#c44569',
@@ -61,64 +61,42 @@ const ACCENT_PALETTE = [
   '#b2bec3', '#636e72', '#dfe6e9', '#2d3436', '#00cec9',
 ]
 
-const MANA_COLORS = [
-  { key: 'W', label: 'White',     symbol: 'W', color: '#e8e4d0' },
-  { key: 'U', label: 'Blue',      symbol: 'U', color: '#4a90d9' },
-  { key: 'B', label: 'Black',     symbol: 'B', color: '#8a7ca8' },
-  { key: 'R', label: 'Red',       symbol: 'R', color: '#e05c5c' },
-  { key: 'G', label: 'Green',     symbol: 'G', color: '#5dba70' },
-  { key: 'C', label: 'Colorless', symbol: 'C', color: '#9ba8b0' },
-]
-
-const RARITY_DEFS = [
-  { key: 'common',   label: 'Common',   color: '#9ba8b0' },
-  { key: 'uncommon', label: 'Uncommon', color: '#7ab8e8' },
-  { key: 'rare',     label: 'Rare',     color: '#c9a84c' },
-  { key: 'mythic',   label: 'Mythic',   color: '#e87040' },
-]
-
 const FORMAT_LABEL = {
   standard: 'Standard', pioneer: 'Pioneer', modern: 'Modern', legacy: 'Legacy',
   vintage: 'Vintage', commander: 'Commander', pauper: 'Pauper', historic: 'Historic',
   explorer: 'Explorer', alchemy: 'Alchemy', brawl: 'Brawl', oathbreaker: 'Oathbreaker',
 }
 
-const FORMAT_COLORS = {
-  standard: '#4a90d9', pioneer: '#9b59b6', modern: '#2ecc71', legacy: '#e07840',
-  vintage: '#c9a84c', commander: '#e05c5c', pauper: '#9ba8b0', historic: '#00cec9',
-  explorer: '#6c5ce7', alchemy: '#fd79a8', brawl: '#e84393', oathbreaker: '#a8e6cf',
-}
-
 const MANA_SYMBOL_URL = c => `https://svgs.scryfall.io/card-symbols/${c}.svg`
 
 // ── Block metadata ────────────────────────────────────────────────────────────
-// `kind` decides which zone a block lives in, and it is not a style hint — it is
-// the whole point of the layout. Every block used to be an identical bordered
-// card, so a single number ("Total Cards") carried the same visual weight as the
-// deck showcase. Stats are now cells in one ledger strip; only blocks with real
-// content get a panel.
+// `kind` decides where a block lives. Stats are a single engraved line under the
+// name — they are context for the showcase, not the subject of the page. Panels
+// are the showcase itself: a deck, a binder page, a shelf.
+//
+// The analytics blocks (colour pie, rarity breakdown, formats played, crown
+// jewel, favourite commander) were removed 2026-08. A public profile answers
+// "who is this collector and what should I look at" — distribution charts answer
+// "how is my collection composed", which is a question you ask about your own
+// collection, on /stats. Dropping an id here also drops it from saved configs,
+// since mergeBlocks filters against these keys.
 const BLOCK_DEFS = {
   total:         { label: 'Total Cards',    kind: 'stat' },
   unique:        { label: 'Unique Prints',  kind: 'stat' },
   foils:         { label: 'Foils',          kind: 'stat' },
   sets:          { label: 'Sets',           kind: 'stat' },
-  since:         { label: 'Member Since',   kind: 'stat' },
+  since:         { label: 'Collecting Since', kind: 'stat' },
   value:         { label: 'Est. Value',     kind: 'stat' },
   deck_count:    { label: 'Public Decks',   kind: 'stat' },
   winrate:       { label: 'Win Rate',       kind: 'stat' },
   fav_format:    { label: 'Most Played',    kind: 'stat' },
 
+  featured_deck: { label: 'The Deck',          kind: 'panel', span: 'full' },
+  top_cards:     { label: 'The Binder',        kind: 'panel', span: 'full' },
+  decks:         { label: 'Deck Shelf',        kind: 'panel', span: 'full' },
   bio:           { label: 'Text Block',        kind: 'panel', span: 'full' },
-  featured_deck: { label: 'Featured Deck',     kind: 'panel', span: 'full' },
-  decks:         { label: 'Deck Showcase',     kind: 'panel', span: 'full' },
-  top_cards:     { label: 'Most Valuable',     kind: 'panel', span: 'full' },
   milestones:    { label: 'Milestones',        kind: 'panel', span: 'full' },
   recent_cards:  { label: 'Recently Added',    kind: 'panel', span: 'full' },
-  color_pie:     { label: 'Colour Pie',        kind: 'panel', span: 'half' },
-  rarity:        { label: 'Rarity',            kind: 'panel', span: 'half' },
-  formats:       { label: 'Formats Played',    kind: 'panel', span: 'half' },
-  fav_commander: { label: 'Fav. Commander',    kind: 'panel', span: 'half' },
-  crown:         { label: 'Crown Jewel',       kind: 'panel', span: 'half' },
 }
 
 const LEDGER_DROP_ID = 'drop-ledger'
@@ -201,7 +179,12 @@ function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
     : s.name === card.name)
   const full = selected.length >= 5
 
-  return (
+  // Portaled to <body> because UI.jsx's Modal renders in place, and this one is
+  // mounted inside the featured-deck section — which sets `isolation: isolate`
+  // for its background art, and in edit mode also carries a dnd-kit transform.
+  // Either is enough to make a stacking context the overlay's z-index cannot
+  // escape, so later sections (the deck shelf) painted straight over the dialog.
+  return createPortal(
     <Modal onClose={onClose}>
       <h2 className={styles.dialogTitle}>Standout cards ({selected.length}/5)</h2>
       <p className={styles.dialogSub}>Pick up to five cards to show alongside the deck.</p>
@@ -243,7 +226,8 @@ function StandoutCardPicker({ deck, selected, onAdd, onRemove, onClose }) {
           })}
         </div>
       )}
-    </Modal>
+    </Modal>,
+    document.body
   )
 }
 
@@ -257,13 +241,19 @@ function StatCell({ label, value, tone }) {
   )
 }
 
-// ── Panels ────────────────────────────────────────────────────────────────────
-function Panel({ title, action, children, className = '' }) {
+// ── Sections ──────────────────────────────────────────────────────────────────
+// No boxes. A section is a small-caps marker, a rule carrying the collector's
+// accent, and open content — the bordered panels were what made this page read
+// as a dashboard, because a two-digit number sat in the same frame as the deck
+// showcase. Weight now comes from the size of the artwork inside.
+function Section({ marker, note, action, children, className = '' }) {
   return (
-    <section className={`${styles.panel} ${className}`}>
-      {(title || action) && (
-        <header className={styles.panelHead}>
-          {title && <h2 className={styles.panelTitle}>{title}</h2>}
+    <section className={`${styles.section} ${className}`}>
+      {(marker || action) && (
+        <header className={styles.sectionHead}>
+          {marker && <h2 className={styles.sectionMarker}>{marker}</h2>}
+          <span className={styles.sectionRule} aria-hidden="true" />
+          {note && <span className={styles.sectionNote}>{note}</span>}
           {action}
         </header>
       )}
@@ -272,111 +262,22 @@ function Panel({ title, action, children, className = '' }) {
   )
 }
 
-function PanelEmpty({ children }) {
-  return <p className={styles.panelEmpty}>{children}</p>
+function SectionEmpty({ children }) {
+  return <p className={styles.sectionEmpty}>{children}</p>
 }
 
 function TextBlock({ text, editMode, onChangeText }) {
   if (editMode) return (
-    <Panel title="Text block">
+    <Section marker="Text block">
       <textarea className={styles.textarea} value={text}
         onChange={e => onChangeText(e.target.value)}
         placeholder="Favourite format, what you collect, what you're hunting for…"
         maxLength={500} rows={4} />
       <div className={styles.charCount}>{text.length}/500</div>
-    </Panel>
+    </Section>
   )
   if (!text) return null
-  return <Panel><p className={styles.bodyText}>{text}</p></Panel>
-}
-
-function ColorPieBlock({ distribution }) {
-  const present = MANA_COLORS.filter(c => distribution?.[c.key])
-  if (!present.length) return <Panel title="Colour pie"><PanelEmpty>No colour data yet.</PanelEmpty></Panel>
-  const total = present.reduce((a, c) => a + distribution[c.key], 0) || 1
-  return (
-    <Panel title="Colour pie">
-      <div className={styles.meter}>
-        {present.map(c => (
-          <span key={c.key} className={styles.meterSegment}
-            style={{ flex: distribution[c.key] / total, background: c.color }}
-            title={`${c.label}: ${distribution[c.key].toLocaleString()}`} />
-        ))}
-      </div>
-      <ul className={styles.pipLegend}>
-        {present.map(c => (
-          <li key={c.key} className={styles.pipEntry}>
-            <img src={MANA_SYMBOL_URL(c.symbol)} className={styles.pip} alt="" />
-            <span>{Math.round(distribution[c.key] / total * 100)}%</span>
-          </li>
-        ))}
-      </ul>
-    </Panel>
-  )
-}
-
-function RarityBlock({ breakdown }) {
-  const present = RARITY_DEFS.filter(r => breakdown?.[r.key])
-  if (!present.length) return <Panel title="Rarity"><PanelEmpty>No rarity data yet.</PanelEmpty></Panel>
-  const total = present.reduce((a, r) => a + breakdown[r.key], 0) || 1
-  return (
-    <Panel title="Rarity">
-      <div className={styles.meter}>
-        {present.map(r => (
-          <span key={r.key} className={styles.meterSegment}
-            style={{ flex: breakdown[r.key] / total, background: r.color }}
-            title={`${r.label}: ${breakdown[r.key].toLocaleString()}`} />
-        ))}
-      </div>
-      <ul className={styles.rarityRows}>
-        {present.map(r => (
-          <li key={r.key} className={styles.rarityRow}>
-            <span className={styles.rarityDot} style={{ background: r.color }} />
-            <span className={styles.rarityLabel}>{r.label}</span>
-            <span className={styles.rarityCount}>{breakdown[r.key].toLocaleString()}</span>
-          </li>
-        ))}
-      </ul>
-    </Panel>
-  )
-}
-
-function FormatsBlock({ decks }) {
-  const formats = [...new Set((decks || []).map(d => d.format).filter(Boolean))]
-  if (!formats.length) return <Panel title="Formats played"><PanelEmpty>No public decks yet.</PanelEmpty></Panel>
-  return (
-    <Panel title="Formats played">
-      <ul className={styles.chipRow}>
-        {formats.map(f => (
-          <li key={f} className={styles.chip}
-            style={{ '--chip-tint': FORMAT_COLORS[f] || 'var(--text-dim)' }}>
-            {FORMAT_LABEL[f] || f}
-          </li>
-        ))}
-      </ul>
-    </Panel>
-  )
-}
-
-function FavCommanderBlock({ decks }) {
-  const { name, art } = useMemo(() => {
-    if (!decks?.length) return {}
-    const counts = {}
-    decks.forEach(d => { if (d.commander_name) counts[d.commander_name] = (counts[d.commander_name] || 0) + 1 })
-    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]
-    if (!top) return {}
-    return { name: top[0], art: decks.find(d => d.commander_name === top[0])?.cover_art_uri || null }
-  }, [decks])
-
-  if (!name) return <Panel title="Fav. commander"><PanelEmpty>No public commander decks yet.</PanelEmpty></Panel>
-  return (
-    <Panel title="Fav. commander" className={styles.artPanel}>
-      {art && <div className={styles.artPanelBg} style={{ backgroundImage: `url(${art})` }} />}
-      <div className={styles.artPanelBody}>
-        <div className={styles.commanderName}>{name}</div>
-      </div>
-    </Panel>
-  )
+  return <Section><p className={styles.bodyText}>{text}</p></Section>
 }
 
 function WinRateBlock({ gameStats }) {
@@ -422,7 +323,9 @@ function AllMilestonesDialog({ stats, profile, earnedAt, onClose }) {
   const earnedCount = groups.reduce((a, g) => a + g.items.filter(i => i.earned).length, 0)
   const totalCount  = groups.reduce((a, g) => a + g.items.length, 0)
 
-  return (
+  // Portaled for the same reason as StandoutCardPicker: in edit mode this sits
+  // inside a dnd-kit-transformed panel, which traps a non-portaled overlay.
+  return createPortal(
     <Modal onClose={onClose}>
       <h2 className={styles.dialogTitle}>Milestones</h2>
       <p className={styles.dialogSub}>{earnedCount} of {totalCount} earned.</p>
@@ -454,7 +357,8 @@ function AllMilestonesDialog({ stats, profile, earnedAt, onClose }) {
           </section>
         ))}
       </div>
-    </Modal>
+    </Modal>,
+    document.body
   )
 }
 
@@ -469,17 +373,17 @@ function MilestonesBlock({ stats, profile }) {
   )
 
   return (
-    <Panel
-      title="Milestones"
+    <Section
+      marker="Milestones"
       action={
-        <button className={styles.panelAction} onClick={() => setShowAll(true)}>
+        <button className={styles.sectionAction} onClick={() => setShowAll(true)}>
           {earned.length} of {MILESTONES.length}
           <ChevronRightIcon size={12} />
         </button>
       }
     >
       {earned.length === 0 ? (
-        <PanelEmpty>No milestones earned yet — adding cards is the fastest way to start.</PanelEmpty>
+        <SectionEmpty>No milestones earned yet — adding cards is the fastest way to start.</SectionEmpty>
       ) : (
         <ul className={styles.badgeGrid}>
           {earned.map(m => (
@@ -502,7 +406,7 @@ function MilestonesBlock({ stats, profile }) {
         <AllMilestonesDialog stats={stats} profile={profile} earnedAt={earnedAt}
           onClose={() => setShowAll(false)} />
       )}
-    </Panel>
+    </Section>
   )
 }
 
@@ -529,39 +433,54 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
       <div className={styles.featuredScrim} />
 
       <div className={styles.featuredBody}>
-        <span className={styles.featuredEyebrow}>Featured deck</span>
-        <Link to={`/d/${deck.id}`} className={styles.featuredName}>{deck.name}</Link>
-        {commanderDisplayName && <p className={styles.featuredCommander}>{commanderDisplayName}</p>}
+        <div className={styles.featuredText}>
+          {colors.length > 0 && (
+            <div className={styles.pipRow}>
+              {colors.map(c => <img key={c} className={styles.pip} src={MANA_SYMBOL_URL(c)} alt="" />)}
+            </div>
+          )}
+          <Link to={`/d/${deck.id}`} className={styles.featuredName}>{deck.name}</Link>
+          {commanderDisplayName && <p className={styles.featuredCommander}>{commanderDisplayName}</p>}
 
-        <div className={styles.featuredMeta}>
-          {deck.format && FORMAT_LABEL[deck.format] && <span>{FORMAT_LABEL[deck.format]}</span>}
-          {bracketBadge && <span title={bracketBadge.desc}>Bracket {deck.bracket} · {bracketBadge.label}</span>}
-          <span>{deck.card_count} cards</span>
-          {deckStats?.total > 0 && <span>{deckStats.wins}W – {deckStats.losses}L</span>}
+          <div className={styles.featuredMeta}>
+            {deck.format && FORMAT_LABEL[deck.format] && <span>{FORMAT_LABEL[deck.format]}</span>}
+            {bracketBadge && <span title={bracketBadge.desc}>Bracket {deck.bracket} · {bracketBadge.label}</span>}
+            <span>{deck.card_count} cards</span>
+            {deckStats?.total > 0 && <span>{deckStats.wins}W – {deckStats.losses}L</span>}
+          </div>
+
+          {description && <p className={styles.featuredDesc}>{description}</p>}
+
+          {tags.length > 0 && (
+            <ul className={styles.chipRow}>
+              {tags.map((t, i) => <li key={i} className={styles.chipGold}>{t}</li>)}
+            </ul>
+          )}
+
+          {editMode && decks?.length > 1 && (
+            <Select className={styles.featuredPicker} title="Featured deck"
+              value={deck.id} onChange={e => onChangeDeck(e.target.value)} portal searchable>
+              {decks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </Select>
+          )}
         </div>
 
-        {colors.length > 0 && (
-          <div className={styles.pipRow}>
-            {colors.map(c => <img key={c} className={styles.pip} src={MANA_SYMBOL_URL(c)} alt="" />)}
-          </div>
-        )}
-
-        {description && <p className={styles.featuredDesc}>{description}</p>}
-
-        {tags.length > 0 && (
-          <ul className={styles.chipRow}>
-            {tags.map((t, i) => <li key={i} className={styles.chipGold}>{t}</li>)}
-          </ul>
-        )}
-
+        {/* The spread — cards laid out the way you'd actually fan them across a
+            table to show someone. Each sits at its own angle; hovering lifts one
+            out of the fan. */}
         {(cards.length > 0 || editMode) && (
-          <div className={styles.fan}>
+          <div className={styles.fan} style={{ '--fan-count': cards.length }}>
+            {editMode && cards.length === 0 && (
+              <p className={styles.fanEmpty}>
+                Pick up to five cards from this deck to show here.
+              </p>
+            )}
             {cards.map((c, i) => {
               const fullImg = c.scryfall_id
                 ? `https://cards.scryfall.io/normal/front/${c.scryfall_id[0]}/${c.scryfall_id[1]}/${c.scryfall_id}.jpg`
                 : c.art_crop
               return (
-                <div key={i} className={styles.fanCard} title={c.name}>
+                <div key={i} className={styles.fanCard} title={c.name} style={{ '--i': i }}>
                   <CardImg url={fullImg} width={STANDOUT_TILE_W} alt={c.name}
                     className={styles.fanImg} loading="lazy" />
                   {editMode && (
@@ -576,17 +495,10 @@ function FeaturedDeckInner({ deck, standoutCards, deckStats, editMode, decks, on
             })}
             {editMode && cards.length < 5 && (
               <button className={styles.fanAdd} onClick={() => setShowPicker(true)}>
-                Add card
+                {cards.length === 0 ? 'Choose cards' : 'Add another'}
               </button>
             )}
           </div>
-        )}
-
-        {editMode && decks?.length > 1 && (
-          <Select className={styles.featuredPicker} title="Featured deck"
-            value={deck.id} onChange={e => onChangeDeck(e.target.value)} portal>
-            {decks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </Select>
         )}
       </div>
 
@@ -608,7 +520,7 @@ function FeaturedDeckBlock({ decks, featuredDeckId, standoutCards, deckStats, ed
     () => decks?.find(d => d.id === featuredDeckId) || decks?.[0] || null,
     [decks, featuredDeckId]
   )
-  if (!deck) return <Panel title="Featured deck"><PanelEmpty>No public decks to feature yet.</PanelEmpty></Panel>
+  if (!deck) return <Section marker="The deck"><SectionEmpty>No public decks to feature yet.</SectionEmpty></Section>
   return (
     <FeaturedDeckInner
       deck={deck}
@@ -624,9 +536,9 @@ function FeaturedDeckBlock({ decks, featuredDeckId, standoutCards, deckStats, ed
 
 // ── Cards / decks ─────────────────────────────────────────────────────────────
 function RecentCardsBlock({ cards }) {
-  if (!cards?.length) return <Panel title="Recently added"><PanelEmpty>Nothing added yet.</PanelEmpty></Panel>
+  if (!cards?.length) return <Section marker="Recently added"><SectionEmpty>Nothing added yet.</SectionEmpty></Section>
   return (
-    <Panel title="Recently added">
+    <Section marker="Recently added">
       <div className={styles.cardStrip}>
         {cards.map((card, i) => (
           <div key={i} className={styles.stripCard} title={card.name}>
@@ -636,7 +548,7 @@ function RecentCardsBlock({ cards }) {
           </div>
         ))}
       </div>
-    </Panel>
+    </Section>
   )
 }
 
@@ -656,18 +568,32 @@ function ProfileDeckTile({ deck, pinned, editMode, onTogglePin }) {
   return (
     <div className={styles.deckTileWrap}>
       <Link to={`/d/${deck.id}`} className={styles.deckTile}>
-        {art && <div className={styles.deckTileArt} style={{ backgroundImage: `url(${art})` }} />}
+        {/* An <img> rather than a background so the browser can defer it. A
+            collector with 30+ public decks was fetching every cover eagerly —
+            background-image has no lazy loading — which is most of the request
+            count on this page, for a shelf that starts below the fold.
+            Deliberately not CardImg: it re-tiers by painted width, and
+            scryfallImageAtSize would rewrite this art_crop URL to `normal`,
+            swapping the artwork for the whole card face. */}
+        {art && (
+          <img className={styles.deckTileArt} src={art} alt=""
+            loading="lazy" decoding="async" />
+        )}
+        {/* Everything legible lives in one block at the foot, over the scrim.
+            The tags used to float at the top on undimmed artwork, where a
+            translucent --s2 pill all but disappears. Keeping the upper two
+            thirds pure art is also the better read for a shelf of deck covers. */}
         <div className={styles.deckTileBody}>
-          <div className={styles.deckTileTags}>
-            {isCollection && <span className={styles.tagCollection}>Collection</span>}
-            {fmtLabel && <span className={styles.tag}>{fmtLabel}</span>}
-            {bracketBadge && (
-              <span className={styles.tag} style={{ color: bracketBadge.color }} title={bracketBadge.desc}>
-                B{deck.bracket}
-              </span>
-            )}
-          </div>
           <div className={styles.deckTileFoot}>
+            <div className={styles.deckTileTags}>
+              {isCollection && <span className={styles.tagCollection}>Collection</span>}
+              {fmtLabel && <span className={styles.tag}>{fmtLabel}</span>}
+              {bracketBadge && (
+                <span className={styles.tag} style={{ color: bracketBadge.color }} title={bracketBadge.desc}>
+                  B{deck.bracket}
+                </span>
+              )}
+            </div>
             <div className={styles.deckTileName}>{deck.name}</div>
             {commanderDisplay && <div className={styles.deckTileCommander}>{commanderDisplay}</div>}
             <div className={styles.deckTileStats}>
@@ -709,10 +635,10 @@ function DecksBlock({ decks, pinnedIds, editMode, onTogglePin }) {
     })
   }, [decks, pinnedIds])
 
-  if (!ordered.length) return <Panel title="Deck showcase"><PanelEmpty>No public decks yet.</PanelEmpty></Panel>
+  if (!ordered.length) return <Section marker="Deck shelf"><SectionEmpty>No public decks yet.</SectionEmpty></Section>
   return (
-    <Panel title="Deck showcase"
-      action={editMode ? <span className={styles.panelHint}>Star a deck to pin it first</span> : null}>
+    <Section marker="Deck shelf" note={`${ordered.length}`}
+      action={editMode ? <span className={styles.sectionHint}>Star a deck to pin it first</span> : null}>
       <div className={styles.deckGrid}>
         {ordered.map(deck => (
           <ProfileDeckTile key={deck.id} deck={deck}
@@ -720,75 +646,42 @@ function DecksBlock({ decks, pinnedIds, editMode, onTogglePin }) {
             editMode={editMode} onTogglePin={onTogglePin} />
         ))}
       </div>
-    </Panel>
+    </Section>
   )
 }
 
-function CrownBlock({ topCard }) {
-  if (!topCard) return <Panel title="Crown jewel"><PanelEmpty>No price data yet.</PanelEmpty></Panel>
+// The binder page — the signature surface. Cards sit in sleeve pockets at a size
+// where the artwork is actually legible, which is the whole reason anyone
+// collects these. It replaced a hero-plus-ranked-list layout that showed one
+// card large and the rest as 40px thumbnails in what amounted to a leaderboard.
+function BinderBlock({ cards }) {
+  if (!cards?.length) {
+    return <Section marker="The binder"><SectionEmpty>No priced cards yet.</SectionEmpty></Section>
+  }
+  const total = cards.reduce((sum, c) => sum + Number(c.price ?? 0), 0)
   return (
-    <Panel title="Crown jewel">
-      <div className={styles.crown}>
-        {topCard.image_uri && (
-          <CardImg className={styles.crownImg} url={topCard.image_uri} forceTier="small"
-            alt={topCard.name} loading="lazy" />
-        )}
-        <div className={styles.crownInfo}>
-          <div className={styles.crownName}>{topCard.name}</div>
-          <div className={styles.crownSet}>
-            {(topCard.set_code || '').toUpperCase()} #{topCard.collector_number}
-          </div>
-          {topCard.price != null && <div className={styles.crownPrice}>€{Number(topCard.price).toFixed(2)}</div>}
-        </div>
-      </div>
-    </Panel>
-  )
-}
-
-function TopCardsBlock({ cards }) {
-  const [activeIndex, setActiveIndex] = useState(0)
-  if (!cards?.length) return <Panel title="Most valuable"><PanelEmpty>No price data yet.</PanelEmpty></Panel>
-
-  const active = cards[Math.min(activeIndex, cards.length - 1)]
-
-  return (
-    <Panel title="Most valuable">
-      <div className={styles.valueLayout}>
-        <div className={styles.valueHero}>
-          {active.image_uri
-            ? <CardImg key={active.image_uri} url={active.image_uri} width={VALUE_HERO_W}
-                alt={active.name} className={styles.valueHeroArt} loading="lazy" />
-            : <span className={styles.valueHeroPlaceholder}>{active.name?.[0] || '?'}</span>}
-          <div className={styles.valueHeroBody}>
-            <div className={styles.valueHeroName}>
-              {active.name}
-              {active.foil && <span className={styles.chipGold}>Foil</span>}
+    <Section marker="The binder" note={`Top ${cards.length} · €${total.toFixed(0)}`}>
+      <ol className={styles.binder}>
+        {cards.map((c, i) => (
+          <li key={i} className={styles.pocket}>
+            <div className={styles.pocketSleeve}>
+              {c.image_uri
+                ? <CardImg url={c.image_uri} width={BINDER_CARD_W} alt={c.name}
+                    className={styles.pocketImg} loading="lazy" />
+                : <span className={styles.pocketBlank}>{c.name?.[0] || '?'}</span>}
+              {c.foil && <span className={styles.pocketFoil} aria-hidden="true" />}
             </div>
-            <div className={styles.valueHeroSet}>{(active.set_code || '').toUpperCase()}</div>
-            <div className={styles.valueHeroPrice}>€{Number(active.price ?? 0).toFixed(2)}</div>
-          </div>
-        </div>
-
-        <ol className={styles.valueRail}>
-          {cards.map((c, i) => (
-            <li key={i}>
-              <button
-                className={`${styles.valueRow}${i === activeIndex ? ' ' + styles.valueRowActive : ''}`}
-                onClick={() => setActiveIndex(i)}
-                aria-current={i === activeIndex}
-              >
-                <span className={styles.valueRank}>{i + 1}</span>
-                <span className={styles.valueRowThumb}>
-                  {c.image_uri && <CardImg url={c.image_uri} forceTier="small" alt="" className={styles.valueRowImg} loading="lazy" />}
-                </span>
-                <span className={styles.valueRowName}>{c.name}</span>
-                <span className={styles.valueRowPrice}>€{Number(c.price ?? 0).toFixed(2)}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      </div>
-    </Panel>
+            <div className={styles.pocketMeta}>
+              <span className={styles.pocketName} title={c.name}>{c.name}</span>
+              <span className={styles.pocketPrice}>€{Number(c.price ?? 0).toFixed(2)}</span>
+            </div>
+            <span className={styles.pocketSet}>
+              {(c.set_code || '').toUpperCase()}{c.foil ? ' · Foil' : ''}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </Section>
   )
 }
 
@@ -1179,30 +1072,48 @@ export default function ProfilePage() {
   const standout = editMode ? draftStandoutCards : (cfg.featured_deck_standout_cards || [])
   const pinned   = editMode ? draftPinnedDecks : (cfg.pinned_deck_ids || [])
 
-  function renderStat(id) {
+  // One source of truth for a stat's text. The banner ledger and edit mode's
+  // stat cells are two presentations of the same figures — the ledger is what
+  // a visitor sees, the cells are only the editing affordance.
+  function statFor(id) {
     switch (id) {
-      case 'total':      return <StatCell label="Cards"         value={fmtNum(stats?.total_cards)} />
-      case 'unique':     return <StatCell label="Unique prints" value={fmtNum(stats?.unique_cards)} />
-      case 'foils':      return <StatCell label="Foils"         value={fmtNum(stats?.foil_count)} />
-      case 'sets':       return <StatCell label="Sets"          value={fmtNum(stats?.sets_count)} />
-      case 'since':      return <StatCell label="Collecting since" value={profile?.joined_at ? new Date(profile.joined_at).getFullYear() : '—'} />
-      case 'value':      return <StatCell label="Est. value"    value={profile?.collection_value != null ? `€${Number(profile.collection_value).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'} />
-      case 'deck_count': return <StatCell label="Public decks"  value={fmtNum(profile?.public_deck_count)} />
-      case 'winrate':    return <WinRateBlock gameStats={gameStats} />
-      case 'fav_format': return <FavFormatBlock gameStats={gameStats} decks={publicDecks} />
+      case 'total':      return { label: 'Cards',            value: fmtNum(stats?.total_cards) }
+      case 'unique':     return { label: 'Unique prints',    value: fmtNum(stats?.unique_cards) }
+      case 'foils':      return { label: 'Foils',            value: fmtNum(stats?.foil_count) }
+      case 'sets':       return { label: 'Sets',             value: fmtNum(stats?.sets_count) }
+      case 'since':      return { label: 'Collecting since', value: profile?.joined_at ? new Date(profile.joined_at).getFullYear() : '—' }
+      case 'value':      return { label: 'Est. value',       value: profile?.collection_value != null ? `€${Number(profile.collection_value).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—' }
+      case 'deck_count': return { label: 'Public decks',     value: fmtNum(profile?.public_deck_count) }
       default:           return null
     }
+  }
+
+  function renderStat(id) {
+    if (id === 'winrate')    return <WinRateBlock gameStats={gameStats} />
+    if (id === 'fav_format') return <FavFormatBlock gameStats={gameStats} decks={publicDecks} />
+    const stat = statFor(id)
+    return stat ? <StatCell label={stat.label} value={stat.value} /> : null
+  }
+
+  function ledgerStat(id) {
+    if (id === 'winrate') {
+      if (!gameStats?.total) return null
+      return { label: 'Win rate', value: `${Math.round(gameStats.wins / gameStats.total * 100)}%` }
+    }
+    if (id === 'fav_format') {
+      const fmt = gameStats?.fav_format
+        || [...new Set(publicDecks.map(d => d.format).filter(Boolean))][0]
+      return fmt ? { label: 'Most played', value: FORMAT_LABEL[fmt] || fmt } : null
+    }
+    const stat = statFor(id)
+    // A dash carries no information in a run of figures — drop the whole entry.
+    return stat && stat.value !== '—' ? stat : null
   }
 
   function renderPanel(id) {
     switch (id) {
       case 'bio':           return <TextBlock text={editMode ? draftTextContent : (cfg.text_content || '')} editMode={editMode} onChangeText={setDraftTextContent} />
-      case 'color_pie':     return <ColorPieBlock distribution={stats?.color_distribution} />
-      case 'rarity':        return <RarityBlock breakdown={stats?.rarity_breakdown} />
-      case 'formats':       return <FormatsBlock decks={publicDecks} />
-      case 'fav_commander': return <FavCommanderBlock decks={publicDecks} />
-      case 'crown':         return <CrownBlock topCard={profile?.top_card} />
-      case 'top_cards':     return <TopCardsBlock cards={profile?.top_cards} />
+      case 'top_cards':     return <BinderBlock cards={profile?.top_cards} />
       case 'milestones':    return <MilestonesBlock stats={stats} profile={profile} />
       case 'recent_cards':  return <RecentCardsBlock cards={profile?.recent_cards} />
       case 'decks':         return <DecksBlock decks={publicDecks} pinnedIds={pinned} editMode={editMode} onTogglePin={togglePin} />
@@ -1213,7 +1124,11 @@ export default function ProfilePage() {
           standoutCards={standout}
           deckStats={featuredDeckStats}
           editMode={editMode}
-          onChangeFeaturedDeck={setDraftFeaturedDeckId}
+          // Standout cards belong to the deck they were picked from, so
+          // switching decks has to drop them. Keeping them showed cards from
+          // the previous deck under the new deck's name, and saving that would
+          // have persisted the mismatch.
+          onChangeFeaturedDeck={id => { setDraftFeaturedDeckId(id); setDraftStandoutCards([]) }}
           onChangeStandoutCards={setDraftStandoutCards}
         />
       )
@@ -1227,8 +1142,11 @@ export default function ProfilePage() {
   const headerBio   = editMode ? draftBio : (profile?.bio || '')
 
   const viewBlocks  = mergeBlocks(cfg.blocks).filter(b => b.enabled)
-  const viewLedger  = viewBlocks.filter(b => isStat(b.id))
   const viewPanels  = viewBlocks.filter(b => !isStat(b.id))
+  const ledgerStats = viewBlocks
+    .filter(b => isStat(b.id))
+    .map(b => { const s = ledgerStat(b.id); return s ? { id: b.id, ...s } : null })
+    .filter(Boolean)
 
   if (profileQuery.isLoading) {
     return (
@@ -1278,8 +1196,6 @@ export default function ProfilePage() {
               ) : null}
 
               <div className={styles.metaRow}>
-                {profile?.joined_at && <span>Joined {new Date(profile.joined_at).getFullYear()}</span>}
-                {profile?.public_deck_count > 0 && <span>{profile.public_deck_count} public decks</span>}
                 {followStats && (
                   <>
                     <button className={styles.metaLink} onClick={() => setFollowDialog('followers')}>
@@ -1293,6 +1209,21 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+
+          {/* The ledger — the collector's figures as ruled, aligned columns.
+              Context for the showcase below, not the subject of the page. */}
+          {!editMode && ledgerStats.length > 0 && (
+            <dl className={styles.ledger}>
+              {ledgerStats.map(({ id, label, value }) => (
+                // Term before definition, as a <dl> requires; the value is
+                // lifted above its label visually with `order`.
+                <div key={id} className={styles.ledgerEntry}>
+                  <dt className={styles.ledgerLabel}>{label}</dt>
+                  <dd className={styles.ledgerValue}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
 
           <div className={styles.bannerActions}>
             {!editMode && (
@@ -1325,7 +1256,7 @@ export default function ProfilePage() {
 
       {/* ── Edit toolbar ── */}
       {editMode && (
-        <div className={styles.shell}>
+        <div className={`${styles.shell} ${styles.editShell}`}>
           <div className={styles.editToolbar}>
             <div className={styles.editToolbarGroup}>
               <span className={styles.editToolbarLabel}>Accent</span>
@@ -1355,11 +1286,6 @@ export default function ProfilePage() {
       {/* ── View mode ── */}
       {!editMode && (
         <div className={styles.shell}>
-          {viewLedger.length > 0 && (
-            <div className={styles.ledger}>
-              {viewLedger.map(b => <div key={b.id} className={styles.ledgerCell}>{renderStat(b.id)}</div>)}
-            </div>
-          )}
           <div className={styles.panels}>
             {viewPanels.map(b => (
               <div key={b.id} className={spanClass(b.id)}>{renderPanel(b.id)}</div>
@@ -1372,7 +1298,7 @@ export default function ProfilePage() {
       {editMode && (
         <DndContext sensors={sensors} collisionDetection={closestCenter}
           onDragStart={({ active }) => setActiveId(active.id)} onDragEnd={handleDragEnd}>
-          <div className={`${styles.shell} ${styles.editLayout}`}>
+          <div className={`${styles.shell} ${styles.editShell} ${styles.editLayout}`}>
             <div className={styles.editMain}>
               <p className={styles.editHint}>
                 Drag to reorder. Stats stay in the ledger strip, panels stay in the showcase.
@@ -1381,7 +1307,7 @@ export default function ProfilePage() {
               <Zone id={LEDGER_DROP_ID} className={styles.editLedgerZone}>
                 <span className={styles.zoneLabel}>Ledger</span>
                 <SortableContext items={ledgerIds} strategy={noDisplace}>
-                  <div className={styles.ledger}>
+                  <div className={styles.editLedgerGrid}>
                     {ledgerIds.map(id => (
                       <SortableBlock key={id} id={id} onHide={hideBlock} cell>
                         {renderStat(id)}
