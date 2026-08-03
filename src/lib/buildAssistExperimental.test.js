@@ -656,3 +656,29 @@ describe('top-end allowance overrides the flat cap', () => {
     expect(fill(null).length).toBe(SHIPPED_SIGNALS.topEndMax)
   })
 })
+
+// The scoring weights are calibrated values, not preferences — there is no UI
+// left to change them, so a silent edit here would move every user's rankings
+// with nothing to catch it. Pinned to what the sweeps measured.
+describe('calibrated scoring weights', () => {
+  it('keeps multi-role at the goldfish optimum', () => {
+    // 0/4/8/12/16/24 over 51 commanders: 4 wins on the ownership-blind AND the
+    // binder path. Higher values score better on classifier-derived metrics
+    // only, which the signal itself inflates.
+    expect(EXPERIMENTAL_DEFAULTS.multiRoleWeight).toBe(4)
+  })
+
+  it('keeps the keyword ceiling where on-theme coverage wants it', () => {
+    expect(EXPERIMENTAL_DEFAULTS.commanderKwMax).toBe(12)
+  })
+
+  it('exposes no numeric knobs to change them', () => {
+    // Every remaining config value is a boolean, a threshold the derivations
+    // fall back to, or a share/limit the plan overrides per commander. What must
+    // NOT reappear is a user-facing weight.
+    for (const key of ['multiRoleWeight', 'commanderKwMax', 'affinityWeight']) {
+      expect(typeof EXPERIMENTAL_DEFAULTS[key]).toBe('number')
+      expect(SHIPPED_SIGNALS[key]).toBe(EXPERIMENTAL_DEFAULTS[key])
+    }
+  })
+})

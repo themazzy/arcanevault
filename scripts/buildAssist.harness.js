@@ -143,7 +143,7 @@ const ALL_OFF = {
 // that it scores like drawQuality is off (selection-only 3.39 vs 1.2-1.4),
 // because it is. It stays as `legacy` for reference, and `shipped` passes
 // SHIPPED_SIGNALS explicitly.
-const ARMS = [
+const KNOB_ARMS = [
   { id: 'shipped',   label: 'shipped',          cfg: { ...SHIPPED },  drawShare: 'derived',             enginePass: true },
   { id: 'legacy',    label: 'pre-promotion',    cfg: null,                                              enginePass: false },
   { id: 'nomulti',   label: '- multi-role',     cfg: { ...SHIPPED, multiRole: false },                  enginePass: true },
@@ -155,6 +155,34 @@ const ARMS = [
   { id: 'nodraw',    label: 'draw curve off',   cfg: { ...SHIPPED },  drawShare: 'off',                 enginePass: true },
   { id: 'alloff',    label: 'all knobs off',    cfg: { ...SHIPPED, ...ALL_OFF },                        enginePass: false },
 ]
+
+// HARNESS_SWEEP=<key> sweeps ONE scoring weight across a range, everything else
+// held at shipped. These are the "prescriptive" numbers — unlike the derived
+// targets (draw share, top-end allowance, enabler counts) they cannot be read
+// off EDHREC, because they exist to DISAGREE with it: measured on six
+// commanders the crowd pays a -4.1 point inclusion premium for a multi-job
+// card, so deriving multiRoleWeight from inclusion would set it negative and
+// invert a signal the sweep shows is positive. They have to be calibrated
+// against outcomes instead, which is what this does.
+const SWEEPS = {
+  multiRoleWeight: [0, 4, 8, 12, 16, 24],
+  commanderKwMax:  [0, 6, 12, 18, 24],
+  affinityWeight:  [0, 3, 5, 8, 12],
+}
+
+function sweepArms(key) {
+  const values = SWEEPS[key]
+  if (!values) throw new Error(`HARNESS_SWEEP=${key} — expected one of ${Object.keys(SWEEPS).join(', ')}`)
+  return values.map(v => ({
+    id: `${key}=${v}`,
+    label: `${key.replace(/([A-Z])/g, ' $1').toLowerCase().trim()} ${v}`,
+    cfg: { ...SHIPPED, [key]: v },
+    drawShare: 'derived',
+    enginePass: true,
+  }))
+}
+
+const ARMS = process.env.HARNESS_SWEEP ? sweepArms(process.env.HARNESS_SWEEP) : KNOB_ARMS
 
 
 // ── Owned collection (binder path) ────────────────────────────────────────────

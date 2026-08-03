@@ -336,26 +336,6 @@ function LabToggle({ on, onChange, label, desc, children }) {
   )
 }
 
-// Numeric weight input. Clamped on change so a cleared field can't push NaN
-// into the scoring config.
-function LabNumber({ value, onChange, min = 0, max = 100, suffix }) {
-  return (
-    <label className={styles.labNumber}>
-      <input
-        type="number"
-        value={value}
-        min={min}
-        max={max}
-        onChange={e => {
-          const n = Number(e.target.value)
-          onChange(Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : min)
-        }}
-      />
-      {suffix && <span className={styles.labNumberSuffix}>{suffix}</span>}
-    </label>
-  )
-}
-
 // Score breakdown strip, lab mode only. Shows what the experimental ranking did
 // to this card and why, so a build can be read back rather than just trusted.
 function LabScore({ score }) {
@@ -2392,16 +2372,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               </span>
             </summary>
             <div className={styles.labBody}>
+              {/* Toggles only. Every number that used to live here is now either
+                  derived per commander from EDHREC (top-end allowance, draw
+                  sub-curve share, enabler targets, type floors) or calibrated
+                  once against goldfish outcomes and frozen in the config. There
+                  is nothing left for anyone to guess at. */}
               <LabToggle
                 on={expCfg.multiRole} onChange={v => setExpField('multiRole', v)}
                 label="Multi-role bonus"
-                desc="Rank a card that does two or three jobs above one that does one."
-              >
-                <LabNumber
-                  value={expCfg.multiRoleWeight} min={0} max={40}
-                  onChange={v => setExpField('multiRoleWeight', v)} suffix="per extra role"
-                />
-              </LabToggle>
+                desc={`Rank a card that does two or three jobs above one that does one (+${expCfg.multiRoleWeight} per extra role).`}
+              />
 
               <LabToggle
                 on={expCfg.commanderKw} onChange={v => setExpField('commanderKw', v)}
@@ -2409,34 +2389,21 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 desc={scoringCtx?.keywords?.size
                   ? `Hooks read off your commander: ${[...scoringCtx.keywords].join(', ')}`
                   : 'No commander rules text resolved yet — this signal is inert.'}
-              >
-                <LabNumber
-                  value={expCfg.commanderKwMax} min={0} max={40}
-                  onChange={v => setExpField('commanderKwMax', v)} suffix="max bonus"
-                />
-              </LabToggle>
+              />
 
               <LabToggle
                 on={expCfg.deckAffinity} onChange={v => setExpField('deckAffinity', v)}
                 label="Deck theme affinity"
-                desc="Extra weight for cards reinforcing what the list already does."
-              >
-                <LabNumber
-                  value={expCfg.affinityWeight} min={0} max={30}
-                  onChange={v => setExpField('affinityWeight', v)} suffix="max bonus"
-                />
-              </LabToggle>
+                desc={scoringCtx?.profile?.size
+                  ? 'Extra weight for cards reinforcing what the list already does.'
+                  : 'Inert on an empty deck — there is no theme to reinforce yet.'}
+              />
 
               <LabToggle
                 on={expCfg.topEndCap} onChange={v => setExpField('topEndCap', v)}
                 label="Top-end cap"
-                desc={`Hard ceiling on expensive cards — the deck has ${deckTopEnd} at ${expCfg.topEndThreshold}+ MV right now.`}
-              >
-                <LabNumber
-                  value={expCfg.topEndMax} min={0} max={20}
-                  onChange={v => setExpField('topEndMax', v)} suffix={`cards at ${expCfg.topEndThreshold}+ MV`}
-                />
-              </LabToggle>
+                desc={`Ceiling on expensive cards: ${plan?.topEndAllowance ?? expCfg.topEndMax} at ${expCfg.topEndThreshold}+ MV for this commander, ${deckTopEnd} in the deck now.`}
+              />
 
               <LabToggle
                 on={expCfg.drawQuality} onChange={v => setExpField('drawQuality', v)}
@@ -2450,12 +2417,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 desc={engineNeeds.length
                   ? `This commander needs: ${engineNeeds.map(n => n.label).join(', ')}.`
                   : 'This commander has no detectable engine requirement — the pass is inert here.'}
-              >
-                <LabNumber
-                  value={expCfg.engineMaxAdd} min={0} max={20}
-                  onChange={v => setExpField('engineMaxAdd', v)} suffix="max additions"
-                />
-              </LabToggle>
+              />
             </div>
           </details>
         )}

@@ -33,10 +33,35 @@ import { extractCommanderKeywords, extractTribe, synergyScore, deckKeywordProfil
 // "worth as much as 8 percentage points of inclusion".
 export const EXPERIMENTAL_DEFAULTS = {
   multiRole: true,
-  multiRoleWeight: 8,      // per extra engine role, capped at MULTI_ROLE_CAP roles
+  // Calibrated, not chosen. This is a PRESCRIPTIVE weight — unlike the derived
+  // targets it cannot be read off EDHREC, because it exists to disagree with
+  // EDHREC: measured over six commanders the crowd pays a -4.1 point inclusion
+  // premium for a multi-job card, so deriving this from inclusion would set it
+  // negative and invert the signal.
+  //
+  // So it was swept against goldfish simulation instead — the only evidence the
+  // classifier can't inflate, since a higher weight mechanically raises every
+  // classifier-derived metric (net card advantage climbed 14.2 -> 16.8 from 0 to
+  // 24, which says nothing except that multi-job cards often draw). On the
+  // simulation, 0/4/8/12/16/24 over 51 commanders put the optimum at 4 on BOTH
+  // the ownership-blind and binder paths; 24 was among the worst on both,
+  // because loading up on two-job cards drags avg MV 2.96 -> 3.03 and mana screw
+  // 6.4% -> 6.8%. Re-sweep with HARNESS_SWEEP=multiRoleWeight before changing it.
+  multiRoleWeight: 4,      // per extra engine role, capped at MULTI_ROLE_CAP roles
   commanderKw: true,
+  // Left at 12 deliberately against the goldfish sweep, which prefers 0 on both
+  // paths. That sweep only measures mana consistency — it cannot tell a Korvold
+  // deck from a pile of individually good cards. The knob sweep measures what
+  // this signal is actually for, and turning it off costs 7.6 points of on-theme
+  // cards on the binder path (hitting no commander hook 64.7% -> 72.4%). Trading
+  // a fraction of a percent of mana consistency for that is the intended deal.
   commanderKwMax: 12,      // ceiling on the keyword-overlap bonus
   deckAffinity: true,
+  // Unmeasurable so far, and inert in the main path: the scoring context is
+  // built once from the PRE-fill deck, so a from-scratch auto-fill always sees
+  // an empty theme profile and this term contributes exactly 0. Sweeping it
+  // 0/3/5/8/12 over 51 commanders changed not one card. It only does anything
+  // in the recommendation grid for a deck that already has cards.
   affinityWeight: 5,       // bonus for reinforcing themes the deck already runs
   topEndCap: true,
   topEndThreshold: 6,      // "expensive" starts here (transcript: 6+ MV)
