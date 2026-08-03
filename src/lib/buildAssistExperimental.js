@@ -445,7 +445,13 @@ export function makeExperimentalExclude({
       // tutor. Both filled Draw slots and then registered as nothing, so a full
       // 100-card deck sat at "Draw 7/12" and was genuinely short of card
       // advantage rather than merely mis-displaying it.
-      if (cfg.drawQuality && !candidateRoleTags(cand).roles.has(ROLE_DRAW)) return true
+      // Only judge when there is text to judge. An EDHREC suggestion past the
+      // metadata batch has no oracle text at all, and rejecting those emptied
+      // the role: a five-colour deck with a huge pool came out at Draw 3/12,
+      // worse than the mismatch this was meant to fix. Unverifiable is not the
+      // same as disqualified — the shipped classifier's word stands.
+      if (cfg.drawQuality && candidateOracle(cand)
+          && !candidateRoleTags(cand).roles.has(ROLE_DRAW)) return true
 
       // …and the draw package needs its own curve: only a minority of it may be
       // expensive, and those must draw explosively.

@@ -1001,8 +1001,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const roleOfDeck = useCallback(dc => {
     const role = roleOfDeckCard(dc, sfMap, roleByName)
     if (!activeCfg.drawQuality || role !== ROLE_DRAW) return role
-    const { roles } = cardRoleTagsFromCard(dc, sfMap?.[dc?.scryfall_id] || null)
-    return roles.has(ROLE_DRAW) ? role : ROLE_SYNERGY
+    const sf = sfMap?.[dc?.scryfall_id] || null
+    // Same rule as the pick gate: demote only when there is text saying it
+    // isn't card advantage. With no text we can't tell, and guessing "no" made
+    // the bar under-read a deck that was actually fine.
+    if (!(sf?.oracle_text || dc?.oracle_text)) return role
+    return cardRoleTagsFromCard(dc, sf).roles.has(ROLE_DRAW) ? role : ROLE_SYNERGY
   }, [activeCfg.drawQuality, sfMap, roleByName])
 
   const liveCounts = useMemo(() => {
@@ -1521,6 +1525,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const searchRoleOf = card => {
     const role = coarseRole(card, card)
     if (!activeCfg.drawQuality || role !== ROLE_DRAW) return role
+    if (!(card?.oracle_text || card?.card_faces?.[0]?.oracle_text)) return role
     return cardRoleTagsFromCard(card, card).roles.has(ROLE_DRAW) ? role : ROLE_SYNERGY
   }
   const isManaSourceRow = d =>

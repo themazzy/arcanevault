@@ -363,3 +363,14 @@ describe('impulse draw', () => {
     expect(roles.has(ROLE_DRAW)).toBe(true)
   })
 })
+
+// Tiamat searches for "up to five Dragon cards"; the quantifier list stopped at
+// four, so the format's most-played dragon tutor was not a tutor.
+describe('tutor quantifiers', () => {
+  it('accepts larger search counts', () => {
+    for (const n of ['five', 'six', 'seven', '8']) {
+      const { roles } = cardRoleTags(`When this creature enters, search your library for up to ${n} Dragon cards, reveal them, put them into your hand, then shuffle.`, 'Legendary Creature — Dragon')
+      expect(roles.has(ROLE_DRAW), n).toBe(true)
+    }
+  })
+})
