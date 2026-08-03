@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  makeRng, shuffled, isLand, isManaRock, drawOpening,
+  makeRng, shuffled, isLand, isManaRock, landsPutIntoPlay, extraLandDrops, drawOpening,
   simulateGame, goldfishDeck, KEEP_MIN_LANDS, KEEP_MAX_LANDS,
 } from './goldfish'
 
@@ -118,5 +118,57 @@ describe('goldfishDeck', () => {
     const cheap = goldfishDeck({ deck: deck(), commanderCmc: 2, games: 200, seed: 6 })
     const dear = goldfishDeck({ deck: deck(), commanderCmc: 7, games: 200, seed: 6 })
     expect(cheap.avgCommanderTurn).toBeLessThan(dear.avgCommanderTurn)
+  })
+})
+
+
+// Ramp does not go through the land drop, and extra-drop effects raise the cap
+// outright — so lands in play routinely exceeds the turn number. Modelling only
+// one drop per turn understated mana development for every deck the assistant
+// builds, since the role template targets ~11 ramp.
+describe('land ramp', () => {
+  const ramp = (o, n = 'Ramp') => ({ name: n, type_line: 'Sorcery', cmc: 2, oracle_text: o })
+
+  it('counts lands fetched onto the battlefield', () => {
+    expect(landsPutIntoPlay(ramp('Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.'))).toBe(1)
+    expect(landsPutIntoPlay(ramp('Search your library for up to two Forest cards, put them onto the battlefield, then shuffle.'))).toBe(2)
+  })
+
+  it('does not count a land fetched to HAND', () => {
+    expect(landsPutIntoPlay(ramp('Search your library for a basic land card, reveal it, put it into your hand, then shuffle.'))).toBe(0)
+  })
+
+  it('does not count lands themselves', () => {
+    expect(landsPutIntoPlay(land())).toBe(0)
+  })
+
+  it('reads extra land drops', () => {
+    expect(extraLandDrops({ oracle_text: 'You may play an additional land on each of your turns.' })).toBe(1)
+    expect(extraLandDrops({ oracle_text: 'You may play two additional lands on each of your turns.' })).toBe(2)
+    expect(extraLandDrops({ oracle_text: '{T}: Add {C}.' })).toBe(0)
+  })
+
+  // The correction that prompted all of this: with ramp in the deck, lands in
+  // play outruns the turn count, which the old model made impossible.
+  it('lets lands in play exceed the turn number', () => {
+    const rampDeck = [
+      ...Array.from({ length: 30 }, (_, i) => land(`L${i}`)),
+      ...Array.from({ length: 69 }, () =>
+        ramp('Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.')),
+    ]
+    const r = simulateGame({ deck: rampDeck, commanderCmc: 4, turns: 6, rng: makeRng(3) })
+    expect(r.landsByTurn[5]).toBeGreaterThan(6)
+  })
+
+  it('gives a ramp deck more mana on turn 5 than a rampless one', () => {
+    const base = deck()
+    const withRamp = [
+      ...Array.from({ length: 37 }, (_, i) => land(`L${i}`)),
+      ...Array.from({ length: 62 }, () =>
+        ramp('Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.')),
+    ]
+    const a = goldfishDeck({ deck: base, commanderCmc: 4, games: 200, seed: 21 })
+    const b = goldfishDeck({ deck: withRamp, commanderCmc: 4, games: 200, seed: 21 })
+    expect(b.avgManaT5).toBeGreaterThan(a.avgManaT5)
   })
 })

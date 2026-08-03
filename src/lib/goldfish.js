@@ -46,6 +46,37 @@ export function isLand(card) {
   return String(card?.type_line || '').toLowerCase().includes('land')
 }
 
+/**
+ * Lands this card puts straight onto the battlefield when it resolves.
+ *
+ * Ramp does NOT go through the land drop: Cultivate, Rampant Growth, Nature's
+ * Lore, Skyshroud Claim and Solemn Simulacrum all fetch a land into play, so
+ * lands in play can and routinely does exceed the turn number. Modelling only
+ * one drop per turn understated mana development for every deck the assistant
+ * builds -- the role template targets ~11 ramp.
+ */
+export function landsPutIntoPlay(card) {
+  if (isLand(card)) return 0
+  const o = String(card?.oracle_text || '').toLowerCase()
+  // Basic land TYPES count as well as the word 'land': Skyshroud Claim reads
+  // 'up to two Forest cards', and never says 'land' at all.
+  const m = o.match(/(?:search your library for|put)[^.\n]{0,80}?\b(a|an|one|two|three|up to (?:one|two|three))\b[^.\n]{0,50}?\b(?:lands?|forests?|islands?|plains|swamps?|mountains?|wastes?)\b[^.\n]{0,60}?onto the battlefield/)
+  if (!m) return 0
+  const word = m[1].replace('up to ', '')
+  return { a: 1, an: 1, one: 1, two: 2, three: 3 }[word] ?? 1
+}
+
+/**
+ * Extra land drops this card grants while in play (Exploration, Azusa, Oracle of
+ * Mul Daya). Another reason lands in play outrun the turn count.
+ */
+export function extraLandDrops(card) {
+  const o = String(card?.oracle_text || '').toLowerCase()
+  const m = o.match(/play (an|one|two|three) additional lands?/)
+  if (!m) return 0
+  return { an: 1, one: 1, two: 2, three: 3 }[m[1]] ?? 1
+}
+
 /** A nonland that taps for mana — counted as a mana source once it's in play. */
 export function isManaRock(card) {
   if (isLand(card)) return false
@@ -101,6 +132,7 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
 
   let landsInPlay = 0
   let rocks = 0
+  let extraDrops = 0
   let commanderTurn = null
   const manaByTurn = []
   const landsByTurn = []
@@ -112,14 +144,18 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
     // solitaire with no opponents, so modelling the turn order buys nothing.
     const drawn = library.shift()
     if (drawn) hand.push(drawn)
-    // Land drop.
-    const landIdx = hand.findIndex(isLand)
-    if (landIdx >= 0) {
+    // Land drops — one, plus any granted by permanents already in play.
+    let drops = 1 + extraDrops
+    let madeADrop = false
+    while (drops > 0) {
+      const landIdx = hand.findIndex(isLand)
+      if (landIdx < 0) break
       hand.splice(landIdx, 1)
       landsInPlay++
-    } else if (turn <= 6) {
-      missedLandDrops++
+      madeADrop = true
+      drops--
     }
+    if (!madeADrop && turn <= 6) missedLandDrops++
 
     let mana = landsInPlay + rocks
     // Commander first once affordable — it is the deck's engine, and casting it
@@ -139,14 +175,17 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
       mana -= x.cmc
       spent.add(x.i)
       if (isManaRock(x.c)) rocks++
+      // Ramp that fetches lands into play, and permanents that grant extra drops.
+      landsInPlay += landsPutIntoPlay(x.c)
+      extraDrops += extraLandDrops(x.c)
     }
     for (const i of [...spent].sort((a, b) => b - a)) hand.splice(i, 1)
 
     manaByTurn.push(landsInPlay + rocks)
     landsByTurn.push(landsInPlay)
-    // Flood shows up as lands piling up in HAND, not on the battlefield: you can
-    // only ever play one per turn, so "lands in play > turn number" is
-    // impossible by construction and measures nothing.
+    // Flood is lands piling up in HAND — cards you drew that did nothing.
+    // (Lands in PLAY is not a flood signal: ramp and extra-drop effects push it
+    // past the turn count routinely, which is a good thing, not a symptom.)
     landsInHandByTurn.push(hand.filter(isLand).length)
   }
 
