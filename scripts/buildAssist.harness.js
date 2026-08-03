@@ -69,6 +69,7 @@ import {
   // path and zeroed every text-derived metric.
   candidateOracle,
   candidateType,
+  SHIPPED_SIGNALS,
 } from '../src/lib/buildAssistExperimental'
 import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles'
 // Independent ground truth: simulation outputs, not classifier verdicts. This is
@@ -121,20 +122,37 @@ const COMMANDERS = {
   vanilla:      ['Ruhan of the Fomori', 'Tromokratis', 'Halfdane'],
 }
 
-// Per-signal arms. The first sweep ran every signal at once, so the measured
-// quality cost could not be attributed to any one of them. Each "only" arm
-// isolates a single signal; `scoped` tests the proposed fix — keyword bonus
-// confined to Synergy + Win Cons, leaving the functional roles on pure quality.
-const OFF = { multiRole: false, commanderKw: false, deckAffinity: false, topEndCap: false, drawQuality: false, drawCurve: false }
+// Per-signal arms, one per knob still exposed in the lab panel.
+//
+// The panel is now the only thing separating lab mode from shipped: every
+// surviving signal has been promoted, so EXPERIMENTAL_DEFAULTS and
+// SHIPPED_SIGNALS hold identical values. What is worth measuring is therefore
+// no longer "does this signal help" for signals nobody ships, but:
+//   - does each SHIPPED knob still earn its slot?  (the `no*` arms turn one off)
+//   - does the one knob that ships OFF still deserve to be?  (`drawcurve`)
+// `alloff` is the floor: pure EDHREC/recommander rank order with no signals.
+const SHIPPED = { ...SHIPPED_SIGNALS }
+const ALL_OFF = {
+  multiRole: false, commanderKw: false, deckAffinity: false,
+  topEndCap: false, drawQuality: false, drawCurve: false, enginePass: false,
+}
+// `cfg: null` injects NO experimental comparator, so planAutoFill falls back to
+// its own rankComparator with no exclude gate. That is the PRE-promotion
+// ranking, not what users get — every signal now ships. Using it as the
+// baseline silently compares the new arms against the old app: the giveaway is
+// that it scores like drawQuality is off (selection-only 3.39 vs 1.2-1.4),
+// because it is. It stays as `legacy` for reference, and `shipped` passes
+// SHIPPED_SIGNALS explicitly.
 const ARMS = [
-  { id: 'shipped', label: 'shipped', cfg: null },
-  { id: 'all', label: 'all signals', cfg: { ...EXPERIMENTAL_DEFAULTS } },
-  { id: 'kw', label: 'keywords only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, commanderKw: true, deckAffinity: true } },
-  { id: 'multi', label: 'multi-role only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, multiRole: true } },
-  { id: 'topend', label: 'top-end cap only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, topEndCap: true } },
-  { id: 'drawq', label: 'draw quality only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, drawQuality: true } },
-  { id: 'engine', label: 'all + engine pass', cfg: { ...EXPERIMENTAL_DEFAULTS }, enginePass: true },
-  { id: 'derived', label: '+ type floors', cfg: { ...EXPERIMENTAL_DEFAULTS }, enginePass: true },
+  { id: 'shipped',   label: 'shipped',          cfg: { ...SHIPPED },                                    enginePass: true },
+  { id: 'legacy',    label: 'pre-promotion',    cfg: null,                                              enginePass: false },
+  { id: 'nomulti',   label: '- multi-role',     cfg: { ...SHIPPED, multiRole: false },                  enginePass: true },
+  { id: 'nokw',      label: '- keywords',       cfg: { ...SHIPPED, commanderKw: false, deckAffinity: false }, enginePass: true },
+  { id: 'notopend',  label: '- top-end cap',    cfg: { ...SHIPPED, topEndCap: false },                  enginePass: true },
+  { id: 'nodrawq',   label: '- draw quality',   cfg: { ...SHIPPED, drawQuality: false },                enginePass: true },
+  { id: 'noengine',  label: '- engine pass',    cfg: { ...SHIPPED, enginePass: false },                 enginePass: false },
+  { id: 'drawcurve', label: '+ draw sub-curve', cfg: { ...SHIPPED, drawCurve: true },                   enginePass: true },
+  { id: 'alloff',    label: 'all knobs off',    cfg: { ...SHIPPED, ...ALL_OFF },                        enginePass: false },
 ]
 
 
