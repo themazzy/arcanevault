@@ -458,3 +458,54 @@ describe('SHIPPED_SIGNALS', () => {
     expect(res.parts.synergy).toBe(0)
   })
 })
+
+// Novelty is wanted — surprise cards are much of why building a deck is fun, and
+// the recommender finds genuinely synergistic cards that are just underplayed.
+// It has to supplement the strategy rather than replace it: measured, the split
+// was bimodal and the mean hid it entirely (median 0%, but Muldrotha 71%,
+// Korvold 69%, Hei Bai 61%).
+describe('novelty ceiling', () => {
+  const novel = name => ({ name, cmc: 2, type: 'Artifact', oracle: '', edhrecInclusion: 0, score: 0.5 })
+  const known = (name, inclusion) => up(name, { inclusion })
+
+  it('lets novelty through up to the ceiling', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_RAMP, target: 20, ownedCandidates: Array.from({ length: 20 }, (_, i) => novel(`N${i}`)) }],
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      exclude: makeExperimentalExclude({ cfg: SHIPPED_SIGNALS, nonlandBudget: 60 }),
+    })
+    expect(picks.length).toBe(Math.floor(60 * SHIPPED_SIGNALS.noveltyMaxShare))
+  })
+
+  it('never blocks cards the crowd does play', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_RAMP, target: 30, ownedCandidates: Array.from({ length: 30 }, (_, i) => known(`K${i}`, 50)) }],
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      exclude: makeExperimentalExclude({ cfg: SHIPPED_SIGNALS, nonlandBudget: 60 }),
+    })
+    expect(picks.length).toBe(30)
+  })
+
+  // Re-running auto-fill on a part-built deck must not stack a second helping.
+  it('counts novelty already in the deck against the ceiling', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_RAMP, target: 20, ownedCandidates: Array.from({ length: 20 }, (_, i) => novel(`N${i}`)) }],
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      exclude: makeExperimentalExclude({ cfg: SHIPPED_SIGNALS, nonlandBudget: 60, deckNovelty: 8 }),
+    })
+    expect(picks.length).toBe(Math.floor(60 * SHIPPED_SIGNALS.noveltyMaxShare) - 8)
+  })
+
+  it('is inert when switched off', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_RAMP, target: 20, ownedCandidates: Array.from({ length: 20 }, (_, i) => novel(`N${i}`)) }],
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      exclude: makeExperimentalExclude({ cfg: { ...SHIPPED_SIGNALS, noveltyMaxShare: null }, nonlandBudget: 60 }),
+    })
+    expect(picks.length).toBe(20)
+  })
+})

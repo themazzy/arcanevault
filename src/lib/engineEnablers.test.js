@@ -6,6 +6,9 @@ import {
   analyzeEngineCoverage,
   caresAboutOthersEntering,
   deriveEnablerTargets,
+  deriveTypeFloors,
+  isCardType,
+  TYPE_FLOOR,
   TRIBE_TARGET,
 } from './engineEnablers'
 
@@ -452,5 +455,79 @@ describe('universal needs', () => {
 
   it('are skipped when the measured target rounds to nothing', () => {
     expect(commanderNeeds(new Set(), null, 'Flying', { tutor: 0.4 })).toEqual([])
+  })
+})
+
+
+// Type floors guard against a structurally broken deck — a spellslinger with 11
+// instants, goblin tribal with 22 creatures. A FLOOR rather than a target on
+// purpose: off-meta and surprising picks are a feature, and a hard target would
+// squeeze them out.
+describe('deriveTypeFloors', () => {
+  const c = (inclusionPct, type) => ({ inclusionPct, type })
+  const many = (n, type, incl = 0.5) => Array.from({ length: n }, () => c(incl, type))
+
+  it('derives a floor below what real decks run', () => {
+    const floors = deriveTypeFloors([...many(60, 'Creature — Goblin'), ...many(40, 'Instant')], 99)
+    // 60 cards at 0.5 = 30 covered of 99, scale 3.3 → ~99 creatures; floored to 75%.
+    expect(floors.creature).toBeLessThan(99)
+    expect(floors.creature).toBeGreaterThan(0)
+  })
+
+  it('applies the floor factor rather than the raw count', () => {
+    const floors = deriveTypeFloors(many(60, 'Creature — Goblin', 0.5), 99)
+    const raw = 99 // every covered card is a creature, so the scaled count is the deck
+    expect(floors.creature).toBe(Math.round(raw * TYPE_FLOOR))
+  })
+
+  // Planeswalkers average about one per deck; a "1 planeswalker" requirement is
+  // noise, not a guard against a broken deck.
+  it('ignores types that are not structural', () => {
+    const floors = deriveTypeFloors([...many(58, 'Creature'), ...many(2, 'Planeswalker')], 99)
+    expect(floors.planeswalker).toBeUndefined()
+  })
+
+  it('ignores lands — the manabase is sized separately', () => {
+    expect(deriveTypeFloors(many(60, 'Land'), 99)).toEqual({})
+  })
+
+  it('returns nothing when the page is too thin', () => {
+    expect(deriveTypeFloors([c(0.1, 'Creature')], 99)).toEqual({})
+    expect(deriveTypeFloors([], 99)).toEqual({})
+  })
+})
+
+describe('isCardType', () => {
+  it('counts a multi-type card toward both types', () => {
+    expect(isCardType('Artifact Creature — Golem', 'creature')).toBe(true)
+    expect(isCardType('Artifact Creature — Golem', 'artifact')).toBe(true)
+  })
+  it('excludes lands', () => {
+    expect(isCardType('Land — Forest', 'creature')).toBe(false)
+  })
+})
+
+describe('commanderNeeds — type floors', () => {
+  it('adds a need per floored type', () => {
+    const needs = commanderNeeds(new Set(), null, 'Flying', null, { creature: 20, instant: 9 })
+    const labels = needs.map(n => n.enabler)
+    expect(labels).toContain('type:creature')
+    expect(labels).toContain('type:instant')
+    expect(needs.find(n => n.enabler === 'type:creature').target).toBe(20)
+  })
+
+  it('adds none when no floors were derived', () => {
+    expect(commanderNeeds(new Set(), null, 'Flying', null, {})).toEqual([])
+  })
+
+  it('counts coverage by type line, not oracle text', () => {
+    const needs = commanderNeeds(new Set(), null, 'Flying', null, { creature: 3 })
+    const [cov] = analyzeEngineCoverage([
+      { name: 'A', oracle: '', type: 'Creature — Goblin' },
+      { name: 'B', oracle: '', type: 'Artifact Creature — Golem' },
+      { name: 'C', oracle: '', type: 'Instant' },
+    ], needs)
+    expect(cov.have).toBe(2)
+    expect(cov.short).toBe(1)
   })
 })

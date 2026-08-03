@@ -19,7 +19,7 @@ import {
   ROLE_RAMP, ROLE_DRAW, ROLE_REMOVAL, ROLE_WIPE,
   ROLE_PROTECTION, ROLE_WINCON, ROLE_SYNERGY, ROLE_LANDS, ROLE_ORDER,
 } from './buildRoles'
-import { deriveEnablerTargets } from './engineEnablers'
+import { deriveEnablerTargets, deriveTypeFloors } from './engineEnablers'
 import { cardRoleTags } from './cardRoles'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
@@ -1526,19 +1526,21 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta, { m
   // already fetched to classify them. Constants in engineEnablers are only a
   // fallback — measured across 51 commanders they were wrong by up to 4x, and
   // the true value varies 2.3-8.6 between commanders for the same enabler.
-  const engineTargets = deriveEnablerTargets(
-    [...byName.entries()].map(([key, { cv }]) => {
+  const pageCards = [...byName.entries()].map(([key, { cv }]) => {
       const meta = metaByName.get(key)
       return {
         inclusionPct: (cv.potentialDecks || 0) > 0 ? (cv.inclusion || 0) / cv.potentialDecks : 0,
         oracle: meta?.oracle_text || '',
         type: meta?.type_line || cv.type || '',
       }
-    }),
-    (plan.deckSize || COMMANDER_DECK_SIZE) - 1,
-  )
+  })
+  const budget = (plan.deckSize || COMMANDER_DECK_SIZE) - 1
+  const engineTargets = deriveEnablerTargets(pageCards, budget)
+  // Type floors need only the type line, so they cover the whole page rather
+  // than just the slice whose oracle text we could resolve.
+  const typeFloors = deriveTypeFloors(pageCards, budget)
 
-  return { ...plan, roles, engineTargets }
+  return { ...plan, roles, engineTargets, typeFloors }
 }
 
 // ── Recommander augmentation ──────────────────────────────────────────────────

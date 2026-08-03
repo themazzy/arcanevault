@@ -211,6 +211,62 @@ export function isTribeMember(typeLine = '', tribe = null) {
   return new RegExp(`\\b${tribe}s?\\b`).test(String(typeLine).toLowerCase())
 }
 
+// ── Card type floors ──────────────────────────────────────────────────────────
+// The role template is entirely functional and says nothing about card types, so
+// the type mix is emergent. Measured, that leaves archetype decks badly short of
+// their defining type: Talrand -21 instants, Krenko -14 creatures, Sram -13
+// artifacts. Reshaping the role template does NOT fix it (see deriveRoleTemplate
+// -- type is orthogonal to function), so it needs a type-aware rule.
+//
+// Deliberately a FLOOR, not a target. The goal is decks that work, not decks
+// that reproduce the EDHREC average -- picks that are off-meta or surprising are
+// a feature, and a hard target would squeeze them out. A floor only fires when
+// something is badly wrong and otherwise leaves the build alone.
+export const TYPE_FLOOR = 0.75
+
+// Below this many cards in an average real deck, a type isn't structural and
+// gets no floor: planeswalkers average ~1 and a "1 planeswalker" requirement
+// would be noise, not a guard against a broken deck.
+const TYPE_FLOOR_MIN = 6
+
+const FLOORED_TYPES = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment']
+
+function typesOfLine(typeLine = '') {
+  const t = String(typeLine).toLowerCase()
+  if (t.includes('land')) return []
+  return FLOORED_TYPES.filter(ct => t.includes(ct))
+}
+
+/** Does this card count toward the given type floor? Multi-type cards count twice. */
+export function isCardType(typeLine = '', cardType = '') {
+  return typesOfLine(typeLine).includes(cardType)
+}
+
+/**
+ * Per-commander type floors, derived from EDHREC the same way enabler targets
+ * are. Returns { creature: 20, instant: 10, ... } already multiplied by
+ * TYPE_FLOOR, or {} when the page is too thin.
+ */
+export function deriveTypeFloors(cards = [], deckSize = 99) {
+  const totals = {}
+  let covered = 0
+  for (const c of cards) {
+    const incl = Math.min(1, Math.max(0, c?.inclusionPct ?? 0))
+    if (!incl || !c?.type) continue
+    covered += incl
+    for (const ct of typesOfLine(c.type)) totals[ct] = (totals[ct] || 0) + incl
+  }
+  if (covered < deckSize * 0.25) return {}
+  const scale = deckSize / covered
+  const out = {}
+  for (const [k, v] of Object.entries(totals)) {
+    const full = v * scale
+    if (full < TYPE_FLOOR_MIN) continue
+    out[k] = Math.round(full * TYPE_FLOOR)
+  }
+  return out
+}
+
 // ── Need derivation ───────────────────────────────────────────────────────────
 // Commander hook → the enabler that hook implies, with a target count.
 //
@@ -340,7 +396,7 @@ export function deriveEnablerTargets(cards = [], deckSize = 99) {
   return out
 }
 
-export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle = '', measuredTargets = null) {
+export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle = '', measuredTargets = null, typeFloors = null) {
   const effective = new Set(hooks)
   // Synthetic hook: only a commander that pays off OTHERS entering wants blink.
   if (caresAboutOthersEntering(commanderOracle)) effective.add('etbOthers')
@@ -393,6 +449,21 @@ export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle 
       })
     }
   }
+  // Type floors. Not commander-hook derived — they guard against a structurally
+  // broken deck (a spellslinger with 11 instants, a tribal deck with 22
+  // creatures) rather than expressing what the commander wants.
+  for (const [ct, target] of Object.entries(typeFloors || {})) {
+    if (!target) continue
+    byEnabler.set(`type:${ct}`, {
+      enabler: `type:${ct}`,
+      cardType: ct,
+      label: `${ct}s`,
+      why: `Real decks for this commander run about ${Math.round(target / TYPE_FLOOR)} ${ct}s. Well below that and the deck stops functioning, whatever else is in it.`,
+      target,
+      hooks: ['type'],
+    })
+  }
+
   // No tribe quota — see the note on TRIBE_TARGET. `tribe` is still accepted so
   // callers don't have to change, and so it can be reinstated if a future sweep
   // finds a tribal archetype that actually comes up short.
@@ -414,9 +485,11 @@ export function analyzeEngineCoverage(cards = [], needs = []) {
     const providers = []
     for (const c of cards) {
       const type = c?.type || ''
-      const hit = need.enabler === 'tribe'
-        ? isTribeMember(type, need.tribe)
-        : cardEnablers(c?.oracle || '', type).has(need.enabler)
+      const hit = need.cardType
+        ? isCardType(type, need.cardType)
+        : need.enabler === 'tribe'
+          ? isTribeMember(type, need.tribe)
+          : cardEnablers(c?.oracle || '', type).has(need.enabler)
       if (hit) providers.push(c.name)
     }
     return {

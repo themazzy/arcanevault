@@ -71,7 +71,20 @@ export const EXPERIMENTAL_DEFAULTS = {
   // on 51 commanders, ~1 in 10 auto-filled decks is short of something its
   // commander requires — a correctness problem no ranking signal can see.
   enginePass: true,
-  engineMaxAdd: 6,         // ceiling on additions, so one need can't eat the deck
+  engineMaxAdd: 6,
+  // Cap on cards the crowd never plays for this commander (recommander picks
+  // with no EDHREC inclusion). Novelty is WANTED — surprise cards are a large
+  // part of why building a deck is fun, and the recommender surfaces synergistic
+  // cards that are simply underplayed. But it has to supplement the strategy,
+  // not replace it.
+  //
+  // Measured across 51 commanders the distribution was bimodal and the mean
+  // (12.7%) hid it completely: median 0%, but Muldrotha 71%, Korvold 69%,
+  // Hei Bai 61%, Alesha 60%. Recommander returns ~200 picks for some commanders
+  // and none for others; where it returns them they outnumber the EDHREC tail
+  // and take the deck over. This bounds that tail without touching the many
+  // decks already at 0.
+  noveltyMaxShare: 0.15,         // ceiling on additions, so one need can't eat the deck
   // Roles the commander-keyword bonus applies to. null = every role.
   //
   // The distinction matters because the roles want different things: in Synergy
@@ -120,6 +133,7 @@ export const SHIPPED_SIGNALS = {
   commanderKw: false,
   deckAffinity: false,
   comboType: false,
+  noveltyMaxShare: 0.15,
   // Promoted: with per-commander targets derived from EDHREC rather than
   // guessed, this takes engine coverage from 57.8% to ~99% across 51
   // commanders — and specifically reverses the 6.4-point coverage regression
@@ -328,6 +342,8 @@ export function makeExperimentalExclude({
   deckTopEnd = 0,
   drawRole = null,
   drawTarget = 0,
+  nonlandBudget = 62,
+  deckNovelty = 0,
 } = {}) {
   return (cand, info = {}) => {
     const picks = info.picks || []
@@ -340,6 +356,13 @@ export function makeExperimentalExclude({
         const picked = picks.filter(p => (p.cand?.cmc ?? 0) >= threshold).length
         if (deckTopEnd + picked >= (cfg.topEndMax ?? 4)) return true
       }
+    }
+
+    // Novelty ceiling: keep off-meta picks a supplement rather than the deck.
+    if (cfg.noveltyMaxShare != null && !(cand?.edhrecInclusion > 0)) {
+      const allowed = Math.floor(nonlandBudget * cfg.noveltyMaxShare)
+      const taken = deckNovelty + picks.filter(p => !(p.cand?.edhrecInclusion > 0)).length
+      if (taken >= allowed) return true
     }
 
     // #5 — the Draw quota is for cards that NET cards. A looter or cantrip is

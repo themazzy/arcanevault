@@ -86,7 +86,7 @@ import {
   candidateType,
 } from '../../lib/buildAssistExperimental'
 import { cardRoleTagsFromCard } from '../../lib/cardRoles'
-import { commanderNeeds, analyzeEngineCoverage, cardEnablers, isTribeMember } from '../../lib/engineEnablers'
+import { commanderNeeds, analyzeEngineCoverage, cardEnablers, isTribeMember, isCardType } from '../../lib/engineEnablers'
 import { SpecificCardSearch } from './SpecificCardSearch'
 import styles from './BuildAssistant.module.css'
 
@@ -942,7 +942,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const engineNeeds = useMemo(() => {
     if (!scoringCtx) return []
     const oracle = commanderSf?.oracle_text || commanderRow?.oracle_text || ''
-    return commanderNeeds(scoringCtx.keywords, scoringCtx.tribe, oracle, plan?.engineTargets)
+    return commanderNeeds(scoringCtx.keywords, scoringCtx.tribe, oracle, plan?.engineTargets, plan?.typeFloors)
   }, [scoringCtx, commanderSf, commanderRow, plan])
 
   const engineCoverage = useMemo(() => {
@@ -1377,8 +1377,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       deckTopEnd,
       drawRole: ROLE_DRAW,
       drawTarget: plan?.roles?.find(r => r.role === ROLE_DRAW)?.target || 0,
+      nonlandBudget: Math.max(1, (plan?.deckSize || 100) - 1 - landsTarget),
+      // Novelty already in the deck counts against the ceiling, so re-running
+      // auto-fill on a part-built deck can't stack a second helping.
+      deckNovelty: (deckCards || []).filter(d => !d?.is_commander && !inclusionByName.get(
+        cardNameMatchKeys(d?.name)[0])).length,
     })
-  }, [activeCfg, deckTopEnd, plan])
+  }, [activeCfg, deckTopEnd, plan, landsTarget, deckCards, inclusionByName])
 
   const autoFillExclude = useCallback((cand, info) => {
     if (!cand?.name || isAdded(cand.name)) return true
@@ -1559,6 +1564,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       coverage: engineCoverage,
       providersFor: enabler => ranked.filter(c => {
         const need = engineCoverage.find(n => n.enabler === enabler)
+        if (need?.cardType) return isCardType(candidateType(c), need.cardType)
         if (need?.enabler === 'tribe') return isTribeMember(candidateType(c), need.tribe)
         return cardEnablers(candidateOracle(c), candidateType(c)).has(enabler)
       }),

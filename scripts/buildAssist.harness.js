@@ -59,7 +59,7 @@ import {
 import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles'
 import { recRank } from '../src/lib/deckBuildAssistant'
 import { extractCommanderKeywords, extractTribe, synergyScore } from '../src/lib/commanderSynergy'
-import { commanderNeeds, analyzeEngineCoverage, cardEnablers } from '../src/lib/engineEnablers'
+import { commanderNeeds, analyzeEngineCoverage, cardEnablers, deriveTypeFloors, isCardType } from '../src/lib/engineEnablers'
 import { runEnginePass } from '../src/lib/buildAssistantPasses'
 
 // ── Commander sample ──────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ const ARMS = [
   { id: 'topend', label: 'top-end cap only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, topEndCap: true } },
   { id: 'drawq', label: 'draw quality only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, drawQuality: true } },
   { id: 'engine', label: 'all + engine pass', cfg: { ...EXPERIMENTAL_DEFAULTS }, enginePass: true },
-  { id: 'derived', label: '+ derived template', cfg: { ...EXPERIMENTAL_DEFAULTS }, enginePass: true, derivedTemplate: true },
+  { id: 'derived', label: '+ type floors', cfg: { ...EXPERIMENTAL_DEFAULTS }, enginePass: true },
 ]
 
 
@@ -278,6 +278,15 @@ function measure(picks, commanderCard, needs) {
     : NaN
   const covShort = coverage.reduce((s2, c) => s2 + c.short, 0)
 
+  // Novelty share: cards the crowd does NOT play for this commander. Recommander
+  // picks and zero-inclusion cards are where the surprise comes from — wanted in
+  // small numbers, a problem if they crowd out the strategy.
+  let recPicks = 0, zeroIncl = 0
+  for (const c of nonland) {
+    if (c.source === 'recommander') recPicks++
+    if (!(c.edhrecInclusion > 0)) zeroIncl++
+  }
+
   const typeCounts = {}
   for (const c of cards) {
     for (const ct of typesOf(String(c.type || c.type_line || ''))) {
@@ -287,6 +296,8 @@ function measure(picks, commanderCard, needs) {
 
   const n = nonland.length || 1
   return {
+    recPct: (recPicks / (nonland.length || 1)) * 100,
+    zeroInclPct: (zeroIncl / (nonland.length || 1)) * 100,
     typeCounts,
     coverage, covPct, covShort,
     perRole,
@@ -440,12 +451,15 @@ async function runCommander(name, metaCache) {
   }
   const landTarget = COMMANDER_TEMPLATE[ROLE_LANDS].ideal
   const derived = deriveRoleTemplate(pageCards, COMMANDER_DECK_SIZE - 1 - landTarget)
+  const typeFloors = deriveTypeFloors(pageCards, COMMANDER_DECK_SIZE - 1)
 
+  const arm0TypeFloors = typeFloors
   const needs = commanderNeeds(
     extractCommanderKeywords(commanderCard.oracle_text, commanderCard.type_line),
     extractTribe(commanderCard.oracle_text, commanderCard.type_line),
     commanderCard.oracle_text,
     expected.scaled,
+    arm0TypeFloors,
   )
   const recRows = await fetchRecommanderRows(name)
   const targetCmc = planTargetAvgCmc(edhrec, '')
@@ -516,6 +530,7 @@ async function runCommander(name, metaCache) {
             deckTopEnd: 0,
             drawRole: ROLE_DRAW,
             drawTarget: basePlan.roles.find(r => r.role === ROLE_DRAW)?.target || 0,
+            nonlandBudget: COMMANDER_DECK_SIZE - 1 - (basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37),
           })
         : undefined,
     })
@@ -558,8 +573,11 @@ async function runCommander(name, metaCache) {
         populated,
         fillIds: rows.map(r => r.id),
         coverage: cov,
-        providersFor: enabler => ranked.filter(c =>
-          cardEnablers(String(c.oracle || ''), String(c.type || '')).has(enabler)),
+        providersFor: enabler => {
+          const need = cov.find(n => n.enabler === enabler)
+          if (need?.cardType) return ranked.filter(c => isCardType(String(c.type || ''), need.cardType))
+          return ranked.filter(c => cardEnablers(String(c.oracle || ''), String(c.type || '')).has(enabler))
+        },
         deckSize: COMMANDER_DECK_SIZE,
         isLandRow: d => String(d?.type_line || '').toLowerCase().includes('land'),
         passesBudget: () => true,
@@ -574,7 +592,7 @@ async function runCommander(name, metaCache) {
           return { rows: addedRows }
         },
         removeCards: async ids => ids,
-        maxAdd: Number(process.env.HARNESS_MAXADD) || EXPERIMENTAL_DEFAULTS.engineMaxAdd,
+        maxAdd: Number(process.env.HARNESS_MAXADD) || 12,
       })
       if (pass.added) {
         const cutSet = new Set(pass.cutIds)
@@ -604,6 +622,8 @@ async function runCommander(name, metaCache) {
 // ── Reporting ─────────────────────────────────────────────────────────────────
 
 const METRICS = [
+  ['recPct', '% from recommander', null],
+  ['zeroInclPct', '% crowd never plays', null],
   ['covPct', 'engine coverage %', 'up'],
   ['covShort', 'enablers missing', 'down'],
   ['edhrecSyn', 'avg EDHREC synergy', 'up'],
@@ -743,6 +763,18 @@ it('build assistant A/B sweep', async () => {
     'HOOKS 4+ (text-rich)': all.filter(r => r.hooks.length >= 4),
   }
   for (const [label, rows] of Object.entries(byHooks)) tierTable(label, rows, out)
+
+  out.push('')
+  out.push('NOVELTY SHARE (cards the crowd never plays for this commander) — shipped arm')
+  {
+    const vals = all.map(r => ({ n: r.name, v: r.results?.shipped?.recPct ?? 0 })).sort((a, b) => b.v - a.v)
+    const nums = vals.map(v => v.v)
+    const mean = nums.reduce((a, b) => a + b, 0) / (nums.length || 1)
+    const med = [...nums].sort((a, b) => a - b)[Math.floor(nums.length / 2)]
+    out.push(`  mean ${mean.toFixed(1)}%   median ${med.toFixed(1)}%   min ${nums[nums.length - 1].toFixed(1)}%   max ${nums[0].toFixed(1)}%`)
+    out.push('  highest:  ' + vals.slice(0, 6).map(v => `${v.n.split(',')[0]} ${v.v.toFixed(0)}%`).join(' · '))
+    out.push('  lowest:   ' + vals.slice(-4).map(v => `${v.n.split(',')[0]} ${v.v.toFixed(0)}%`).join(' · '))
+  }
 
   out.push('')
   out.push('CARD TYPE BALANCE — shipped auto-fill vs an average real deck')
