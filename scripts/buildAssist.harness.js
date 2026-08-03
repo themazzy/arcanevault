@@ -274,8 +274,16 @@ function measure(picks, commanderCard, needs) {
     : NaN
   const covShort = coverage.reduce((s2, c) => s2 + c.short, 0)
 
+  const typeCounts = {}
+  for (const c of cards) {
+    for (const ct of typesOf(String(c.type || c.type_line || ''))) {
+      typeCounts[ct] = (typeCounts[ct] || 0) + 1
+    }
+  }
+
   const n = nonland.length || 1
   return {
+    typeCounts,
     coverage, covPct, covShort,
     perRole,
     picked: cards.length,
@@ -294,6 +302,51 @@ function measure(picks, commanderCard, needs) {
     drawExpensiveWeak: drawCards.filter(c => (c.cmc ?? 0) >= 4 && !drawQuality(String(c.oracle || '').toLowerCase()).burst).length,
     names: new Set(cards.map(c => c.name)),
   }
+}
+
+// ── Card type balance (step 0: is there a defect?) ────────────────────────────
+// COMMANDER_TEMPLATE is entirely functional — Ramp, Draw, Removal — and says
+// nothing about card TYPES. A Ramp slot can be filled by a mana rock, a mana
+// dork or a land and nothing notices, so creature count is purely emergent.
+// This measures whether that emergent distribution matches what real decks run.
+//
+// A card counts toward EVERY type it has: an Artifact Creature is a creature
+// when you're asking "do I have enough bodies" and an artifact when you're
+// asking "do I have enough artifacts".
+const CARD_TYPES = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker']
+
+function typesOf(typeLine = '') {
+  const t = String(typeLine).toLowerCase()
+  if (t.includes('land')) return []           // lands are the manabase, not the spell mix
+  return CARD_TYPES.filter(ct => t.includes(ct))
+}
+
+// Expected count of each type in an average deck for this commander, scaled for
+// EDHREC page coverage — same method as deriveEnablerTargets.
+function expectedTypeCounts(edhrec, metaByName) {
+  const totals = {}
+  let covered = 0
+  const seen = new Set()
+  for (const cat of edhrec?.categories || []) {
+    for (const cv of cat.cards || []) {
+      const key = (cv.name || '').toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      const pot = cv.potentialDecks || 0
+      if (!pot) continue
+      const meta = metaByName.get(key)
+      const type = meta?.type_line || cv.type || ''
+      if (!type) continue
+      const incl = Math.min(1, (cv.inclusion || 0) / pot)
+      covered += incl
+      for (const ct of typesOf(type)) totals[ct] = (totals[ct] || 0) + incl
+    }
+  }
+  if (covered < 25) return {}
+  const scale = 99 / covered
+  const out = {}
+  for (const [k, v] of Object.entries(totals)) out[k] = Math.round(v * scale * 10) / 10
+  return out
 }
 
 // ── Target calibration ────────────────────────────────────────────────────────
@@ -360,6 +413,7 @@ async function runCommander(name, metaCache) {
   }
   await metaFetch(allNames)
   const expected = expectedEnablerCounts(edhrec, metaCache)
+  const expectedTypes = expectedTypeCounts(edhrec, metaCache)
 
   const needs = commanderNeeds(
     extractCommanderKeywords(commanderCard.oracle_text, commanderCard.type_line),
@@ -511,6 +565,7 @@ async function runCommander(name, metaCache) {
     hooks: [...extractCommanderKeywords(commanderCard.oracle_text, commanderCard.type_line)],
     needs,
     expected,
+    expectedTypes,
     results,
   }
 }
@@ -657,6 +712,24 @@ it('build assistant A/B sweep', async () => {
     'HOOKS 4+ (text-rich)': all.filter(r => r.hooks.length >= 4),
   }
   for (const [label, rows] of Object.entries(byHooks)) tierTable(label, rows, out)
+
+  out.push('')
+  out.push('CARD TYPE BALANCE — shipped auto-fill vs an average real deck')
+  out.push(pad('type', 16) + pad('avg real deck', 16) + pad('shipped fill', 16) + pad('mean diff', 12) + 'worst commander')
+  for (const ct of CARD_TYPES) {
+    const rows2 = all.filter(r => r.expectedTypes?.[ct] != null)
+    if (!rows2.length) continue
+    const exp = rows2.map(r => r.expectedTypes[ct])
+    const got = rows2.map(r => r.results?.shipped?.typeCounts?.[ct] || 0)
+    const avg = a => a.reduce((x, y) => x + y, 0) / a.length
+    const diffs = rows2.map((r, i) => ({ n: r.name, d: got[i] - exp[i] }))
+    diffs.sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
+    out.push(
+      pad(ct, 16) + pad(avg(exp).toFixed(1), 16) + pad(avg(got).toFixed(1), 16) +
+      pad((avg(got) - avg(exp) >= 0 ? '+' : '') + (avg(got) - avg(exp)).toFixed(1), 12) +
+      `${diffs[0].n.slice(0, 24)} (${diffs[0].d >= 0 ? '+' : ''}${diffs[0].d.toFixed(1)})`,
+    )
+  }
 
   out.push('')
   out.push('TARGET CALIBRATION — what an AVERAGE EDHREC deck actually runs')
