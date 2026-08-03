@@ -5,6 +5,7 @@ import {
   buyListText,
   tcgplayerMassEntryUrl,
   planAutoFill,
+  deriveRoleTemplate,
   karstenSourcesNeeded,
   karstenColorRequirements,
   granularToCoarse,
@@ -1966,5 +1967,72 @@ describe('planComboCompletion', () => {
     })
     expect(r.pieces).toEqual([])       // B already present
     expect(r.combosCompleted).toBe(1)  // still counts as completed
+  })
+})
+
+
+// The last big set of invented numbers. Measured, COMMANDER_TEMPLATE is badly
+// wrong for any archetype deck — Talrand runs ~41 instants and no arrangement of
+// "Ramp 11 / Draw 12 / Removal 10" produces that.
+describe('deriveRoleTemplate', () => {
+  const card = (inclusionPct, oracle, type) => ({ inclusionPct, oracle, type })
+  // 20 cards at full inclusion clears the thinness guard.
+  const many = (n, oracle, type) => Array.from({ length: n }, () => card(1, oracle, type))
+
+  it('returns nothing when the page is too thin to infer a shape', () => {
+    expect(deriveRoleTemplate([card(0.5, '{T}: Add {C}.', 'Artifact')], 62)).toEqual({})
+    expect(deriveRoleTemplate([], 62)).toEqual({})
+  })
+
+  it('sums to exactly the nonland budget', () => {
+    const t = deriveRoleTemplate([
+      ...many(10, '{T}: Add {C}{C}.', 'Artifact'),
+      ...many(10, 'Draw two cards.', 'Sorcery'),
+      ...many(10, 'Destroy target creature.', 'Instant'),
+    ], 62)
+    const sum = Object.values(t).filter(v => v !== 'remainder').reduce((a, v) => a + v.ideal, 0)
+    expect(sum).toBe(62)
+  })
+
+  it('reflects the archetype rather than one fixed shape', () => {
+    // A spellslinger page: mostly cheap interaction and draw, almost no ramp.
+    const spells = deriveRoleTemplate([
+      ...many(30, 'Draw two cards.', 'Instant'),
+      ...many(20, 'Counter target spell.', 'Instant'),
+      ...many(2, '{T}: Add {C}{C}.', 'Artifact'),
+    ], 62)
+    expect(spells[ROLE_DRAW].ideal).toBeGreaterThan(spells[ROLE_RAMP].ideal * 3)
+  })
+
+  it('excludes lands — the manabase is Karsten\'s job, not the crowd\'s', () => {
+    const t = deriveRoleTemplate([
+      ...many(20, '{T}: Add {G}.', 'Land'),
+      ...many(20, 'Draw two cards.', 'Sorcery'),
+    ], 62)
+    expect(t[ROLE_LANDS]).toBeUndefined()
+  })
+
+  // The subtlest failure mode: coarseRole puts loot spells in Draw, our Draw
+  // quota does not. Deriving with the crowd's definition and measuring with ours
+  // would leave Draw permanently short and make auto-fill overfill it forever.
+  it('derives Draw with the same definition the live count uses', () => {
+    const loot = deriveRoleTemplate(many(30, 'Draw two cards, then discard two cards.', 'Sorcery'), 62)
+    const real = deriveRoleTemplate(many(30, 'Draw two cards.', 'Sorcery'), 62)
+    expect(real[ROLE_DRAW].ideal).toBeGreaterThan(40)
+    // Looting must NOT inflate the Draw target.
+    expect(loot[ROLE_DRAW]?.ideal ?? 0).toBe(0)
+  })
+
+  it('keeps Synergy as the remainder so downstream math is unchanged', () => {
+    const t = deriveRoleTemplate([
+      ...many(10, 'Whenever this attacks, create a 1/1 token.', 'Creature'),
+      ...many(10, 'Draw two cards.', 'Sorcery'),
+    ], 62)
+    expect(t[ROLE_SYNERGY]).toBe('remainder')
+  })
+
+  it('sets min below ideal', () => {
+    const t = deriveRoleTemplate(many(30, 'Draw two cards.', 'Sorcery'), 62)
+    expect(t[ROLE_DRAW].min).toBeLessThan(t[ROLE_DRAW].ideal)
   })
 })

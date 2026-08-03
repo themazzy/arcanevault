@@ -39,6 +39,9 @@ import {
   upgradePoolDepth,
   analyzeCut,
   coarseRole,
+  deriveRoleTemplate,
+  applyTemplateAdjustments,
+  bracketAdjustments,
   COMMANDER_TEMPLATE,
   COMMANDER_DECK_SIZE,
   ROLE_ORDER,
@@ -114,6 +117,7 @@ const ARMS = [
   { id: 'topend', label: 'top-end cap only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, topEndCap: true } },
   { id: 'drawq', label: 'draw quality only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, drawQuality: true } },
   { id: 'engine', label: 'all + engine pass', cfg: { ...EXPERIMENTAL_DEFAULTS }, enginePass: true },
+  { id: 'derived', label: '+ derived template', cfg: { ...EXPERIMENTAL_DEFAULTS }, enginePass: true, derivedTemplate: true },
 ]
 
 
@@ -414,6 +418,28 @@ async function runCommander(name, metaCache) {
   await metaFetch(allNames)
   const expected = expectedEnablerCounts(edhrec, metaCache)
   const expectedTypes = expectedTypeCounts(edhrec, metaCache)
+  // Derived per-commander role shape (see deriveRoleTemplate). Lands stay on the
+  // fixed template — Karsten math beats crowd averages — so the nonland budget
+  // is deckSize - 1 - landTarget.
+  const pageCards = []
+  {
+    const seen = new Set()
+    for (const cat of edhrec.categories || []) for (const cv of cat.cards || []) {
+      const k = (cv.name || '').toLowerCase()
+      if (!k || seen.has(k)) continue
+      seen.add(k)
+      const meta = metaCache.get(k)
+      const pot = cv.potentialDecks || 0
+      if (!pot || !meta?.oracle_text) continue
+      pageCards.push({
+        inclusionPct: (cv.inclusion || 0) / pot,
+        oracle: meta.oracle_text,
+        type: meta.type_line || cv.type || '',
+      })
+    }
+  }
+  const landTarget = COMMANDER_TEMPLATE[ROLE_LANDS].ideal
+  const derived = deriveRoleTemplate(pageCards, COMMANDER_DECK_SIZE - 1 - landTarget)
 
   const needs = commanderNeeds(
     extractCommanderKeywords(commanderCard.oracle_text, commanderCard.type_line),
@@ -425,32 +451,31 @@ async function runCommander(name, metaCache) {
   const targetCmc = planTargetAvgCmc(edhrec, '')
 
   const results = {}
-  // The pool is identical for every arm, so build it ONCE — the arms differ only
-  // in how they rank it, which is the whole point of the comparison.
-  const basePlan = await (async () => {
+  // The candidate POOL is identical for every arm; only the ranking differs. The
+  // derived-template arm is the exception — it changes the role quotas, which
+  // changes the plan itself, so that arm builds its own.
+  const makeBasePlan = async (arm) => {
+    const template = (arm.derivedTemplate && Object.keys(derived).length)
+      ? { ...derived, [ROLE_LANDS]: COMMANDER_TEMPLATE[ROLE_LANDS] }
+      : COMMANDER_TEMPLATE
     const base = analyzeBuildPlan({
       commander: commanderCard,
       ownedCards: [],
       sfMap: {},
       currentDeckCards: [],
-      template: COMMANDER_TEMPLATE,
+      template,
       deckSize: COMMANDER_DECK_SIZE,
     })
     let plan = await enrichPlanWithEdhrec(base, async () => edhrec, metaFetch)
     if (recRows.length) plan = attachRecommenderUpgrades(plan, recRows)
     return plan
-  })()
+  }
 
   const upgradesFor = role => selectUpgrades(
     role,
     recRows.length ? 'both' : 'edhrec',
     upgradePoolDepth(role.gap || 0),
   )
-  const roles = basePlan.roles.map(r => ({ ...r, upgrades: upgradesFor(r) }))
-  const landsRole = basePlan.roles.find(r => r.role === ROLE_LANDS)
-  const landUpgrades = landsRole
-    ? upgradesFor(landsRole).filter(u => (u.type || '').toLowerCase().includes('land'))
-    : []
   const ctx = buildScoringContext({
     commanderOracle: commanderCard.oracle_text,
     commanderType: commanderCard.type_line,
@@ -460,6 +485,12 @@ async function runCommander(name, metaCache) {
 
   for (const arm of ARMS) {
     const cfg = arm.cfg
+    const basePlan = await makeBasePlan(arm)
+    const roles = basePlan.roles.map(r => ({ ...r, upgrades: upgradesFor(r) }))
+    const landsRole = basePlan.roles.find(r => r.role === ROLE_LANDS)
+    const landUpgrades = landsRole
+      ? upgradesFor(landsRole).filter(u => (u.type || '').toLowerCase().includes('land'))
+      : []
 
     const picks = planAutoFill({
       roles,
@@ -715,19 +746,21 @@ it('build assistant A/B sweep', async () => {
 
   out.push('')
   out.push('CARD TYPE BALANCE — shipped auto-fill vs an average real deck')
-  out.push(pad('type', 16) + pad('avg real deck', 16) + pad('shipped fill', 16) + pad('mean diff', 12) + 'worst commander')
+  out.push(pad('type', 14) + pad('real deck', 12) + pad('shipped', 12) + pad('diff', 10) + pad('derived tmpl', 14) + pad('diff', 10) + 'worst (shipped)')
   for (const ct of CARD_TYPES) {
     const rows2 = all.filter(r => r.expectedTypes?.[ct] != null)
     if (!rows2.length) continue
-    const exp = rows2.map(r => r.expectedTypes[ct])
-    const got = rows2.map(r => r.results?.shipped?.typeCounts?.[ct] || 0)
     const avg = a => a.reduce((x, y) => x + y, 0) / a.length
-    const diffs = rows2.map((r, i) => ({ n: r.name, d: got[i] - exp[i] }))
+    const exp = avg(rows2.map(r => r.expectedTypes[ct]))
+    const ship = avg(rows2.map(r => r.results?.shipped?.typeCounts?.[ct] || 0))
+    const der = avg(rows2.map(r => r.results?.derived?.typeCounts?.[ct] || 0))
+    const sign = v => (v >= 0 ? '+' : '') + v.toFixed(1)
+    const diffs = rows2.map(r => ({ n: r.name, d: (r.results?.shipped?.typeCounts?.[ct] || 0) - r.expectedTypes[ct] }))
     diffs.sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
     out.push(
-      pad(ct, 16) + pad(avg(exp).toFixed(1), 16) + pad(avg(got).toFixed(1), 16) +
-      pad((avg(got) - avg(exp) >= 0 ? '+' : '') + (avg(got) - avg(exp)).toFixed(1), 12) +
-      `${diffs[0].n.slice(0, 24)} (${diffs[0].d >= 0 ? '+' : ''}${diffs[0].d.toFixed(1)})`,
+      pad(ct, 14) + pad(exp.toFixed(1), 12) + pad(ship.toFixed(1), 12) + pad(sign(ship - exp), 10) +
+      pad(der.toFixed(1), 14) + pad(sign(der - exp), 10) +
+      `${diffs[0].n.slice(0, 22)} (${sign(diffs[0].d)})`,
     )
   }
 

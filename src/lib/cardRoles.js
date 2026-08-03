@@ -24,7 +24,7 @@ import {
   ROLE_PROTECTION,
   ROLE_WINCON,
   ROLE_LANDS,
-} from './deckBuildAssistant'
+} from './buildRoles'
 
 // Roles that count toward "multi-engine". Lands are excluded — every land is
 // trivially a mana source, so counting Lands would rate the whole manabase as

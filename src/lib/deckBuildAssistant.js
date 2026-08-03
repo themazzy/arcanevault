@@ -15,7 +15,12 @@ import { getCardLegalityWarnings } from './deckLegality'
 import { isMassLandDenial, isExtraTurn } from './commanderBracket'
 import { cardNameMatchKeys, isGroupFolder } from './deckBuilderHelpers'
 import { isBasicLandName } from './basicLands'
+import {
+  ROLE_RAMP, ROLE_DRAW, ROLE_REMOVAL, ROLE_WIPE,
+  ROLE_PROTECTION, ROLE_WINCON, ROLE_SYNERGY, ROLE_LANDS, ROLE_ORDER,
+} from './buildRoles'
 import { deriveEnablerTargets } from './engineEnablers'
+import { cardRoleTags } from './cardRoles'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
 // Collapses the ~30 granular categories from getCardCategory into the 8 build
@@ -23,27 +28,10 @@ import { deriveEnablerTargets } from './engineEnablers'
 // Enchantment, Instant, Sorcery, Planeswalker, Other type-fallbacks) falls
 // through to Synergy — those are the deck's "stuff" that fills the remainder.
 
-export const ROLE_RAMP = 'Ramp'
-export const ROLE_DRAW = 'Draw'
-export const ROLE_REMOVAL = 'Removal'
-export const ROLE_WIPE = 'Board Wipe'
-export const ROLE_PROTECTION = 'Protection'
-export const ROLE_WINCON = 'Game Plan / Win Cons'
-export const ROLE_SYNERGY = 'Synergy'
-export const ROLE_LANDS = 'Lands'
-
-// Display + iteration order for the wizard (Lands last — handled separately by
-// most players, and Synergy is the catch-all remainder before it).
-export const ROLE_ORDER = [
-  ROLE_RAMP,
-  ROLE_DRAW,
-  ROLE_REMOVAL,
-  ROLE_WIPE,
-  ROLE_PROTECTION,
-  ROLE_WINCON,
-  ROLE_SYNERGY,
-  ROLE_LANDS,
-]
+export {
+  ROLE_RAMP, ROLE_DRAW, ROLE_REMOVAL, ROLE_WIPE,
+  ROLE_PROTECTION, ROLE_WINCON, ROLE_SYNERGY, ROLE_LANDS, ROLE_ORDER,
+}
 
 // Granular category (from getCardCategory) → coarse role. Categories absent
 // here resolve to Synergy via COARSE_ROLE_MAP's lookup default.
@@ -1128,6 +1116,93 @@ function remainderTarget(template, deckSize) {
   }
   // -1 for the commander itself, which occupies a slot but no role quota.
   return Math.max(0, deckSize - 1 - fixed)
+}
+
+// ── Derived role template ─────────────────────────────────────────────────────
+// COMMANDER_TEMPLATE is one fixed shape applied to every deck, and it is the last
+// large set of invented numbers in this system. Measured, it is badly wrong for
+// any deck with a strong archetype: a Talrand list runs ~41 instants, and no
+// arrangement of "Ramp 11 / Draw 12 / Removal 10 / Win Cons 10" produces that.
+// Krenko comes out 14 creatures short of a real goblin deck; Sram 13 artifacts
+// short. ARCHETYPE_RULES only nudges by 1-2, which is nothing against those gaps.
+//
+// So the SHAPE is derived from the commander's own EDHREC page — classify every
+// cardview with the same coarseRole the assistant uses, weight by inclusion, and
+// take proportions. Because it is proportions scaled to the deck's nonland
+// budget, no page-coverage correction is needed: the scaling cancels.
+//
+// Crowd data supplies shape only. It does NOT supply quality — this project
+// started from the crowd being measurably wrong (seven uncastable 6+ MV cards per
+// deck), so the top-end cap, draw-quality rule and land math stay as overrides on
+// top, and Lands are never derived (Karsten beats crowd averages).
+//
+// ⚠ MEASURED AND NOT SHIPPED. Kept because the negative result is worth more
+// than the code, and because a fix to either problem below would make it viable.
+//
+// It was built to close the card-type gaps (Talrand -21 instants, Krenko -14
+// creatures). Measured on those commanders it barely moved them: total type
+// deviation fell only 8%, and creatures and sorceries got WORSE. Two reasons:
+//
+//   1. Type is orthogonal to function. Even a perfectly-shaped functional
+//      template can't control the type mix, because a role like Synergy contains
+//      both instants and creatures and auto-fill picks within it by inclusion.
+//      Fixing the template was the wrong lever for the type problem.
+//
+//   2. It inherits our classifier's blind spots and hardens them into quotas.
+//      Derived Win Cons came out ZERO for both Talrand and Krenko — real decks
+//      obviously have win conditions, but a big evasive creature classifies as
+//      Synergy rather than Finisher, so the derivation faithfully reproduces the
+//      gap and would then instruct auto-fill to include none. A fixed guess that
+//      is merely wrong is safer than a derived number that is confidently wrong.
+
+/**
+ * @param {Array} cards          [{ inclusionPct (0..1), oracle, type }]
+ * @param {number} nonlandBudget slots to distribute (deckSize - 1 - lands)
+ * @returns {Object} role → { min, ideal } summing to nonlandBudget, or {} when
+ *                   the page is too thin to derive from.
+ */
+export function deriveRoleTemplate(cards = [], nonlandBudget = 62) {
+  const weight = {}
+  let covered = 0
+  for (const c of cards) {
+    const incl = Math.min(1, Math.max(0, c?.inclusionPct ?? 0))
+    if (!incl || !c?.oracle) continue
+    const type = String(c.type || '')
+    if (type.toLowerCase().includes('land')) continue // manabase, not the spell mix
+    covered += incl
+    const shaped = { type_line: type, oracle_text: c.oracle }
+    let role = granularToCoarse(getCardCategoryFromCard(shaped, shaped))
+    // Derive with the SAME definition of Draw the live count uses. coarseRole
+    // puts loot spells in Draw; our Draw quota deliberately doesn't. Deriving
+    // the target from the crowd's definition and measuring it with ours would
+    // leave Draw permanently short and make auto-fill overfill it forever.
+    if (role === ROLE_DRAW && !cardRoleTags(c.oracle, type).roles.has(ROLE_DRAW)) {
+      role = ROLE_SYNERGY
+    }
+    weight[role] = (weight[role] || 0) + incl
+  }
+  if (covered < 15) return {} // too thin to infer a shape from
+
+  const total = Object.values(weight).reduce((a, b) => a + b, 0)
+  if (total <= 0) return {}
+
+  // Largest-remainder apportionment, so the roles sum to exactly the budget
+  // rather than to whatever rounding produces.
+  const entries = Object.entries(weight).map(([role, w]) => {
+    const exact = (nonlandBudget * w) / total
+    const n = Math.floor(exact)
+    return { role, n, frac: exact - n }
+  })
+  let left = nonlandBudget - entries.reduce((a, e) => a + e.n, 0)
+  entries.sort((a, b) => b.frac - a.frac)
+  for (let i = 0; i < entries.length && left > 0; i++, left--) entries[i].n++
+
+  const out = {}
+  for (const { role, n } of entries) {
+    if (role === ROLE_SYNERGY) { out[role] = 'remainder'; continue }
+    out[role] = { min: Math.floor(n * 0.8), ideal: n }
+  }
+  return out
 }
 
 // ── Build plan analysis ───────────────────────────────────────────────────────
