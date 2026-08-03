@@ -85,6 +85,30 @@ export function edhrecHeaderToRole(header = '') {
 }
 
 /** Coarse build role for an owned card row + its Scryfall metadata. */
+// One role per card, and Synergy is where anything unplaceable lands.
+//
+// That looks like a bug and isn't. On a real EDHREC pool 6.9% of cards fall to
+// Synergy even though cardRoleTags' strict role set knows better -- Ashnod's
+// Altar ramps, Grim Haruspex draws, Spore Frog protects. Routing those to their
+// "correct" role was built, tested and measured over 51 commanders on both
+// paths, and it made decks WORSE on the metrics that matter:
+//
+//                        blind            binder
+//   engine coverage      92.2 -> 91.0     91.7 -> 91.5
+//   enablers missing      3.75 -> 4.35     4.67 -> 4.76
+//   net card advantage   14.5 -> 13.6     15.7 -> 14.7
+//   commander by T5      70.9 -> 70.5     73.9 -> 73.3
+//
+// The mechanism: Synergy is a catch-all with a large quota, and that is exactly
+// what makes it useful. Ashnod's Altar filed as Synergy gets picked on its
+// commander-specific merit and incidentally supplies the sacrifice outlet the
+// engine pass wants. Filed as Ramp it competes with Sol Ring and Arcane Signet
+// and never gets picked at all -- which is why engine coverage FELL when the
+// enablers were "correctly" classified.
+//
+// So the catch-all is load-bearing: it is where narrow, commander-specific
+// cards get a slot they would lose in a head-to-head against generic staples.
+// Don't re-fix this without re-running the harness on both paths.
 export function coarseRole(card, sfCard) {
   return granularToCoarse(getCardCategoryFromCard(card, sfCard))
 }
