@@ -935,7 +935,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           return { oracle: sf?.oracle_text || d?.oracle_text || '', type: sf?.type_line || d?.type_line || '' }
         }),
     })
-  }, [commanderRow, commanderSf, deckCards, sfMap])
+    // Keyed on the deck's SIZE rather than the array identity: the profile only
+    // shifts when cards are added or removed, and deckCards gets a new reference
+    // on every metadata backfill. Rebuilding it each time re-ran ~20 regexes
+    // across every card in the deck for no change in result.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commanderRow, commanderSf, deckCards.length, sfMap])
 
   // ── Engine coverage ───────────────────────────────────────────────────────
   // What the commander's own text says the deck needs in order to FUNCTION —
@@ -967,16 +972,26 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   // Per-card rank + breakdown, memoised by name so a tile and the ranker never
   // disagree. Returns null outside lab mode so callers can fall back cheaply.
-  const expScore = useCallback(
-    cand => (experimental && scoringCtx ? scoreCandidate(cand, scoringCtx, expCfg) : null),
-    [experimental, scoringCtx, expCfg],
-  )
+  // Memoised per candidate: this runs once per rendered tile (up to MAX_TILES
+  // per section) and scoreCandidate is not cheap. The cache is rebuilt whenever
+  // the context or config changes, which is what invalidates it.
+  const expScoreCache = useMemo(() => new Map(), [experimental, scoringCtx, expCfg])
+  const expScore = useCallback(cand => {
+    if (!experimental || !scoringCtx || !cand) return null
+    if (expScoreCache.has(cand)) return expScoreCache.get(cand)
+    const v = scoreCandidate(cand, scoringCtx, expCfg)
+    expScoreCache.set(cand, v)
+    return v
+  }, [experimental, scoringCtx, expCfg, expScoreCache])
   // Ranking used by the engine pass — must follow the ACTIVE config, since that
   // pass now runs for everyone and lab mode's tile readout does not.
-  const rankOf = useCallback(
-    cand => scoreCandidate(cand, scoringCtx, activeCfg).rank,
-    [scoringCtx, activeCfg],
-  )
+  const rankCache = useMemo(() => new Map(), [scoringCtx, activeCfg])
+  const rankOf = useCallback(cand => {
+    if (rankCache.has(cand)) return rankCache.get(cand)
+    const v = scoreCandidate(cand, scoringCtx, activeCfg).rank
+    rankCache.set(cand, v)
+    return v
+  }, [scoringCtx, activeCfg, rankCache])
 
   // Role of a card already in the deck. In lab mode a card whose only "draw" is
   // looting or a cantrip is moved out of Draw, so the progress bar counts the
@@ -1491,6 +1506,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // as fallback) — shared by the combo pass's cuttable filter and the GC
   // top-up's land accounting.
   const isLandRow = d => (sfMap?.[d?.scryfall_id]?.type_line || d?.type_line || '').toLowerCase().includes('land')
+  // Role shown for a search result. Must apply the same draw-quality demotion the
+  // progress bar does: without it the search labelled Faithless Looting "Draw",
+  // you added it, and the Draw bar didn't move — the app contradicting itself.
+  const searchRoleOf = card => {
+    const role = coarseRole(card, card)
+    if (!activeCfg.drawQuality || role !== ROLE_DRAW) return role
+    return cardRoleTagsFromCard(card, card).roles.has(ROLE_DRAW) ? role : ROLE_SYNERGY
+  }
   const isManaSourceRow = d =>
     MANA_SOURCE_RE.test((sfMap?.[d?.scryfall_id]?.oracle_text || d?.oracle_text || '').toLowerCase())
 
@@ -2438,7 +2461,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             priceSource={price_source}
             onAdd={addSpecificCard}
             isAdded={isAdded}
-            categoryOf={card => coarseRole(card, card)}
+            categoryOf={card => searchRoleOf(card)}
             commanderColorIdentity={commander?.color_identity || []}
             makePreview={previewHandlers}
             imageOf={getCardImageUri}
@@ -2999,7 +3022,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             style={{ width: `${Math.min(100, (cov.have / (cov.target || 1)) * 100)}%` }}
                           />
                         </div>
-                        <div className={styles.engineWhy}>{cov.why}</div>
+                        {/* The reason only makes sense as a warning. Showing
+                            "well below that and the deck stops functioning" next
+                            to a count three times OVER target read as nonsense. */}
+                        {cov.short > 0 && <div className={styles.engineWhy}>{cov.why}</div>}
                         {cov.providers.length > 0 && (
                           <div className={styles.engineProviders} title={cov.providers.join(', ')}>
                             {cov.providers.slice(0, 4).join(' · ')}

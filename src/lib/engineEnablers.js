@@ -231,6 +231,12 @@ const TYPE_FLOOR_MIN = 6
 
 const FLOORED_TYPES = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment']
 
+// "sorcerys" is the only irregular one, and it is the one that shows up.
+const TYPE_PLURAL = {
+  creature: 'creatures', instant: 'instants', sorcery: 'sorceries',
+  artifact: 'artifacts', enchantment: 'enchantments',
+}
+
 function typesOfLine(typeLine = '') {
   const t = String(typeLine).toLowerCase()
   if (t.includes('land')) return []
@@ -457,8 +463,8 @@ export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle 
     byEnabler.set(`type:${ct}`, {
       enabler: `type:${ct}`,
       cardType: ct,
-      label: `${ct}s`,
-      why: `Real decks for this commander run about ${Math.round(target / TYPE_FLOOR)} ${ct}s. Well below that and the deck stops functioning, whatever else is in it.`,
+      label: TYPE_PLURAL[ct] || `${ct}s`,
+      why: `Real decks for this commander run about ${Math.round(target / TYPE_FLOOR)} ${TYPE_PLURAL[ct] || ct + 's'}. Well below that and the deck stops functioning, whatever else is in it.`,
       target,
       hooks: ['type'],
     })

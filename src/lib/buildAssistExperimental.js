@@ -164,9 +164,17 @@ const MULTI_ROLE_CAP = 3
 // which score 0 on the text-based signals and fall back to recommendation
 // strength alone. Owned cards always have text, which is where these signals
 // matter most (the binder pool is where EDHREC inclusion is uninformative).
+const ORACLE_CACHE = new WeakMap()
 export function candidateOracle(cand) {
-  if (cand?.sfCard || cand?.card) return roleText(cand.sfCard, cand.card)
-  return String(cand?.oracle || cand?.oracle_text || '').toLowerCase()
+  if (cand && typeof cand === 'object') {
+    const hit = ORACLE_CACHE.get(cand)
+    if (hit !== undefined) return hit
+  }
+  const text = (cand?.sfCard || cand?.card)
+    ? roleText(cand.sfCard, cand.card)
+    : String(cand?.oracle || cand?.oracle_text || '').toLowerCase()
+  if (cand && typeof cand === 'object') ORACLE_CACHE.set(cand, text)
+  return text
 }
 
 export function candidateType(cand) {
@@ -174,10 +182,24 @@ export function candidateType(cand) {
   return String(cand?.type || cand?.type_line || '').toLowerCase()
 }
 
+// Role tagging runs ~10 independent regex predicates over the whole card text,
+// and scoreCandidate is called from inside a sort comparator — so the same card
+// gets classified O(log n) times per sort, per role, per render. Caching by
+// candidate identity turns that back into once. WeakMap so pools that go out of
+// scope are collectable.
+const ROLE_TAG_CACHE = new WeakMap()
+
 /** Role tags for a candidate in either shape. */
 export function candidateRoleTags(cand) {
-  if (cand?.sfCard || cand?.card) return cardRoleTagsFromCard(cand.card, cand.sfCard)
-  return cardRoleTags(candidateOracle(cand), candidateType(cand))
+  if (cand && typeof cand === 'object') {
+    const hit = ROLE_TAG_CACHE.get(cand)
+    if (hit) return hit
+  }
+  const tags = (cand?.sfCard || cand?.card)
+    ? cardRoleTagsFromCard(cand.card, cand.sfCard)
+    : cardRoleTags(candidateOracle(cand), candidateType(cand))
+  if (cand && typeof cand === 'object') ROLE_TAG_CACHE.set(cand, tags)
+  return tags
 }
 
 // ── Scoring context ───────────────────────────────────────────────────────────
@@ -297,7 +319,17 @@ export function makeExperimentalComparatorFor({ ctx, cfg = EXPERIMENTAL_DEFAULTS
 
 export function makeExperimentalComparator({ ctx, cfg = EXPERIMENTAL_DEFAULTS, targetCmc = null, curveStatus = 'on' } = {}) {
   const RANK_BUCKET = 6
-  const rankOf = entry => scoreCandidate(entry.cand, ctx, cfg).rank
+  // A comparator is called O(n log n) times; without this every comparison
+  // re-ran the full classification. This was the cause of multi-second handlers
+  // in the assistant once the experimental ranking became the shipped one.
+  const cache = new Map()
+  const rankOf = entry => {
+    const c = entry.cand
+    if (cache.has(c)) return cache.get(c)
+    const v = scoreCandidate(c, ctx, cfg).rank
+    cache.set(c, v)
+    return v
+  }
   if (targetCmc == null) {
     return (a, b) =>
       (rankOf(b) - rankOf(a)) ||

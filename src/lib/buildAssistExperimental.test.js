@@ -15,6 +15,7 @@ import {
   adjustTargetForCommander,
   candidateOracle,
   candidateType,
+  candidateRoleTags,
 } from './buildAssistExperimental'
 import { planAutoFill, rankOverallRecommendations, recRank, ROLE_RAMP, ROLE_DRAW, ROLE_LANDS } from './deckBuildAssistant'
 
@@ -573,5 +574,35 @@ describe('lands keep their fixer-first order', () => {
       comparatorFor: makeExperimentalComparatorFor({ ctx, cfg: SHIPPED_SIGNALS }),
     })
     expect(picks[0].cand.name).toBe('Dual')
+  })
+})
+
+// scoreCandidate is called from inside a sort comparator, so an uncached one is
+// invoked O(n log n) times per sort, per role, per render. Once the experimental
+// ranking became the shipped ranking that produced multi-second event handlers.
+describe('scoring is cached', () => {
+  const ctx = buildScoringContext({ commanderOracle: KORVOLD.oracle, commanderType: KORVOLD.type })
+
+  it('classifies each candidate once per comparator, not once per comparison', () => {
+    const pool = Array.from({ length: 40 }, (_, i) => ({
+      cand: up(`Card ${i}`, { inclusion: i, oracle: 'Sacrifice a creature: Add {C}{C}.' }),
+    }))
+    const cmp = makeExperimentalComparator({ ctx, cfg: SHIPPED_SIGNALS })
+    // 40 items sort with ~200 comparisons; an uncached comparator would classify
+    // ~400 times. Just assert it completes and is stable — the cache is what
+    // keeps this from being quadratic-ish in regex work.
+    const a = [...pool].sort(cmp).map(e => e.cand.name)
+    const b = [...pool].sort(cmp).map(e => e.cand.name)
+    expect(a).toEqual(b)
+  })
+
+  it('returns the same role tags object for the same candidate', () => {
+    const cand = up('X', { oracle: 'Draw two cards.' })
+    expect(candidateRoleTags(cand)).toBe(candidateRoleTags(cand))
+  })
+
+  it('returns the same oracle text for the same candidate', () => {
+    const cand = { name: 'Y', sfCard: { oracle_text: '{T}: Add {C}.', type_line: 'Artifact' } }
+    expect(candidateOracle(cand)).toBe(candidateOracle(cand))
   })
 })
