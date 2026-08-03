@@ -54,6 +54,9 @@ import {
   ROLE_LANDS,
   ROLE_SYNERGY,
   ROLE_WINCON,
+  ROLE_RAMP,
+  ROLE_REMOVAL,
+  ROLE_WIPE,
 } from '../src/lib/deckBuildAssistant'
 import {
   EXPERIMENTAL_DEFAULTS,
@@ -252,6 +255,21 @@ async function fetchCommanderCard(name, metaFetch) {
   }
 }
 
+// ── Colour self-sufficiency ───────────────────────────────────────────────────
+// Every colour is bad at something -- red and white at card draw, blue at ramp --
+// and the standard patch is colourless artifacts (Sol Ring, Mind Stone,
+// Wayfarer's Bauble for mana; Skullclamp, Endless Atlas for cards). Nothing in
+// the build system does this deliberately, so the question is whether it falls
+// out of the data anyway: does the colourless share of a role go UP in the
+// colours that are weak at it?
+function candColorIdentity(c) {
+  return (c?.sfCard?.color_identity || c?.colorIdentity || c?.color_identity || [])
+    .map(x => String(x).toUpperCase())
+}
+function isColorless(c) {
+  return candColorIdentity(c).length === 0
+}
+
 // ── Metrics ───────────────────────────────────────────────────────────────────
 // Every metric is computed from the PICKED cards only, using the same pure
 // classifiers the assistant uses, so the harness and the app agree on what a
@@ -392,6 +410,20 @@ function measure(picks, commanderCard, needs, landTarget = 37) {
     games: 200,
   })
 
+  // Colourless share overall and per role.
+  let colorless = 0
+  const colorlessByRole = {}
+  const countByRole = {}
+  for (const p of picks) {
+    const c = p.cand
+    if (candidateType(c).includes('land')) continue
+    countByRole[p.role] = (countByRole[p.role] || 0) + 1
+    if (isColorless(c)) {
+      colorless++
+      colorlessByRole[p.role] = (colorlessByRole[p.role] || 0) + 1
+    }
+  }
+
   const typeCounts = {}
   for (const c of cards) {
     for (const ct of typesOf(candidateType(c))) {
@@ -403,6 +435,9 @@ function measure(picks, commanderCard, needs, landTarget = 37) {
   return {
     entersTappedPct: allLands.length ? (tapped / allLands.length) * 100 : NaN,
     fixingPerLand: colorSpread,
+    colorlessPct: (colorless / (nonland.length || 1)) * 100,
+    colorlessByRole,
+    countByRole,
     gfColorStuck: gf?.colorStuckPct ?? NaN,
     gfCommanderT5: gf?.commanderByT5Pct ?? NaN,
     gfAvgCmdTurn: gf?.avgCommanderTurn ?? NaN,
@@ -766,6 +801,7 @@ async function runCommander(name, metaCache, collection = null) {
     name,
     edhrecCards,
     recCount: recRows.length,
+    colorIdentity: commanderCard.color_identity || [],
     hooks: [...extractCommanderKeywords(commanderCard.oracle_text, commanderCard.type_line)],
     needs,
     expected,
@@ -779,6 +815,7 @@ async function runCommander(name, metaCache, collection = null) {
 const METRICS = [
   // ── Independent (simulation, not classifier) ──
   ['gfColorStuck', 'GF: colour screwed %', 'down'],
+  ['colorlessPct', '% colourless picks', null],
   ['entersTappedPct', 'lands entering tapped %', 'down'],
   ['fixingPerLand', 'colours per land', 'up'],
   ['gfCommanderT5', 'GF: commander by T5 %', 'up'],
@@ -935,6 +972,31 @@ it('build assistant A/B sweep', async () => {
     'HOOKS 4+ (text-rich)': all.filter(r => r.hooks.length >= 4),
   }
   for (const [label, rows] of Object.entries(byHooks)) tierTable(label, rows, out)
+
+  out.push('')
+  out.push("COLOURLESS SUPPORT — does the build patch a colour's weaknesses?")
+  out.push("(colourless share of a role, split by whether the deck has the colour that is GOOD at it)")
+  out.push(pad('role', 24) + pad('split', 22) + pad('n', 5) + pad('colourless %', 14) + 'avg cards')
+  const WEAKNESS = [
+    [ROLE_DRAW, 'U', 'blue'],
+    [ROLE_DRAW, 'G', 'green'],
+    [ROLE_RAMP, 'G', 'green'],
+    [ROLE_REMOVAL, 'W', 'white'],
+    [ROLE_WIPE, 'W', 'white'],
+  ]
+  for (const [role, color, label] of WEAKNESS) {
+    for (const has of [true, false]) {
+      const rows2 = all.filter(r => (r.colorIdentity || []).includes(color) === has)
+      if (!rows2.length) continue
+      const tot = rows2.reduce((a, r) => a + (r.results?.shipped?.countByRole?.[role] || 0), 0)
+      const cl = rows2.reduce((a, r) => a + (r.results?.shipped?.colorlessByRole?.[role] || 0), 0)
+      out.push(
+        pad(role, 24) + pad(`${has ? 'has' : 'no'} ${label}`, 22) + pad(rows2.length, 5) +
+        pad(tot ? ((cl / tot) * 100).toFixed(1) + '%' : '—', 14) +
+        (tot / rows2.length).toFixed(1),
+      )
+    }
+  }
 
   out.push('')
   out.push('NOVELTY SHARE (cards the crowd never plays for this commander) — shipped arm')
