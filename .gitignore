@@ -60,3 +60,6 @@ ownedmap-foil-plan.md
 /scannerv3.md
 /research-competition.md
 /importlogic.md
+
+# Build Assistant A/B harness report (npm run harness:build-assist)
+harness-build-assist.txt

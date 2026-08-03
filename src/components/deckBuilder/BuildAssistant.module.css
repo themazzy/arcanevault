@@ -1948,3 +1948,181 @@
   display: inline-flex;
   color: var(--gold);
 }
+
+/* ── Experimental (lab) mode ──────────────────────────────────────────────────
+   Only rendered when the assistant is opened with `experimental`. Deliberately
+   plain: this is a tuning surface for measuring signals, not a shipped feature,
+   and dressing it up would invite mistaking it for one. */
+
+.labPanel {
+  border: 1px solid var(--s-border2);
+  border-radius: 10px;
+  background: var(--s-subtle);
+  margin: 0 0 10px;
+}
+
+.labSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  user-select: none;
+}
+.labSummary::-webkit-details-marker { display: none; }
+.labSummary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.labPanel[open] > .labSummary::before { transform: rotate(90deg); }
+
+.labSummaryHint {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.labBody {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px 16px;
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--s-border);
+}
+
+.labRow { display: flex; flex-direction: column; gap: 3px; }
+
+.labToggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.labLabel { font-size: 0.78rem; color: var(--text); }
+
+.labDesc {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  line-height: 1.35;
+  padding-left: 21px;
+}
+
+.labControls { padding-left: 21px; margin-top: 2px; }
+
+.labNumber { display: inline-flex; align-items: center; gap: 6px; }
+.labNumber input {
+  width: 58px;
+  padding: 3px 6px;
+  font-size: 0.75rem;
+  color: var(--text);
+  background: var(--s-medium);
+  border: 1px solid var(--s-border2);
+  border-radius: 6px;
+}
+.labNumberSuffix { font-size: 0.66rem; color: var(--text-faint); }
+
+/* Per-tile score readout. Fixed height so a tile with no breakdown lines up
+   with its neighbours — the grid is dense and a 1px jitter per tile reads as
+   broken. */
+.labScore {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  height: 14px;
+  font-size: 0.64rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.labRank { color: var(--gold); font-variant-numeric: tabular-nums; }
+.labBits { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Engine check (lab mode summary) ──────────────────────────────────────────
+   Whether the deck can do what the commander is built to do. Distinct from the
+   role progress bars above it: those count card TYPES against a template, this
+   counts whether a specific mechanical piece the commander requires is present
+   at all. A shortfall here means the deck doesn't function, not that it's
+   slightly off-template — hence the warning treatment rather than a neutral bar. */
+
+.engineList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.engineRow {
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  background: var(--s-subtle);
+  padding: 9px 11px;
+}
+.engineRowShort {
+  border-color: rgba(201, 168, 76, 0.45);
+  background: rgba(201, 168, 76, 0.06);
+}
+
+.engineHead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.engineHead svg {
+  color: var(--gold);
+  align-self: center;
+  flex-shrink: 0;
+}
+.engineLabel {
+  font-size: 0.8rem;
+  color: var(--text);
+  text-transform: capitalize;
+}
+.engineCount {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.engineTarget { color: var(--text-faint); }
+
+.engineBarTrack {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--s-medium);
+  overflow: hidden;
+}
+.engineBar {
+  height: 100%;
+  background: var(--gold);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.engineWhy {
+  margin-top: 6px;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+.engineProviders {
+  margin-top: 4px;
+  font-size: 0.66rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

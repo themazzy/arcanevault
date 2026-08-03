@@ -17,7 +17,8 @@
     "check:migrations": "node scripts/check-migration-drift.mjs",
     "sync": "npm run build && npx cap sync",
     "sync:android": "npm run build && npx cap sync android",
-    "sync:ios": "npm run build && npx cap sync ios"
+    "sync:ios": "npm run build && npx cap sync ios",
+    "harness:build-assist": "vitest run --config vitest.harness.config.js"
   },
   "dependencies": {
     "@capacitor-community/camera-preview": "^8.0.0",

@@ -621,16 +621,20 @@ function rankComparator(targetCmc, curveStatus) {
 // auto-fill and the Build Assistant's best-overall card section. Keeping this
 // merge + sort in one helper prevents the visible ranking from drifting away
 // from the cards auto-fill would choose.
+// `comparator` lets a caller swap in a different ranking (the experimental
+// assistant injects one built from its own scoring signals). Omitted, it is the
+// shipped rankComparator — so every existing call site is unchanged.
 export function rankOverallRecommendations({
   ownedCandidates = [],
   upgrades = [],
   targetCmc = null,
   curveStatus = 'on',
+  comparator = null,
 } = {}) {
   return [
     ...ownedCandidates.map(cand => ({ cand, owned: true })),
     ...upgrades.map(cand => ({ cand, owned: false })),
-  ].sort(rankComparator(targetCmc, curveStatus))
+  ].sort(comparator || rankComparator(targetCmc, curveStatus))
 }
 
 export function planAutoFill({
@@ -648,6 +652,13 @@ export function planAutoFill({
   targetCmc = null,        // target avg mana value; null = curve not considered
   curveStatus = 'on',      // 'high' | 'on' | 'low' — deck's current curve vs target
   exclude = () => false,
+  comparator = null,       // optional ranking override (see rankOverallRecommendations)
+  // Optional per-role ranking: `comparatorFor(role)` returns the comparator to
+  // use for that role's pool. Lets a caller apply a signal to some roles and not
+  // others — you want on-theme cards in Synergy, but the BEST removal in
+  // Removal regardless of theme. Falls back to `comparator` when absent, and
+  // the spillover pass always uses the global one (its pool spans every role).
+  comparatorFor = null,
 } = {}) {
   const picks = []
   const taken = new Set()
@@ -656,36 +667,45 @@ export function planAutoFill({
 
   const landsReserve = Math.min(slotsLeft, Math.max(0, landsTarget - currentLands))
   let nonlandBudget = slotsLeft - landsReserve
-  const cmp = rankComparator(targetCmc, curveStatus)
+  const cmp = comparator || rankComparator(targetCmc, curveStatus)
 
   // Pool for a role under the chosen source: tagged { cand, owned } entries.
   // The owned-only pool keeps its incoming (inclusion) order unless a curve
   // target is set, in which case it's re-ranked curve-aware like the blended
   // pool — so "complete from binders" respects the curve too.
-  const poolFor = (owned, upgrades) => {
+  const cmpFor = role => (comparatorFor ? (comparatorFor(role) || cmp) : cmp)
+  const poolFor = (owned, upgrades, role) => {
+    const roleCmp = cmpFor(role)
     if (source !== 'recommended') {
       const pool = (owned || []).map(cand => ({ cand, owned: true }))
-      return targetCmc == null ? pool : pool.sort(cmp)
+      return targetCmc == null && !comparatorFor ? pool : pool.sort(roleCmp)
     }
     return rankOverallRecommendations({
       ownedCandidates: owned,
       upgrades,
       targetCmc,
       curveStatus,
+      comparator: comparatorFor ? roleCmp : comparator,
     })
   }
 
   // Take up to `need` picks from `pool`, honoring the shared name/exclude
   // gates. Returns how many were taken. Entries may carry their own role
   // (spillover pool); `role` is the fallback.
+  //
+  // `exclude` receives the role being filled and the picks made so far in this
+  // run, so a caller can express constraints that depend on the shape of the
+  // build (e.g. "at most four cards at 6+ mana value") rather than only on the
+  // candidate in isolation. Existing callers take one argument and ignore it.
   const takeFrom = (pool, need, role) => {
     let n = 0
     for (const entry of pool) {
       if (n >= need) break
       const key = (entry.cand?.name || '').toLowerCase()
-      if (!key || taken.has(key) || isBasicLandName(key) || exclude(entry.cand)) continue
+      const forRole = entry.role || role
+      if (!key || taken.has(key) || isBasicLandName(key) || exclude(entry.cand, { role: forRole, picks })) continue
       taken.add(key)
-      picks.push({ role: entry.role || role, cand: entry.cand, owned: entry.owned })
+      picks.push({ role: forRole, cand: entry.cand, owned: entry.owned })
       n++
     }
     return n
@@ -698,7 +718,7 @@ export function planAutoFill({
       nonlandBudget,
     )
     if (need <= 0) continue
-    nonlandBudget -= takeFrom(poolFor(spec.ownedCandidates, spec.upgrades), need, spec.role)
+    nonlandBudget -= takeFrom(poolFor(spec.ownedCandidates, spec.upgrades, spec.role), need, spec.role)
   }
 
   // Spillover: role quotas are ideals, not hard walls. When a role's pool ran
@@ -710,7 +730,7 @@ export function planAutoFill({
     const spill = []
     for (const spec of roles) {
       if (spec.role === ROLE_LANDS) continue
-      for (const entry of poolFor(spec.ownedCandidates, spec.upgrades)) {
+      for (const entry of poolFor(spec.ownedCandidates, spec.upgrades, spec.role)) {
         spill.push({ ...entry, role: spec.role })
       }
     }
@@ -719,7 +739,7 @@ export function planAutoFill({
   }
 
   const landNeed = Math.min(Math.max(0, nonbasicTarget - currentNonbasicLands), landsReserve)
-  if (landNeed > 0) takeFrom(poolFor(landCandidates, landUpgrades), landNeed, ROLE_LANDS)
+  if (landNeed > 0) takeFrom(poolFor(landCandidates, landUpgrades, ROLE_LANDS), landNeed, ROLE_LANDS)
 
   return picks
 }
@@ -1279,7 +1299,13 @@ export function backfillWinconUpgrades(upgradesByRole, ownedWinCount = 0) {
   return upgradesByRole
 }
 
-export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
+// How many unowned EDHREC cards get their oracle text resolved. Below this,
+// suggestions are classified from the section header / type line only — and any
+// signal that needs rules text (the experimental scoring) scores them at zero.
+// Exported + overridable so the A/B harness can measure what raising it buys.
+export const UPGRADE_META_LIMIT = 250
+
+export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta, { metaLimit = UPGRADE_META_LIMIT } = {}) {
   if (!plan?.commander?.name || typeof fetchEdhrec !== 'function') return plan
 
   let data
@@ -1323,7 +1349,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
     const unowned = [...byName.entries()]
       .filter(([key]) => !ownedNames.has(key))
       .sort((a, b) => (b[1].cv.inclusion ?? 0) - (a[1].cv.inclusion ?? 0))
-      .slice(0, 250)
+      .slice(0, metaLimit)
       .map(([, v]) => v.cv.name)
     if (unowned.length) {
       try {
@@ -1356,7 +1382,19 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
       type: meta?.type_line || cv.type || '',
       colorIdentity: meta?.color_identity || cv.colorIdentity || [],
       edhrecInclusion: edhrecInclusionPct(cv),
+      // EDHREC's own synergy figure: how much MORE often this card appears in
+      // this commander's decks than in all decks of the same color identity.
+      // Positive = the deck specifically wants it; ~0 = a colour staple everyone
+      // plays; negative = played LESS here than baseline, i.e. off-plan.
+      // Empirical, so it covers archetypes no oracle-text rule can reach —
+      // tribal payoffs, enchantress engines, the right cantrips for a
+      // spellslinger. Fetched and normalized already; nothing consumed it.
+      edhrecSynergy: cv.synergy ?? 0,
       image: meta?.image || null,
+      // Rules text when the metadata batch resolved it. Unused by the shipped
+      // assistant; the experimental scoring reads it to classify an unowned
+      // suggestion by function rather than by popularity alone.
+      oracle: meta?.oracle_text || '',
       source: 'edhrec',
     })
   }
@@ -1374,7 +1412,9 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta) {
     for (const cand of role.ownedCandidates) {
       // byName is keyed by EDHREC names (front face for DFCs) — try both forms
       const entry = cardNameMatchKeys(cand.name).map(k => byName.get(k)).find(Boolean)
-      const next = entry ? { ...cand, edhrecInclusion: edhrecInclusionPct(entry.cv) } : cand
+      const next = entry
+        ? { ...cand, edhrecInclusion: edhrecInclusionPct(entry.cv), edhrecSynergy: entry.cv.synergy ?? 0 }
+        : cand
       const edhrecRole = entry ? edhrecHeaderToRole(entry.header) : null
       ;(rebucketed.get(edhrecRole || role.role) || rebucketed.get(role.role)).push(next)
     }
@@ -1441,6 +1481,7 @@ export function attachRecommenderUpgrades(plan, recRows) {
       colorIdentity: row.colorIdentity || [],
       edhrecInclusion: 0,
       image: row.image || null,
+      oracle: row.oracle_text || '', // see the matching field on EDHREC upgrades
       score: row.score ?? 0,
       source: 'recommander',
     })

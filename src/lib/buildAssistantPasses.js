@@ -36,6 +36,7 @@ import {
  * @param {Function} args.analyzeCutFn   ({ deckCards, totalCards, lockedIds }) => cut analysis
  * @param {Function} args.addCards       async (items) => { rows }
  * @param {Function} [args.removeCards]  async (ids) => removed ids | void
+ * @param {Function} [args.orderCombos]  reprioritise mapped combos (identity by default)
  * @returns {Promise<{comboRows: Array, cutIds: Array, combosCompleted: number}>}
  *          best-effort — zeros on any failure.
  */
@@ -53,6 +54,7 @@ export async function runComboPass({
   analyzeCutFn,
   addCards,
   removeCards,
+  orderCombos = c => c,
 } = {}) {
   const empty = { comboRows: [], cutIds: [], combosCompleted: 0 }
   if (comboTargetForBracket(targetBracket) <= 0) return empty
@@ -67,11 +69,15 @@ export async function runComboPass({
     // Spellbook's results include off-color "by adding colors" combos we must
     // not add. See comboInColorIdentity.
     const inIdentityAlmost = (res.almost || []).filter(c => comboInColorIdentity(c, commanderColorIdentity))
-    const almost = mapAlmostCombos({
+    // `orderCombos` lets a caller reprioritise which near-complete combos get
+    // completed first (the experimental assistant floats resource loops above
+    // "you win the game" loops below bracket 4). Identity by default, so the
+    // shipped ordering — owned-missing first, then fewest-missing — stands.
+    const almost = orderCombos(mapAlmostCombos({
       almost: inIdentityAlmost,
       deckNameKeys: deckKeys,
       ownedNameKeys,
-    })
+    }))
 
     // Room the combo pass can absorb without cutting the user's existing cards:
     // the open slots the fill left, plus this run's cuttable (nonland) filler.
@@ -213,6 +219,125 @@ export async function runGameChangerPass({
   try {
     const addRes = await addCards(toAdd.map(g => ({ name: g.name })))
     return { gcRows: addRes?.rows || [] }
+  } catch {
+    return empty
+  }
+}
+
+/**
+ * Post-fill engine pass: make sure the deck can actually DO what the commander
+ * is built to do.
+ *
+ * This is not a quality pass — it is a correctness one. A deck of 99
+ * individually-popular cards can still hold three sacrifice outlets for a
+ * commander that sacrifices twice a turn, and no popularity ranking will ever
+ * catch that, because the average deck has the same hole. Measured across 51
+ * commanders, roughly one auto-filled deck in ten comes up short on a piece its
+ * own commander requires.
+ *
+ * Mirrors runComboPass: scan the pool for providers, add the shortfall, and cut
+ * an equal number of cards THIS run added to hold the deck size. Never touches
+ * the user's existing cards, so undo stays coherent.
+ *
+ * Runs BEFORE the combo pass — both compete for the same cuttable filler, and a
+ * working engine beats a combo the deck can't assemble.
+ *
+ * @param {Object} args
+ * @param {Array}    args.populated    deck after the fill
+ * @param {Array}    args.fillIds      ids this run added (the cuttable pool)
+ * @param {Array}    args.coverage     from analyzeEngineCoverage
+ * @param {Function} args.providersFor (enabler) => ranked candidate list
+ * @param {number}   args.deckSize
+ * @param {Function} args.isLandRow
+ * @param {Function} args.passesBudget
+ * @param {Function} args.analyzeCutFn
+ * @param {Function} args.addCards
+ * @param {Function} [args.removeCards]
+ * @param {number}   [args.maxAdd]     ceiling on total additions
+ * @returns {Promise<{engineRows: Array, cutIds: Array, added: number}>}
+ */
+export async function runEnginePass({
+  populated = [],
+  fillIds = [],
+  coverage = [],
+  providersFor = () => [],
+  deckSize = 100,
+  isLandRow = () => false,
+  passesBudget = () => true,
+  analyzeCutFn,
+  addCards,
+  removeCards,
+  maxAdd = 8,
+} = {}) {
+  const empty = { engineRows: [], cutIds: [], added: 0 }
+  const short = (coverage || []).filter(c => c.short > 0)
+  if (!short.length || typeof addCards !== 'function') return empty
+
+  try {
+    const deckKeys = new Set(
+      populated.filter(d => !d?.is_commander).flatMap(d => cardNameMatchKeys(d?.name)),
+    )
+    const fillSet = new Set(fillIds || [])
+    const populatedCount = countDeckCards(populated)
+    const openSlots = Math.max(0, deckSize - populatedCount)
+
+    // Pick providers, most-short need first so a deck missing 3 outlets and 1
+    // mill spends its budget on outlets.
+    const picks = []
+    const seen = new Set()
+    for (const need of [...short].sort((a, b) => b.short - a.short)) {
+      let taken = 0
+      for (const cand of providersFor(need.enabler)) {
+        if (taken >= need.short || picks.length >= maxAdd) break
+        const key = (cand?.name || '').toLowerCase()
+        if (!key || seen.has(key) || deckKeys.has(key) || !passesBudget(cand.name)) continue
+        seen.add(key)
+        picks.push({ name: cand.name, enabler: need.enabler })
+        taken++
+      }
+    }
+    if (!picks.length) return empty
+
+    // Room = open slots + this run's cuttable filler, minus anything that is
+    // itself an engine provider (cutting one to add another is pointless).
+    const providerKeys = new Set()
+    for (const c of coverage) for (const p of c.providers || []) providerKeys.add(p.toLowerCase())
+    const cuttableIds = new Set(
+      populated
+        .filter(d => !d?.is_commander && fillSet.has(d.id) && !isLandRow(d)
+          && !cardNameMatchKeys(d?.name).some(k => providerKeys.has(k)))
+        .map(d => d.id),
+    )
+    const room = openSlots + cuttableIds.size
+    const finalPicks = picks.slice(0, room)
+    if (!finalPicks.length) return empty
+
+    const lockedIds = new Set(
+      populated.filter(d => !d?.is_commander && !cuttableIds.has(d.id)).map(d => d.id),
+    )
+    const cut = analyzeCutFn({
+      deckCards: populated,
+      totalCards: populatedCount + finalPicks.length,
+      lockedIds,
+    })
+    let cutIds = (cut?.recommended || []).map(r => r.id).filter(Boolean)
+    if (cutIds.length && typeof removeCards === 'function') {
+      try {
+        const removed = await removeCards(cutIds)
+        if (Array.isArray(removed)) cutIds = removed
+      } catch {
+        cutIds = []
+      }
+    } else {
+      cutIds = []
+    }
+
+    let engineRows = []
+    try {
+      const res = await addCards(finalPicks.map(p => ({ name: p.name })))
+      engineRows = res?.rows || []
+    } catch { /* parent surfaces errors */ }
+    return { engineRows, cutIds, added: finalPicks.length }
   } catch {
     return empty
   }

@@ -4920,6 +4920,9 @@
   align-items: stretch;
   gap: 8px;
 }
+/* Rows stack, so the experimental row needs its own top gap — the parent lays
+   these out as siblings, not as a gap-ed column. */
+.leftActionsRow + .leftActionsRow { margin-top: 8px; }
 
 .leftActionBtn {
   flex: 1;
@@ -4931,6 +4934,21 @@
   line-height: 1;
   font-size: 0.62rem;
   letter-spacing: 0.03em;
+}
+
+/* Admin-only experimental entry point. Deliberately muted and dashed so it
+   never reads as a peer of the two real CTAs above it. Parent-scoped so it
+   beats .headerBtnPrimary on specificity rather than on source order — modules
+   build into separate chunks and order isn't reliable. */
+.leftActionsRow .leftActionBtnLab {
+  border-style: dashed;
+  border-color: var(--s-border2);
+  background: transparent;
+  color: var(--text-faint);
+}
+.leftActionsRow .leftActionBtnLab:hover:not(:disabled) {
+  background: var(--s-medium);
+  color: var(--text-dim);
 }
 
 /* ── Right tab badge — plain inline count ("Deck 100/100") ── */

@@ -54,6 +54,7 @@ import {
 } from '../lib/deckCategories'
 import { getCardLegalityWarnings, getDeckCopyLimit } from '../lib/deckLegality'
 import { comboInColorIdentity } from '../lib/deckBuildAssistant'
+import { isCurrentUserAdmin } from '../lib/admin'
 import { useDeckCardLegalityWarnings } from '../lib/useDeckWarnings'
 import {
   buildPairSnapshot,
@@ -704,6 +705,11 @@ export default function DeckBuilderPage() {
 
   // Build-from-collection assistant (guided wizard)
   const [showBuildAssistant, setShowBuildAssistant] = useState(false)
+  // Lab mode for the assistant: same component, experimental scoring signals.
+  // Admin-only and off by default, so the shipped Build Assistant is what every
+  // other user gets. Reset on close so reopening never leaks the mode.
+  const [assistantLab, setAssistantLab] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
   // Guided-build blocker: raised from mount when arriving via Builder's guided
   // "Start Building" (router state carries the commander), held over the deck
   // load + commander print resolution, dropped once the Build Assistant opens.
@@ -1861,8 +1867,14 @@ export default function DeckBuilderPage() {
         </>
       )}
       {includeAssistant && isEDH && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowBuildAssistant(true); close() }}>
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { setAssistantLab(false); setShowBuildAssistant(true); close() }}>
           <span>Build Assistant</span>
+          <LightningIcon size={13} />
+        </button>
+      )}
+      {includeAssistant && isEDH && isAdmin && (
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { setAssistantLab(true); setShowBuildAssistant(true); close() }}>
+          <span>Build Assist (test)</span>
           <LightningIcon size={13} />
         </button>
       )}
@@ -4401,6 +4413,12 @@ export default function DeckBuilderPage() {
     navigate(location.pathname, { replace: true, state: {} })
   }, [location.state, location.pathname, loading, isCollectionDeck, deckMeta.linked_deck_id, navigate])
 
+  // Gates the experimental "Build Assist (test)" entry point. Resolves async, so
+  // the button simply isn't rendered until it comes back true.
+  useEffect(() => {
+    isCurrentUserAdmin(user?.id).then(setIsAdmin)
+  }, [user?.id])
+
   // Page Tips can hand users directly into the assistant instead of merely
   // describing where its button lives.
   useEffect(() => {
@@ -5341,12 +5359,23 @@ export default function DeckBuilderPage() {
         {isEDH && (
           <button
             className={`${styles.headerBtnPrimary} ${styles.headerQuickAction} ${styles.headerBtnAssist}`}
-            onClick={() => setShowBuildAssistant(true)}
+            onClick={() => { setAssistantLab(false); setShowBuildAssistant(true) }}
             title="Open the guided deck builder — fill each role from your collection"
           >
             <span className={styles.btnIcon} aria-hidden="true"><LightningIcon size={14} /></span>
             <span className={styles.btnLabel}>Build Assistant</span>
             <span className={styles.btnLabelMobile}>Assist</span>
+          </button>
+        )}
+        {isEDH && isAdmin && (
+          <button
+            className={`${styles.headerBtnPrimary} ${styles.headerQuickAction}`}
+            onClick={() => { setAssistantLab(true); setShowBuildAssistant(true) }}
+            title="Build Assistant with the experimental scoring signals — admin only"
+          >
+            <span className={styles.btnIcon} aria-hidden="true"><LightningIcon size={14} /></span>
+            <span className={styles.btnLabel}>Build Assist (test)</span>
+            <span className={styles.btnLabelMobile}>Test</span>
           </button>
         )}
         {(isCollectionDeck || deckMeta.linked_deck_id) && (
@@ -5449,7 +5478,7 @@ export default function DeckBuilderPage() {
             {isEDH && (
               <button
                 className={`${styles.headerBtnPrimary} ${styles.headerBtnAssist} ${styles.leftActionBtn}`}
-                onClick={() => setShowBuildAssistant(true)}
+                onClick={() => { setAssistantLab(false); setShowBuildAssistant(true) }}
                 title="Open the guided deck builder — fill each role from your collection"
               >
                 Build Assistant
@@ -5465,6 +5494,21 @@ export default function DeckBuilderPage() {
               </button>
             )}
           </div>
+          {/* Experimental assistant — own row, not a third peer above: the two
+              CTAs are flex:1 and "Make Collection Deck" already wraps at half
+              width. Muted on purpose; this is an admin test surface, not a
+              feature sitting alongside the real ones. */}
+          {isEDH && isAdmin && (
+            <div className={styles.leftActionsRow}>
+              <button
+                className={`${styles.headerBtnPrimary} ${styles.leftActionBtn} ${styles.leftActionBtnLab}`}
+                onClick={() => { setAssistantLab(true); setShowBuildAssistant(true) }}
+                title="Build Assistant with the experimental scoring signals — admin only"
+              >
+                Build Assist (test)
+              </button>
+            </div>
+          )}
           {/* Set-once fields share one compact row */}
           <div className={styles.leftHeaderFieldsRow}>
             <div className={styles.formatCol}>
@@ -6197,7 +6241,7 @@ export default function DeckBuilderPage() {
                 {isEDH && (
                   <button
                     className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly} ${styles.mobileToolbarAction} ${styles.mobileToolbarPrimary}`}
-                    onClick={() => setShowBuildAssistant(true)}
+                    onClick={() => { setAssistantLab(false); setShowBuildAssistant(true) }}
                     title="Open Build Assistant"
                     aria-label="Open Build Assistant"
                   >
@@ -6909,6 +6953,7 @@ export default function DeckBuilderPage() {
           commander={commanderCard ? { name: commanderCard.name, color_identity: colorIdentity, partnerName: commanderCards[1]?.name || null } : null}
           deckCards={mainDeckCards}
           accessToken={session?.access_token}
+          experimental={assistantLab}
           onAddCard={addCardToDeck}
           onAddCards={addCardsToDeckBulk}
           onUndoAutoFill={undoAutoFill}
@@ -6932,6 +6977,9 @@ export default function DeckBuilderPage() {
             // against the current deck name (it may have been renamed since).
             assistantWishlistRef.current = null
             setShowBuildAssistant(false)
+            // Never let lab mode persist into the next open — the deep-link
+            // entry points (guided build, Page Tips) don't set it explicitly.
+            setAssistantLab(false)
           }}
         />
       )}

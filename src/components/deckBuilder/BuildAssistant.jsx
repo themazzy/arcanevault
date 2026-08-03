@@ -71,7 +71,22 @@ import {
 import { cardNameMatchKeys, countDeckCards } from '../../lib/deckBuilderHelpers'
 import { toAutomaticDeckPrintingRequest, toAutomaticDeckPrintingRequests } from '../../lib/deckPrintingResolution'
 import { isOfflineError } from '../../lib/networkUtils'
-import { runComboPass as comboPassCore, runGameChangerPass as gcPassCore } from '../../lib/buildAssistantPasses'
+import { runComboPass as comboPassCore, runGameChangerPass as gcPassCore, runEnginePass as enginePassCore } from '../../lib/buildAssistantPasses'
+import {
+  EXPERIMENTAL_DEFAULTS,
+  SHIPPED_SIGNALS,
+  buildScoringContext,
+  scoreCandidate,
+  makeExperimentalComparator,
+  makeExperimentalExclude,
+  countTopEnd,
+  preferResourceCombos,
+  adjustTargetForCommander,
+  candidateOracle,
+  candidateType,
+} from '../../lib/buildAssistExperimental'
+import { cardRoleTagsFromCard } from '../../lib/cardRoles'
+import { commanderNeeds, analyzeEngineCoverage, cardEnablers, isTribeMember } from '../../lib/engineEnablers'
 import { SpecificCardSearch } from './SpecificCardSearch'
 import styles from './BuildAssistant.module.css'
 
@@ -301,7 +316,62 @@ function TileSkeletonGrid({ count = 12 }) {
 // .tileActions has to stay uniform — the action block itself is top-aligned,
 // because bottom-aligning it drops the price row on owned cards (which have no
 // "+ Wishlist" row under it).
-function CardTile({ name, img, imgPending, pips, inclusion, tag, price, finish, priceNote = 'Lowest English price', flag, overTarget, added, wished, showWishlist, ownershipNote, reserveNoteLine, reservePipsLine, previewProps, onAdd, onUndo, onWishlist }) {
+// One switchable signal in the lab panel. `children` holds the signal's weight
+// input, which is hidden while the signal is off (a weight for something that
+// isn't running is just noise).
+function LabToggle({ on, onChange, label, desc, children }) {
+  return (
+    <div className={styles.labRow}>
+      <label className={styles.labToggle}>
+        <input type="checkbox" checked={!!on} onChange={e => onChange(e.target.checked)} />
+        <span className={styles.labLabel}>{label}</span>
+      </label>
+      {desc && <div className={styles.labDesc}>{desc}</div>}
+      {on && children ? <div className={styles.labControls}>{children}</div> : null}
+    </div>
+  )
+}
+
+// Numeric weight input. Clamped on change so a cleared field can't push NaN
+// into the scoring config.
+function LabNumber({ value, onChange, min = 0, max = 100, suffix }) {
+  return (
+    <label className={styles.labNumber}>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        onChange={e => {
+          const n = Number(e.target.value)
+          onChange(Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : min)
+        }}
+      />
+      {suffix && <span className={styles.labNumberSuffix}>{suffix}</span>}
+    </label>
+  )
+}
+
+// Score breakdown strip, lab mode only. Shows what the experimental ranking did
+// to this card and why, so a build can be read back rather than just trusted.
+function LabScore({ score }) {
+  if (!score) return null
+  const { rank, base, parts, labels } = score
+  const bits = []
+  if (parts.multiRole > 0) bits.push(`+${parts.multiRole} roles`)
+  if (parts.keyword > 0) bits.push(`+${parts.keyword} kw`)
+  if (parts.affinity > 0) bits.push(`+${parts.affinity} theme`)
+  if (parts.drawPenalty < 0) bits.push(`${parts.drawPenalty} selection`)
+  const why = labels?.length ? `Matches your commander: ${labels.join(', ')}` : 'No commander keyword overlap'
+  return (
+    <div className={styles.labScore} title={`rank ${rank} = base ${base}${bits.length ? ' · ' + bits.join(' · ') : ''}\n${why}`}>
+      <span className={styles.labRank}>{rank}</span>
+      {bits.length > 0 && <span className={styles.labBits}>{bits.join(' · ')}</span>}
+    </div>
+  )
+}
+
+function CardTile({ name, img, imgPending, pips, inclusion, tag, price, finish, priceNote = 'Lowest English price', flag, overTarget, added, wished, showWishlist, ownershipNote, reserveNoteLine, reservePipsLine, previewProps, labScore, onAdd, onUndo, onWishlist }) {
   const canUndo = added && typeof onUndo === 'function'
   // previewProps carries the hover/tap handlers for the large-image preview;
   // it's empty ({}) when the card has no art to enlarge. No special cursor — the
@@ -332,6 +402,7 @@ function CardTile({ name, img, imgPending, pips, inclusion, tag, price, finish, 
         {added && <span className={styles.tileCheck}><CheckIcon size={18} /></span>}
       </div>
       <div className={styles.tileName} title={name}>{name}</div>
+      <LabScore score={labScore} />
       {reserveNoteLine && (ownershipNote
         ? (
           <div
@@ -455,7 +526,12 @@ function MenuOption({ active, onClick, children, desc }) {
   )
 }
 
-export function BuildAssistant({ userId, commander, deckCards = [], accessToken, onAddCard, onAddCards, onUndoAutoFill, onPlaytest, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
+// `experimental` opens the assistant in "lab" mode: the ranking, the auto-fill
+// gates and the combo pass route through src/lib/buildAssistExperimental.js
+// instead of the shipped defaults, and a tuning panel appears. Off (the
+// default), not a single line of that module's behavior is reachable — the
+// shipped assistant is unchanged. Admin-gated at the call site.
+export function BuildAssistant({ userId, commander, deckCards = [], accessToken, experimental = false, onAddCard, onAddCards, onUndoAutoFill, onPlaytest, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   // True between the EDHREC plan landing and the Recommander merge resolving —
   // the second of the two waves that used to reshuffle the grids mid-view.
@@ -699,9 +775,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         // this every existing deck card classifies as Synergy until the much
         // larger owned-collection backfill finishes — which on big collections
         // can take many seconds, leaving the other roles looking empty.
+        // Lab mode also needs the COMMANDER's oracle text — the keyword-overlap
+        // signal is derived from it. The shipped path never classifies the
+        // commander, so it stays excluded there and the batch is unchanged.
         const deckIds = [...new Set(
           (deckCards || [])
-            .filter(dc => !dc?.is_commander && dc?.scryfall_id && !sfById[dc.scryfall_id]?.oracle_text)
+            .filter(dc => (experimental || !dc?.is_commander) && dc?.scryfall_id && !sfById[dc.scryfall_id]?.oracle_text)
             .map(dc => dc.scryfall_id),
         )]
         if (deckIds.length) {
@@ -819,7 +898,97 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     [plan],
   )
 
-  const liveCounts = useMemo(() => countByRole(deckCards, sfMap, roleByName), [deckCards, sfMap, roleByName])
+  // ── Experimental scoring (lab mode only) ──────────────────────────────────
+  // Every value below is inert when `experimental` is false: the memos return
+  // null/defaults and nothing downstream consults them.
+  const [expCfg, setExpCfg] = useState(EXPERIMENTAL_DEFAULTS)
+  const setExpField = (key, value) => setExpCfg(prev => ({ ...prev, [key]: value }))
+  // The signals actually in force. Lab mode uses the tunable panel state;
+  // everyone else gets SHIPPED_SIGNALS — the measured subset (top-end cap, draw
+  // quality, multi-role) that was promoted out of the experiment.
+  const activeCfg = experimental ? expCfg : SHIPPED_SIGNALS
+
+  // The commander's own rules text, which is what the keyword-overlap signal
+  // reads. It lives on the is_commander deck row; the loader is told to include
+  // it in the oracle prefetch when this mode is on (it is skipped otherwise,
+  // since the shipped assistant never classifies the commander).
+  const commanderRow = useMemo(
+    () => (deckCards || []).find(d => d?.is_commander) || null,
+    [deckCards],
+  )
+  const commanderSf = commanderRow ? (sfMap?.[commanderRow.scryfall_id] || null) : null
+
+  const scoringCtx = useMemo(() => {
+    if (!experimental) return null
+    return buildScoringContext({
+      commanderOracle: commanderSf?.oracle_text || commanderRow?.oracle_text || '',
+      commanderType: commanderSf?.type_line || commanderRow?.type_line || '',
+      commanderCmc: commanderSf?.cmc ?? commanderRow?.cmc ?? null,
+      deckTexts: (deckCards || [])
+        .filter(d => !d?.is_commander)
+        .map(d => {
+          const sf = sfMap?.[d?.scryfall_id] || null
+          return { oracle: sf?.oracle_text || d?.oracle_text || '', type: sf?.type_line || d?.type_line || '' }
+        }),
+    })
+  }, [experimental, commanderRow, commanderSf, deckCards, sfMap])
+
+  // ── Engine coverage ───────────────────────────────────────────────────────
+  // What the commander's own text says the deck needs in order to FUNCTION —
+  // a sacrifice commander needs outlets, a graveyard commander needs fuel. This
+  // is a different question from "are these good cards": a deck of 99
+  // individually-popular cards can still have three sacrifice outlets and not
+  // work. Measured across 51 commanders, roughly one in ten auto-filled decks
+  // comes up short on something its commander requires.
+  const engineNeeds = useMemo(() => {
+    if (!experimental || !scoringCtx) return []
+    const oracle = commanderSf?.oracle_text || commanderRow?.oracle_text || ''
+    return commanderNeeds(scoringCtx.keywords, scoringCtx.tribe, oracle)
+  }, [experimental, scoringCtx, commanderSf, commanderRow])
+
+  const engineCoverage = useMemo(() => {
+    if (!engineNeeds.length) return []
+    const cards = (deckCards || [])
+      .filter(d => !d?.is_commander)
+      .map(d => {
+        const sf = sfMap?.[d?.scryfall_id] || null
+        return {
+          name: d.name,
+          oracle: sf?.oracle_text || d?.oracle_text || '',
+          type: sf?.type_line || d?.type_line || '',
+        }
+      })
+    return analyzeEngineCoverage(cards, engineNeeds)
+  }, [engineNeeds, deckCards, sfMap])
+
+  // Per-card rank + breakdown, memoised by name so a tile and the ranker never
+  // disagree. Returns null outside lab mode so callers can fall back cheaply.
+  const expScore = useCallback(
+    cand => (experimental && scoringCtx ? scoreCandidate(cand, scoringCtx, expCfg) : null),
+    [experimental, scoringCtx, expCfg],
+  )
+
+  // Role of a card already in the deck. In lab mode a card whose only "draw" is
+  // looting or a cantrip is moved out of Draw, so the progress bar counts the
+  // same thing the Draw quota now fills — otherwise the bar would read 12/12
+  // off a pile of rummaging.
+  const roleOfDeck = useCallback(dc => {
+    const role = roleOfDeckCard(dc, sfMap, roleByName)
+    if (!activeCfg.drawQuality || role !== ROLE_DRAW) return role
+    const { roles } = cardRoleTagsFromCard(dc, sfMap?.[dc?.scryfall_id] || null)
+    return roles.has(ROLE_DRAW) ? role : ROLE_SYNERGY
+  }, [activeCfg.drawQuality, sfMap, roleByName])
+
+  const liveCounts = useMemo(() => {
+    if (!activeCfg.drawQuality) return countByRole(deckCards, sfMap, roleByName)
+    const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
+    for (const dc of deckCards || []) {
+      if (dc?.is_commander) continue
+      const role = roleOfDeck(dc)
+      counts.set(role, (counts.get(role) || 0) + (dc.qty || 1))
+    }
+    return counts
+  }, [activeCfg.drawQuality, deckCards, sfMap, roleByName, roleOfDeck])
   const deckNames = useMemo(() => roleNameSet(deckCards), [deckCards])
 
   const steps = useMemo(() => [...ROLE_ORDER, SUMMARY_STEP], [])
@@ -852,7 +1021,19 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // (EDHREC data for this commander/theme, or an archetype fallback). Advisory —
   // shown on the summary curve so the player can see if the deck runs heavy.
   const avgCmc = useMemo(() => deckAvgCmc(deckCards, sfMap), [deckCards, sfMap])
-  const curveStatus = useMemo(() => curveVerdict(avgCmc, curveTarget), [avgCmc, curveTarget])
+  // Lab mode shifts the curve target by what the commander costs: an expensive
+  // commander wants cheap support so there's a board before it lands, a cheap
+  // one leaves room for a higher curve. Identity function when off.
+  const effectiveCurveTarget = useMemo(
+    () => (experimental && scoringCtx
+      ? adjustTargetForCommander(curveTarget, scoringCtx.commanderCmc)
+      : curveTarget),
+    [experimental, scoringCtx, curveTarget],
+  )
+  const curveStatus = useMemo(
+    () => curveVerdict(avgCmc, effectiveCurveTarget),
+    [avgCmc, effectiveCurveTarget],
+  )
 
   const totalCards = useMemo(() => countDeckCards(deckCards), [deckCards])
   // Target deck size (100 for Commander) — drives the auto-fill "→ 100" framing.
@@ -942,9 +1123,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // worst (overage) of them — so trimming never breaks the manabase.
   const cutAnalysis = useMemo(() => analyzeCut({
     plan, deckCards, sfMap, totalCards, cutMode, lockedIds: lockedCutIds,
-    roleOf: dc => roleOfDeckCard(dc, sfMap, roleByName),
+    roleOf: roleOfDeck,
     inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
-  }), [plan, deckCards, sfMap, inclusionByName, totalCards, roleByName, cutMode, lockedCutIds])
+  }), [plan, deckCards, sfMap, inclusionByName, totalCards, roleOfDeck, cutMode, lockedCutIds])
 
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
@@ -1175,16 +1356,36 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return n
   }, [deckCards])
 
-  const autoFillExclude = useCallback(cand => {
+  // Expensive (6+ MV) nonland cards already in the deck — the running total the
+  // lab-mode top-end cap counts against.
+  const deckTopEnd = useMemo(
+    () => countTopEnd(deckCards, sfMap, activeCfg.topEndThreshold),
+    [deckCards, sfMap, activeCfg.topEndThreshold],
+  )
+
+  // Lab-mode gate: the shape constraints (top-end cap, draw-quota quality and
+  // its sub-curve). Composed with — never replacing — the live budget/bracket
+  // filters below.
+  const expExclude = useMemo(() => {
+    return makeExperimentalExclude({
+      cfg: activeCfg,
+      deckTopEnd,
+      drawRole: ROLE_DRAW,
+      drawTarget: plan?.roles?.find(r => r.role === ROLE_DRAW)?.target || 0,
+    })
+  }, [activeCfg, deckTopEnd, plan])
+
+  const autoFillExclude = useCallback((cand, info) => {
     if (!cand?.name || isAdded(cand.name)) return true
     if (!passesBudget(cand.name, cand.sfCard)) return true
     if (targetBracket != null) {
       const flag = bracketFlagFor(cand.name, cand.sfCard, gameChangers)
       if (flag && flag.level > targetBracket) return true
     }
+    if (expExclude && expExclude(cand, info)) return true
     return false
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addedNames, deckNames, passesBudget, targetBracket, gameChangers])
+  }, [addedNames, deckNames, passesBudget, targetBracket, gameChangers, expExclude])
 
   const autoFillBase = useMemo(() => {
     if (!plan || loading) return null
@@ -1200,13 +1401,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // Curve plays a subordinate role in which good cards get picked: within a
       // band of similarly-recommended cards, auto-fill favors the ones that pull
       // the deck toward its target curve (see rankComparator/curveFitKey).
-      targetCmc: curveTarget,
+      targetCmc: effectiveCurveTarget,
       curveStatus: curveStatus.status,
       exclude: autoFillExclude,
+      // Always present now: the shipped ranking includes the promoted signals.
+      // `scoringCtx` may be null outside lab mode — scoreCandidate handles that
+      // (the keyword block is skipped and the rest is text-only).
+      comparator: makeExperimentalComparator({
+        ctx: scoringCtx, cfg: activeCfg,
+        targetCmc: effectiveCurveTarget, curveStatus: curveStatus.status,
+      }),
     }
   }, [plan, loading, liveCounts, totalCards, landsTarget, manaSources.lands,
       nonbasicTarget, currentBasicLands, landCandidates, autoFillExclude,
-      curveTarget, curveStatus.status])
+      effectiveCurveTarget, curveStatus.status, scoringCtx, activeCfg])
 
   // Auto-fill draws the FULL retained pool (Infinity), not the small display
   // cap — planAutoFill's exclude gate then removes over-budget / over-bracket /
@@ -1293,12 +1501,18 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       passesBudget: name => passesBudget(name, null),
       analyzeCutFn: args => analyzeCut({
         plan, sfMap, cutMode: 'balanced',
-        roleOf: dc => roleOfDeckCard(dc, sfMap, roleByName),
+        roleOf: roleOfDeck,
         inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
         ...args,
       }),
       addCards: onAddCards,
       removeCards: onRemoveCards,
+      // Lab mode's "soft combo" preference: below bracket 4, complete the loops
+      // that make a resource (infinite mana / tokens / triggers) before the ones
+      // that just end the game.
+      orderCombos: experimental
+        ? list => preferResourceCombos(list, targetBracket, expCfg)
+        : undefined,
     })
     markAdded(pass.comboRows)
     return pass
@@ -1312,6 +1526,59 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       for (const r of rows) if (r?.name) next.add(r.name.toLowerCase())
       return next
     })
+  }
+
+  // Post-fill engine pass — see runEnginePass in buildAssistantPasses.js. Same
+  // thin-binding pattern as runComboPass. Providers are drawn from the whole
+  // candidate pool (an outlet can be classified into any role), ranked by the
+  // active comparator so the pick is the best available, not the first found.
+  async function runEnginePass(populated, fillIds) {
+    const pool = []
+    const seen = new Set()
+    for (const role of plan?.roles || []) {
+      for (const c of role.ownedCandidates || []) {
+        const k = (c?.name || '').toLowerCase()
+        if (k && !seen.has(k)) { seen.add(k); pool.push(c) }
+      }
+      if (autoFillSource === 'recommended') {
+        for (const u of upgradesFor(role)) {
+          const k = (u?.name || '').toLowerCase()
+          if (k && !seen.has(k)) { seen.add(k); pool.push(u) }
+        }
+      }
+    }
+    const ranked = [...pool].sort((a, b) => (expScore(b)?.rank ?? 0) - (expScore(a)?.rank ?? 0))
+    const pass = await enginePassCore({
+      populated,
+      fillIds,
+      coverage: engineCoverage,
+      providersFor: enabler => ranked.filter(c => {
+        const need = engineCoverage.find(n => n.enabler === enabler)
+        if (need?.enabler === 'tribe') return isTribeMember(candidateType(c), need.tribe)
+        return cardEnablers(candidateOracle(c), candidateType(c)).has(enabler)
+      }),
+      deckSize: plan?.deckSize || 100,
+      isLandRow,
+      // The full auto-fill gate, not just the budget. Without this the engine
+      // pass could add a Game Changer above the user's target bracket, or an
+      // 8-mana sacrifice outlet straight through the top-end cap the rest of the
+      // build just spent slots respecting.
+      passesBudget: name => {
+        const cand = ranked.find(c => (c.name || '').toLowerCase() === String(name).toLowerCase())
+        return !autoFillExclude(cand || { name }, { role: ROLE_SYNERGY, picks: [] })
+      },
+      analyzeCutFn: args => analyzeCut({
+        plan, sfMap, cutMode: 'balanced',
+        roleOf: roleOfDeck,
+        inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
+        ...args,
+      }),
+      addCards: onAddCards,
+      removeCards: onRemoveCards,
+      maxAdd: expCfg.engineMaxAdd,
+    })
+    markAdded(pass.engineRows)
+    return pass
   }
 
   // Post-fill Game Changer top-up (Bracket 4 only) — see runGameChangerPass in
@@ -1339,6 +1606,31 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // pseudo-rows (sequential path); `addedCardIds` are the deck-card ids to
   // remove on undo.
   async function finishAutoFill(rows, added, addedCardIds, skippedNames = []) {
+    let engineAdded = 0
+    // Ids the engine pass added. Held apart from `addedCardIds` on purpose: both
+    // post-fill passes treat "cards this run added" as their cuttable pool, so
+    // leaving engine additions in it lets the combo pass cut the very enablers
+    // the engine pass just put in — the deck ends up with the combo and without
+    // the engine that was the point. They stay in the UNDO list either way.
+    let engineRowIds = new Set()
+
+    // Engine pass runs FIRST (lab mode only): a deck that can't do what its
+    // commander requires is broken in a way no combo fixes.
+    if (experimental && expCfg.enginePass && typeof onAddCards === 'function' && (addedCardIds?.length)) {
+      const pass = await runEnginePass([...deckCards, ...rows], addedCardIds)
+      if (pass.added) {
+        engineAdded = pass.engineRows.length
+        const cutSet = new Set(pass.cutIds)
+        rows = [...rows.filter(r => !cutSet.has(r.id)), ...pass.engineRows]
+        added = added - pass.cutIds.length + engineAdded
+        engineRowIds = new Set(pass.engineRows.map(r => r.id).filter(Boolean))
+        addedCardIds = [
+          ...(addedCardIds || []).filter(id => !cutSet.has(id)),
+          ...engineRowIds,
+        ]
+      }
+    }
+
     let effectiveRows = rows
     let effectiveAdded = added
     let effectiveAddedIds = addedCardIds || []
@@ -1354,7 +1646,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // user toggle — runComboPass no-ops when the bracket allows no combos.
     if (typeof onAddCards === 'function' && (addedCardIds?.length)) {
       const populated = [...deckCards, ...rows]
-      const pass = await runComboPass(populated, addedCardIds)
+      // Engine additions are withheld from the combo pass's cuttable pool (see
+      // engineRowIds above) — anything not in fillIds is locked by runComboPass.
+      const pass = await runComboPass(populated, addedCardIds.filter(id => !engineRowIds.has(id)))
       combosCompleted = pass.combosCompleted
       comboAdded = pass.comboRows.length
       cutCount = pass.cutIds.length
@@ -1421,7 +1715,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     setAutoFillResult({
       added: effectiveAdded, basics, left,
       addedCardIds: effectiveAddedIds, basicCounts,
-      combosCompleted, comboAdded, cutCount, gcAdded,
+      combosCompleted, comboAdded, cutCount, gcAdded, engineAdded,
       skippedNames,
     })
     setStepIndex(steps.length - 1)
@@ -2004,6 +2298,104 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           </div>
         )}
 
+        {/* Experimental signal tuning — lab mode only. Each switch isolates one
+            signal so a build can be attributed to a specific change rather than
+            judged as one blob. */}
+        {experimental && !loading && !error && (
+          <details className={styles.labPanel}>
+            <summary className={styles.labSummary}>
+              Experimental signals
+              <span className={styles.labSummaryHint}>
+                {[
+                  expCfg.multiRole && 'multi-role',
+                  expCfg.commanderKw && 'keywords',
+                  expCfg.topEndCap && 'top-end',
+                  expCfg.drawQuality && 'draw quality',
+                  expCfg.comboType && 'combo type',
+                ].filter(Boolean).join(' · ') || 'all off'}
+              </span>
+            </summary>
+            <div className={styles.labBody}>
+              <LabToggle
+                on={expCfg.multiRole} onChange={v => setExpField('multiRole', v)}
+                label="Multi-role bonus"
+                desc="Rank a card that does two or three jobs above one that does one."
+              >
+                <LabNumber
+                  value={expCfg.multiRoleWeight} min={0} max={40}
+                  onChange={v => setExpField('multiRoleWeight', v)} suffix="per extra role"
+                />
+              </LabToggle>
+
+              <LabToggle
+                on={expCfg.commanderKw} onChange={v => setExpField('commanderKw', v)}
+                label="Commander keyword overlap"
+                desc={scoringCtx?.keywords?.size
+                  ? `Hooks read off your commander: ${[...scoringCtx.keywords].join(', ')}`
+                  : 'No commander rules text resolved yet — this signal is inert.'}
+              >
+                <LabNumber
+                  value={expCfg.commanderKwMax} min={0} max={40}
+                  onChange={v => setExpField('commanderKwMax', v)} suffix="max bonus"
+                />
+              </LabToggle>
+
+              <LabToggle
+                on={expCfg.deckAffinity} onChange={v => setExpField('deckAffinity', v)}
+                label="Deck theme affinity"
+                desc="Extra weight for cards reinforcing what the list already does."
+              >
+                <LabNumber
+                  value={expCfg.affinityWeight} min={0} max={30}
+                  onChange={v => setExpField('affinityWeight', v)} suffix="max bonus"
+                />
+              </LabToggle>
+
+              <LabToggle
+                on={expCfg.topEndCap} onChange={v => setExpField('topEndCap', v)}
+                label="Top-end cap"
+                desc={`Hard ceiling on expensive cards — the deck has ${deckTopEnd} at ${expCfg.topEndThreshold}+ MV right now.`}
+              >
+                <LabNumber
+                  value={expCfg.topEndMax} min={0} max={20}
+                  onChange={v => setExpField('topEndMax', v)} suffix={`cards at ${expCfg.topEndThreshold}+ MV`}
+                />
+              </LabToggle>
+
+              <LabToggle
+                on={expCfg.drawQuality} onChange={v => setExpField('drawQuality', v)}
+                label="Draw must net cards"
+                desc="Loot, rummage and cantrips are card selection — they stop filling the Draw quota."
+              />
+
+              <LabToggle
+                on={expCfg.drawCurve} onChange={v => setExpField('drawCurve', v)}
+                label="Draw sub-curve"
+                desc="Only a minority of the draw package may be expensive, and those must draw 3+."
+              />
+
+              <LabToggle
+                on={expCfg.comboType} onChange={v => setExpField('comboType', v)}
+                label="Prefer resource combos"
+                desc="Below Bracket 4, complete loops that make a resource before loops that just win."
+              />
+
+              <LabToggle
+                on={expCfg.enginePass} onChange={v => setExpField('enginePass', v)}
+                label="Engine pass"
+                desc={engineNeeds.length
+                  ? `This commander needs: ${engineNeeds.map(n => n.label).join(', ')}.`
+                  : 'This commander has no detectable engine requirement — the pass is inert here.'}
+              >
+                <LabNumber
+                  value={expCfg.engineMaxAdd} min={0} max={20}
+                  onChange={v => setExpField('engineMaxAdd', v)} suffix="max additions"
+                />
+              </LabToggle>
+            </div>
+          </details>
+        )}
+
         {/* Over-target warning */}
         {overTarget && deckBracket && (
           <div className={styles.bracketWarn}>
@@ -2169,6 +2561,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             pips={onLands ? item.colors : undefined}
                             reservePipsLine={onLands}
                             inclusion={onLands ? 0 : cand.edhrecInclusion}
+                            labScore={expScore(cand)}
                             price={ownedPriceLabelFor(cand) ?? priceLabelFor(cand.name)}
                             finish={ownedFinishFor(cand)}
                             priceNote="Your copy"
@@ -2208,8 +2601,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 const overall = rankOverallRecommendations({
                   ownedCandidates,
                   upgrades,
-                  targetCmc: curveTarget,
+                  targetCmc: effectiveCurveTarget,
                   curveStatus: curveStatus.status,
+                  // Keep the visible ordering identical to what auto-fill would
+                  // pick — the two must never disagree about what's best.
+                  comparator: makeExperimentalComparator({
+                    ctx: scoringCtx, cfg: activeCfg,
+                    targetCmc: effectiveCurveTarget, curveStatus: curveStatus.status,
+                  }),
                 })
                   .filter(({ cand }) => (!onLands || !isBasicLandName(cand.name)) && passesBudget(cand.name, cand.sfCard))
                   .slice(0, upgradeDisplayLimit(gap))
@@ -2270,6 +2669,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                               pips={landInfo?.colors}
                               reservePipsLine={onLands}
                               inclusion={cand.edhrecInclusion}
+                              labScore={expScore(cand)}
                               price={owned
                                 ? (ownedPriceLabelFor(cand) ?? priceLabelFor(cand.name))
                                 : priceLabelFor(cand.name)}
@@ -2542,14 +2942,58 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 </>
               )}
 
+              {/* Engine coverage — whether the deck can actually DO what the
+                  commander is built to do, which no popularity ranking checks. */}
+              {engineCoverage.length > 0 && (
+                <>
+                  <div className={styles.sectionLabel}>
+                    Engine check
+                    <span className={styles.sectionHint}>
+                      {engineCoverage.some(c => c.short > 0)
+                        ? ' · your commander needs pieces this deck is missing'
+                        : ' · your commander has what it needs'}
+                    </span>
+                  </div>
+                  <div className={styles.engineList}>
+                    {engineCoverage.map(cov => (
+                      <div
+                        key={cov.enabler}
+                        className={`${styles.engineRow}${cov.short > 0 ? ' ' + styles.engineRowShort : ''}`}
+                      >
+                        <div className={styles.engineHead}>
+                          {cov.short > 0 && <WarningIcon size={12} />}
+                          <span className={styles.engineLabel}>{cov.label}</span>
+                          <span className={styles.engineCount}>
+                            {cov.have}<span className={styles.engineTarget}>/{cov.target}</span>
+                          </span>
+                        </div>
+                        <div className={styles.engineBarTrack}>
+                          <div
+                            className={styles.engineBar}
+                            style={{ width: `${Math.min(100, (cov.have / (cov.target || 1)) * 100)}%` }}
+                          />
+                        </div>
+                        <div className={styles.engineWhy}>{cov.why}</div>
+                        {cov.providers.length > 0 && (
+                          <div className={styles.engineProviders} title={cov.providers.join(', ')}>
+                            {cov.providers.slice(0, 4).join(' · ')}
+                            {cov.providers.length > 4 ? ` +${cov.providers.length - 4}` : ''}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
               <div className={styles.sectionLabel}>
                 Mana curve (nonland)
                 {avgCmc != null && (
                   <span className={styles.sectionHint}>
                     {' · avg '}{avgCmc.toFixed(2)}
-                    {curveTarget != null && (
+                    {effectiveCurveTarget != null && (
                       <>
-                        {' · target ~'}{curveTarget.toFixed(1)}
+                        {' · target ~'}{effectiveCurveTarget.toFixed(1)}
                         {curveStatus.status !== 'on' && (
                           <span
                             className={`${styles.curveVerdict} ${curveStatus.status === 'high' ? styles.curveHigh : styles.curveLow}`}
@@ -2822,6 +3266,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       {autoFillResult.cutCount > 0 && `, cut ${autoFillResult.cutCount} just-filled card${autoFillResult.cutCount === 1 ? '' : 's'} to make room`}.
                     </div>
                   )}
+                  {autoFillResult.engineAdded > 0 && (
+                    <div className={styles.afResultDetail}>
+                      Added {autoFillResult.engineAdded} card{autoFillResult.engineAdded === 1 ? '' : 's'} your
+                      commander needs to function — see Engine check below.
+                    </div>
+                  )}
+
                   {autoFillResult.gcAdded > 0 && (
                     <div className={styles.afResultDetail}>
                       Added {autoFillResult.gcAdded} Game Changer{autoFillResult.gcAdded === 1 ? '' : 's'} to reach the Bracket 4 floor.
