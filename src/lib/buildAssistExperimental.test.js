@@ -335,6 +335,20 @@ describe('SHIPPED_SIGNALS', () => {
     expect('synergyWeight' in SHIPPED_SIGNALS).toBe(false)
   })
 
+  // With every surviving signal promoted, lab mode is no longer a different
+  // algorithm — it is the same one with tunable switches and a score readout.
+  // Keeping the two in sync matters because a key defined ONLY on the shipped
+  // override makes lab mode strictly worse than what users get, which is how
+  // lab mode ended up running with no novelty floor.
+  it('matches the lab defaults exactly, so lab mode is a readout not a fork', () => {
+    expect(SHIPPED_SIGNALS).toEqual(EXPERIMENTAL_DEFAULTS)
+  })
+
+  it('carries the novelty band on both', () => {
+    expect(EXPERIMENTAL_DEFAULTS.noveltyMinShare).toBe(0.08)
+    expect(EXPERIMENTAL_DEFAULTS.noveltyMaxShare).toBe(0.15)
+  })
+
   // Promoted once its targets came from EDHREC rather than from me. It also
   // reverses the coverage regression the three ranking signals cause by
   // preferring generically stronger cards over narrow enablers.

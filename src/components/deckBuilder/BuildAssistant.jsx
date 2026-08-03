@@ -530,11 +530,18 @@ function MenuOption({ active, onClick, children, desc }) {
   )
 }
 
-// `experimental` opens the assistant in "lab" mode: the ranking, the auto-fill
-// gates and the combo pass route through src/lib/buildAssistExperimental.js
-// instead of the shipped defaults, and a tuning panel appears. Off (the
-// default), not a single line of that module's behavior is reachable — the
-// shipped assistant is unchanged. Admin-gated at the call site.
+// `experimental` opens the assistant in "lab" mode. It is no longer a different
+// ALGORITHM: every signal that survived measurement has been promoted, and the
+// ones that didn't were deleted, so EXPERIMENTAL_DEFAULTS and SHIPPED_SIGNALS
+// now hold the same values. Both paths run scoreCandidate out of
+// src/lib/buildAssistExperimental.js.
+//
+// What lab mode still gives you, and the only reason to keep it: the signals
+// become TUNABLE (the panel can switch each one off, or switch on drawCurve,
+// which ships off because it measured negative), and each candidate shows its
+// score breakdown so you can see why it ranked where it did. That is a
+// measurement harness with a UI, which is what the next round of signals will
+// need. Admin-gated at the call site.
 export function BuildAssistant({ userId, commander, deckCards = [], accessToken, experimental = false, onAddCard, onAddCards, onUndoAutoFill, onPlaytest, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   // True between the EDHREC plan landing and the Recommander merge resolving —

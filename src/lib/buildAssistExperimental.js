@@ -70,6 +70,14 @@ export const EXPERIMENTAL_DEFAULTS = {
   // and take the deck over. This bounds that tail without touching the many
   // decks already at 0.
   noveltyMaxShare: 0.15,         // ceiling on additions, so one need can't eat the deck
+  // …and a floor, so they don't vanish entirely. Reported from the app: with
+  // only a ceiling, a commander with a rich EDHREC page produced a deck with no
+  // off-meta cards at all, because every slot went to a better-ranked staple.
+  //
+  // Lives here rather than only on SHIPPED_SIGNALS: defined on the override
+  // alone, lab mode ran with NO novelty floor and was strictly worse than what
+  // every other user got — the opposite of what a lab is for.
+  noveltyMinShare: 0.08,
   // Roles the commander-keyword bonus applies to. null = every role.
   //
   // The distinction matters because the roles want different things: in Synergy
@@ -140,10 +148,6 @@ export const SHIPPED_SIGNALS = {
   commanderKw: true,
   deckAffinity: true,
   noveltyMaxShare: 0.15,
-  // …and a floor, so they don't vanish entirely. Reported from the app: with
-  // only a ceiling, a commander with a rich EDHREC page produced a deck with no
-  // off-meta cards at all, because every slot went to a better-ranked staple.
-  noveltyMinShare: 0.08,
   // Promoted: with per-commander targets derived from EDHREC rather than
   // guessed, this takes engine coverage from 57.8% to ~99% across 51
   // commanders — and specifically reverses the 6.4-point coverage regression
