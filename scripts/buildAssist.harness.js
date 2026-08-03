@@ -41,6 +41,9 @@ import {
   upgradePoolDepth,
   analyzeCut,
   coarseRole,
+  planBasicLands,
+  isBasicLandName,
+  recommendedBasicCount,
   deriveRoleTemplate,
   applyTemplateAdjustments,
   bracketAdjustments,
@@ -68,7 +71,7 @@ import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles
 // Independent ground truth: simulation outputs, not classifier verdicts. This is
 // the one family of metrics here that CAN contradict the rest rather than
 // agreeing with it by construction.
-import { goldfishDeck, colorRequirements } from '../src/lib/goldfish'
+import { goldfishDeck, colorRequirements, producedColors } from '../src/lib/goldfish'
 import { recRank } from '../src/lib/deckBuildAssistant'
 import { extractCommanderKeywords, extractTribe, synergyScore } from '../src/lib/commanderSynergy'
 import { commanderNeeds, analyzeEngineCoverage, cardEnablers, deriveTypeFloors, isCardType } from '../src/lib/engineEnablers'
@@ -333,6 +336,38 @@ function measure(picks, commanderCard, needs, landTarget = 37) {
   // signals, so the only ones that can contradict the rest. Basics stand in for
   // the manabase the app adds on finish, so the simulated deck is real-sized.
   const landsPicked = cards.filter(c => candidateType(c).includes('land')).length
+  const deckForBasics = cards.map(c => ({
+    name: c.name,
+    type_line: candidateType(c),
+    mana_cost: c.sfCard?.mana_cost || c.mana_cost || '',
+    cmc: c.cmc ?? 0,
+    qty: 1,
+  }))
+  const basicPlan = planBasicLands({
+    deckCards: deckForBasics,
+    sfMap: {},
+    colors: (commanderCard?.color_identity || []),
+    landTarget,
+  })
+  const basics = []
+  for (const [name, n] of Object.entries(basicPlan.counts || {})) {
+    for (let i = 0; i < n; i++) basics.push({ name, cmc: 0, type_line: `Basic Land — ${name}` })
+  }
+
+  // Manabase quality, independent of any classifier: how much of it comes into
+  // play tapped (a tempo cost paid every game) and how many colours the average
+  // land can produce (what actually prevents colour screw).
+  const allLands = [...cards.filter(c => candidateType(c).includes('land')), ...basics]
+  const tapped = allLands.filter(c => {
+    const o = (c.sfCard?.oracle_text || c.oracle_text || candidateOracle(c) || '').toLowerCase()
+    return /enters (the battlefield )?tapped/.test(o) && !/unless|if you|you may pay/.test(o)
+  }).length
+  const colorSpread = allLands.length
+    ? allLands.reduce((sum, c) => sum + producedColors({
+        type_line: c.type_line || candidateType(c),
+        oracle_text: c.sfCard?.oracle_text || c.oracle_text || candidateOracle(c) || '',
+      }).size, 0) / allLands.length
+    : 0
   const gf = goldfishDeck({
     deck: [
       ...cards.map(c => ({
@@ -341,16 +376,11 @@ function measure(picks, commanderCard, needs, landTarget = 37) {
         color_identity: c.sfCard?.color_identity || c.colorIdentity || [],
         type_line: candidateType(c), oracle_text: candidateOracle(c),
       })),
-      // Basics in the COMMANDER'S colours, cycled. Hardcoding Forest was
-      // harmless while mana was colourless and catastrophic once it wasn't: a
-      // Dimir deck padded with 37 Forests can never cast anything, which showed
-      // up as commander-by-turn-5 collapsing to 22%.
-      ...Array.from({ length: Math.max(0, landTarget - landsPicked) }, (_, i) => {
-        const ci = (commanderCard?.color_identity || []).filter(c => BASIC_BY_COLOR[c])
-        const col = ci.length ? ci[i % ci.length] : null
-        const sub = col ? BASIC_BY_COLOR[col] : 'Wastes'
-        return { name: sub, cmc: 0, type_line: `Basic Land — ${sub}` }
-      }),
+      // Basics via the app's OWN planner (Karsten shortfall first, then
+      // pip-weighted), not a round-robin over the commander's colours. Cycling
+      // ignores pip demand entirely, so it manufactures colour screw the real
+      // build would not have.
+      ...basics,
     ],
     commanderCmc: commanderCard?.cmc ?? 4,
     // Colour requirement for the commander. Without this the simulation scored a
@@ -371,6 +401,8 @@ function measure(picks, commanderCard, needs, landTarget = 37) {
 
   const n = nonland.length || 1
   return {
+    entersTappedPct: allLands.length ? (tapped / allLands.length) * 100 : NaN,
+    fixingPerLand: colorSpread,
     gfColorStuck: gf?.colorStuckPct ?? NaN,
     gfCommanderT5: gf?.commanderByT5Pct ?? NaN,
     gfAvgCmdTurn: gf?.avgCommanderTurn ?? NaN,
@@ -590,6 +622,22 @@ async function runCommander(name, metaCache, collection = null) {
     const landUpgrades = landsRole
       ? upgradesFor(landsRole).filter(u => (u.type || '').toLowerCase().includes('land'))
       : []
+    // Owned nonbasic lands, fixers first — mirrors the app's landCandidates.
+    // Omitting this left every measured manabase 100% basics (0% entering
+    // tapped, 1.00 colours per land), which no real build produces and which
+    // manufactured most of the colour screw the simulation was reporting.
+    const landCandidates = (landsRole?.ownedCandidates || [])
+      .filter(c => !isBasicLandName(c.name))
+      .map(c => {
+        const colors = producedColors({
+          type_line: candidateType(c),
+          oracle_text: candidateOracle(c),
+        })
+        const matching = [...colors].filter(x => (commanderCard.color_identity || []).includes(x))
+        return { cand: c, score: matching.length, size: colors.size }
+      })
+      .sort((a, b) => (b.score - a.score) || (b.size - a.size) || a.cand.name.localeCompare(b.cand.name))
+      .map(x => x.cand)
 
     const picks = planAutoFill({
       roles,
@@ -603,8 +651,12 @@ async function runCommander(name, metaCache, collection = null) {
       // comparing against real-deck figures during calibration.
       landsTarget: basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37,
       currentLands: 0,
-      nonbasicTarget: basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37,
       currentNonbasicLands: 0,
+      landCandidates,
+      // The app aims for a basic/nonbasic split rather than filling every land
+      // slot with nonbasics; recommendedBasicCount scales it by colour count.
+      nonbasicTarget: Math.max(0, (basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37)
+        - recommendedBasicCount((commanderCard.color_identity || []).length)),
       source: collection ? 'owned' : 'recommended',
       targetCmc,
       curveStatus: 'on',
@@ -727,6 +779,8 @@ async function runCommander(name, metaCache, collection = null) {
 const METRICS = [
   // ── Independent (simulation, not classifier) ──
   ['gfColorStuck', 'GF: colour screwed %', 'down'],
+  ['entersTappedPct', 'lands entering tapped %', 'down'],
+  ['fixingPerLand', 'colours per land', 'up'],
   ['gfCommanderT5', 'GF: commander by T5 %', 'up'],
   ['gfAvgCmdTurn', 'GF: avg commander turn', 'down'],
   ['gfManaT5', 'GF: mana on turn 5', 'up'],

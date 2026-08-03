@@ -662,19 +662,25 @@ export function planAutoFill({
   // The owned-only pool keeps its incoming (inclusion) order unless a curve
   // target is set, in which case it's re-ranked curve-aware like the blended
   // pool — so "complete from binders" respects the curve too.
-  const cmpFor = role => (comparatorFor ? (comparatorFor(role) || cmp) : cmp)
+  // A null from comparatorFor means "leave this role's pool in the order the
+  // caller gave it". That matters for Lands: the caller sorts them fixers-first
+  // by which colours the deck is actually short of, and re-ranking them by card
+  // quality throws that away. Measured, doing so cost 0.12 colours per land and
+  // raised simulated colour screw by ~2 points.
+  const cmpFor = role => (comparatorFor ? comparatorFor(role) : cmp)
   const poolFor = (owned, upgrades, role) => {
     const roleCmp = cmpFor(role)
     if (source !== 'recommended') {
       const pool = (owned || []).map(cand => ({ cand, owned: true }))
-      return targetCmc == null && !comparatorFor ? pool : pool.sort(roleCmp)
+      if (comparatorFor && !roleCmp) return pool
+      return targetCmc == null && !comparatorFor ? pool : pool.sort(roleCmp || cmp)
     }
     return rankOverallRecommendations({
       ownedCandidates: owned,
       upgrades,
       targetCmc,
       curveStatus,
-      comparator: comparatorFor ? roleCmp : comparator,
+      comparator: comparatorFor ? (roleCmp || cmp) : comparator,
     })
   }
 

@@ -16,6 +16,7 @@
 // 'explosive-ramp' tag in cardRoles but is not one of the five wired here.)
 
 import { recRank, curveFitKey } from './deckBuildAssistant'
+import { ROLE_LANDS } from './buildRoles'
 import {
   cardRoleTagsFromCard,
   cardRoleTags,
@@ -282,6 +283,11 @@ export function cfgForRole(cfg = EXPERIMENTAL_DEFAULTS, role = null) {
 export function makeExperimentalComparatorFor({ ctx, cfg = EXPERIMENTAL_DEFAULTS, targetCmc = null, curveStatus = 'on' } = {}) {
   const cache = new Map()
   return role => {
+    // Lands are exempt: the caller has already ordered them by which colours the
+    // deck is short of, which is the only thing that matters about a land, and
+    // no amount of multi-role or keyword score changes that. Returning null
+    // tells planAutoFill to keep that order.
+    if (role === ROLE_LANDS) return null
     if (!cache.has(role)) {
       cache.set(role, makeExperimentalComparator({ ctx, cfg: cfgForRole(cfg, role), targetCmc, curveStatus }))
     }

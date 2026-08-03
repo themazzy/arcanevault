@@ -5,6 +5,7 @@ import {
   buildScoringContext,
   scoreCandidate,
   makeExperimentalComparator,
+  makeExperimentalComparatorFor,
   makeExperimentalExclude,
   synergyBonus,
   countTopEnd,
@@ -543,5 +544,34 @@ describe('novelty ceiling exempts owned cards', () => {
       exclude: makeExperimentalExclude({ cfg: SHIPPED_SIGNALS, nonlandBudget: 60 }),
     })
     expect(picks.length).toBe(Math.floor(60 * SHIPPED_SIGNALS.noveltyMaxShare))
+  })
+})
+
+// The caller sorts land candidates by which colours the deck is actually short
+// of — the only thing that matters about a land. Re-ranking them by card quality
+// threw that away: measured, it cost 0.12 colours per land and raised simulated
+// colour screw by ~2 points.
+describe('lands keep their fixer-first order', () => {
+  const ctx = buildScoringContext({ commanderOracle: KORVOLD.oracle, commanderType: KORVOLD.type })
+
+  it('returns no comparator for the Lands role', () => {
+    const forRole = makeExperimentalComparatorFor({ ctx, cfg: SHIPPED_SIGNALS })
+    expect(forRole(ROLE_LANDS)).toBeNull()
+    expect(typeof forRole(ROLE_RAMP)).toBe('function')
+  })
+
+  it('picks lands in the order given, not by rank', () => {
+    // A dual the deck needs, deliberately placed ahead of a more "popular" land.
+    const dual = { name: 'Dual', cmc: 0, type: 'Land', oracle: '{T}: Add {B} or {G}.', edhrecInclusion: 5 }
+    const popular = { name: 'Popular Land', cmc: 0, type: 'Land', oracle: '{T}: Add {C}.', edhrecInclusion: 95 }
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_LANDS, target: 1, ownedCandidates: [] }],
+      landCandidates: [dual, popular],
+      liveCounts: new Map([[ROLE_LANDS, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 1, currentLands: 0, nonbasicTarget: 1, currentNonbasicLands: 0,
+      comparatorFor: makeExperimentalComparatorFor({ ctx, cfg: SHIPPED_SIGNALS }),
+    })
+    expect(picks[0].cand.name).toBe('Dual')
   })
 })

@@ -78,6 +78,7 @@ import {
   buildScoringContext,
   scoreCandidate,
   makeExperimentalComparator,
+  makeExperimentalComparatorFor,
   makeExperimentalExclude,
   countTopEnd,
   preferResourceCombos,
@@ -1418,10 +1419,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       targetCmc: effectiveCurveTarget,
       curveStatus: curveStatus.status,
       exclude: autoFillExclude,
-      // Always present now: the shipped ranking includes the promoted signals.
-      // `scoringCtx` may be null outside lab mode — scoreCandidate handles that
-      // (the keyword block is skipped and the rest is text-only).
-      comparator: makeExperimentalComparator({
+      // Per-ROLE ranking, not one comparator for everything. Lands are exempt:
+      // landCandidates is already sorted by which colours the deck is short of,
+      // and re-ranking it by card quality threw that away — measured, the deck
+      // was picking lands by EDHREC inclusion rather than by what they fix, at a
+      // cost of 2.0 colours per land, 13 points of enters-tapped and 11 points of
+      // simulated colour screw.
+      comparatorFor: makeExperimentalComparatorFor({
         ctx: scoringCtx, cfg: activeCfg,
         targetCmc: effectiveCurveTarget, curveStatus: curveStatus.status,
       }),
