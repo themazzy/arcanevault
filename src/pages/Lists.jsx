@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { sb } from '../lib/supabase'
 import { getLocalFolders, getLocalListItems, getAllLocalListItemsForFolders, putListItems, replaceLocalListItems, deleteListItemsByIds, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
 import { toListItemRow } from '../lib/deckBuilderWrites'
+import { renameFolder as renameFolderRpc } from '../lib/deckSync'
 import { queryClient } from '../lib/queryClient'
 import { invalidateWishlistQueries } from '../lib/queryInvalidation'
 import { trackActivity } from '../lib/activity'
@@ -209,7 +210,7 @@ function WishlistItemEditModal({ item, onClose, onSaved }) {
   )
 }
 
-function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete, onSetBackground }) {
+function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete, onSetBackground, onRename }) {
   const { price_source, default_sort, grid_density } = useSettings()
   const { user } = useAuth()
   const toast = useToast()
@@ -256,9 +257,18 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
     if (!folder || !trimmed || trimmed === folderName) return
     const prev = folderName
     setFolderName(trimmed)
-    const { error } = await sb.from('folders').update({ name: trimmed }).eq('id', folder.id)
-    if (error) { setFolderName(prev); toast.error('Rename failed.') }
-    else { folder.name = trimmed; toast.success('Wishlist renamed.') }
+    try {
+      // The parent owns the folder row — it writes through the rename_folder
+      // RPC and updates its own state. Assigning to `folder.name` here instead
+      // mutated a prop: it happened to make the header look right because this
+      // component re-read the same object, but the index behind it kept the old
+      // name until a reload, and nothing re-rendered off the change.
+      await onRename?.(trimmed)
+      toast.success('Wishlist renamed.')
+    } catch (err) {
+      setFolderName(prev)
+      toast.error(err?.message || 'Rename failed.')
+    }
   }
 
   // Viewport scrollbar width exposed as --sbw so CSS can park the scrollbar
@@ -1293,9 +1303,15 @@ export default function ListsPage() {
     await invalidateListIndexCaches()
   }
 
+  // Goes through the rename_folder RPC rather than a bare folders.update, per
+  // the project rule — it is the one write path that resolves a linked deck
+  // pair, and it also does the trimming and 100-char cap server-side. A no-op
+  // extra for wishlists, which are never paired, but keeps one rename path.
   const renameFolder = useCallback(async (folder, newName) => {
-    await sb.from('folders').update({ name: newName }).eq('id', folder.id)
-    setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, name: newName } : f))
+    const res = await renameFolderRpc(folder.id, newName)
+    const applied = res?.name || newName
+    setFolders(prev => prev.map(f => f.id === folder.id ? { ...f, name: applied } : f))
+    setActiveFolder(prev => (prev && prev.id === folder.id ? { ...prev, name: applied } : prev))
     await invalidateListIndexCaches({ includeItems: false })
   }, [invalidateListIndexCaches])
 
@@ -1456,6 +1472,7 @@ export default function ListsPage() {
         folder={activeFolder}
         folders={regularFolders}
         onBack={() => { setActiveFolder(null); loadFolders() }}
+        onRename={name => renameFolder(activeFolder, name)}
         onSetBackground={url => saveFolderBg(activeFolder, url)}
         onDelete={(isEmpty) => {
           if (isEmpty) {
