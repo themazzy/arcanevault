@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   makeRng, shuffled, isLand, isManaRock, landsPutIntoPlay, extraLandDrops, drawOpening,
+  producedColors, colorRequirements, colorsAvailable,
   simulateGame, goldfishDeck, KEEP_MIN_LANDS, KEEP_MAX_LANDS,
 } from './goldfish'
 
@@ -170,5 +171,77 @@ describe('land ramp', () => {
     const a = goldfishDeck({ deck: base, commanderCmc: 4, games: 200, seed: 21 })
     const b = goldfishDeck({ deck: withRamp, commanderCmc: 4, games: 200, seed: 21 })
     expect(b.avgManaT5).toBeGreaterThan(a.avgManaT5)
+  })
+})
+
+
+// Without colour the simulation scored a greedy five-colour manabase exactly as
+// well as a clean two-colour one — it could not see the most common way a real
+// deck fails, which is having the mana but not the right mana.
+describe('colour', () => {
+  const basic = (sub, col) => ({ name: sub, type_line: `Basic Land — ${sub}`, cmc: 0, oracle_text: `({T}: Add {${col}}.)` })
+  const forest = () => basic('Forest', 'G')
+  const island = () => basic('Island', 'U')
+
+  it('reads colours off basic land types', () => {
+    expect([...producedColors(forest())]).toEqual(['G'])
+    expect([...producedColors(island())]).toEqual(['U'])
+  })
+
+  it('reads colours from an add clause', () => {
+    expect([...producedColors({ type_line: 'Land', oracle_text: '{T}: Add {B} or {R}.' })].sort()).toEqual(['B', 'R'])
+  })
+
+  it('treats any-colour sources as all five', () => {
+    expect(producedColors({ type_line: 'Land', oracle_text: '{T}: Add one mana of any color.' }).size).toBe(5)
+  })
+
+  it('reads pips from a real mana cost', () => {
+    expect(colorRequirements({ mana_cost: '{2}{B}{B}{G}' })).toEqual({ B: 2, G: 1 })
+  })
+
+  // Hybrid and Phyrexian pips are payable another way, so they set no hard
+  // requirement — the same rule karstenColorRequirements uses.
+  it('ignores hybrid and generic pips', () => {
+    expect(colorRequirements({ mana_cost: '{2}{W/U}{G/P}' })).toEqual({})
+  })
+
+  it('falls back to colour identity when no cost was exported', () => {
+    expect(colorRequirements({ color_identity: ['B', 'G'] })).toEqual({ B: 1, G: 1 })
+  })
+
+  it('gates on available sources', () => {
+    expect(colorsAvailable({ B: 2 }, { B: 2 })).toBe(true)
+    expect(colorsAvailable({ B: 2 }, { B: 1 })).toBe(false)
+    expect(colorsAvailable({}, {})).toBe(true)
+  })
+
+  // The headline: a deck whose lands cannot produce its commander's colours
+  // should fail to cast it, where the colourless model happily cast it on time.
+  it('cannot cast a commander it has no colours for', () => {
+    const monoGreenLands = [
+      ...Array.from({ length: 40 }, forest),
+      ...Array.from({ length: 59 }, (_, i) => ({ name: `S${i}`, type_line: 'Sorcery', cmc: 2, mana_cost: '{1}{G}' })),
+    ]
+    const castable = goldfishDeck({
+      deck: monoGreenLands, commanderCmc: 3, commanderColors: { G: 1 }, games: 100, seed: 4,
+    })
+    const uncastable = goldfishDeck({
+      deck: monoGreenLands, commanderCmc: 3, commanderColors: { U: 2 }, games: 100, seed: 4,
+    })
+    expect(castable.commanderByT5Pct).toBeGreaterThan(50)
+    expect(uncastable.commanderByT5Pct).toBe(0)
+    expect(uncastable.colorStuckPct).toBeGreaterThan(0)
+  })
+
+  it('rates a split manabase worse than a focused one for a colour-hungry deck', () => {
+    const spells = Array.from({ length: 62 }, (_, i) => ({ name: `S${i}`, type_line: 'Sorcery', cmc: 3, mana_cost: '{1}{G}{G}' }))
+    const focused = [...Array.from({ length: 37 }, forest), ...spells]
+    const split = [
+      ...Array.from({ length: 19 }, forest), ...Array.from({ length: 18 }, island), ...spells,
+    ]
+    const a = goldfishDeck({ deck: focused, commanderCmc: 4, commanderColors: { G: 2 }, games: 200, seed: 12 })
+    const b = goldfishDeck({ deck: split, commanderCmc: 4, commanderColors: { G: 2 }, games: 200, seed: 12 })
+    expect(b.commanderByT5Pct).toBeLessThan(a.commanderByT5Pct)
   })
 })

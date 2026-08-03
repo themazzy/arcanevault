@@ -68,7 +68,7 @@ import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles
 // Independent ground truth: simulation outputs, not classifier verdicts. This is
 // the one family of metrics here that CAN contradict the rest rather than
 // agreeing with it by construction.
-import { goldfishDeck } from '../src/lib/goldfish'
+import { goldfishDeck, colorRequirements } from '../src/lib/goldfish'
 import { recRank } from '../src/lib/deckBuildAssistant'
 import { extractCommanderKeywords, extractTribe, synergyScore } from '../src/lib/commanderSynergy'
 import { commanderNeeds, analyzeEngineCoverage, cardEnablers, deriveTypeFloors, isCardType } from '../src/lib/engineEnablers'
@@ -151,6 +151,7 @@ function loadCollection(file) {
     sfMap[r.scryfall_id] = {
       name: r.name,
       cmc: Number(r.cmc) || 0,
+      mana_cost: r.mana_cost || '',
       type_line: r.type_line || '',
       oracle_text: r.oracle_text || '',
       color_identity: r.color_identity || [],
@@ -197,6 +198,7 @@ function makeMetaFetcher(cache) {
           name: requested,
           oracle_text: c.oracle_text || c.card_faces?.[0]?.oracle_text || '',
           type_line: c.type_line || c.card_faces?.[0]?.type_line || '',
+          mana_cost: c.mana_cost || '',
           cmc: c.cmc ?? 0,
           color_identity: c.color_identity || [],
           image: null,
@@ -239,6 +241,7 @@ async function fetchCommanderCard(name, metaFetch) {
   if (!meta) return null
   return {
     name: meta.name || name,
+    mana_cost: meta.mana_cost || '',
     color_identity: meta.color_identity || [],
     oracle_text: meta.oracle_text || '',
     type_line: meta.type_line || '',
@@ -334,12 +337,28 @@ function measure(picks, commanderCard, needs, landTarget = 37) {
     deck: [
       ...cards.map(c => ({
         name: c.name, cmc: c.cmc ?? 0,
+        mana_cost: c.sfCard?.mana_cost || c.mana_cost || '',
+        color_identity: c.sfCard?.color_identity || c.colorIdentity || [],
         type_line: candidateType(c), oracle_text: candidateOracle(c),
       })),
-      ...Array.from({ length: Math.max(0, landTarget - landsPicked) },
-        () => ({ name: 'Basic', cmc: 0, type_line: 'Basic Land — Forest' })),
+      // Basics in the COMMANDER'S colours, cycled. Hardcoding Forest was
+      // harmless while mana was colourless and catastrophic once it wasn't: a
+      // Dimir deck padded with 37 Forests can never cast anything, which showed
+      // up as commander-by-turn-5 collapsing to 22%.
+      ...Array.from({ length: Math.max(0, landTarget - landsPicked) }, (_, i) => {
+        const ci = (commanderCard?.color_identity || []).filter(c => BASIC_BY_COLOR[c])
+        const col = ci.length ? ci[i % ci.length] : null
+        const sub = col ? BASIC_BY_COLOR[col] : 'Wastes'
+        return { name: sub, cmc: 0, type_line: `Basic Land — ${sub}` }
+      }),
     ],
     commanderCmc: commanderCard?.cmc ?? 4,
+    // Colour requirement for the commander. Without this the simulation scored a
+    // greedy five-colour manabase exactly as well as a clean two-colour one.
+    commanderColors: colorRequirements({
+      mana_cost: commanderCard?.mana_cost || '',
+      color_identity: commanderCard?.color_identity || [],
+    }),
     games: 200,
   })
 
@@ -352,6 +371,7 @@ function measure(picks, commanderCard, needs, landTarget = 37) {
 
   const n = nonland.length || 1
   return {
+    gfColorStuck: gf?.colorStuckPct ?? NaN,
     gfCommanderT5: gf?.commanderByT5Pct ?? NaN,
     gfAvgCmdTurn: gf?.avgCommanderTurn ?? NaN,
     gfManaT5: gf?.avgManaT5 ?? NaN,
@@ -390,6 +410,9 @@ function measure(picks, commanderCard, needs, landTarget = 37) {
 // A card counts toward EVERY type it has: an Artifact Creature is a creature
 // when you're asking "do I have enough bodies" and an artifact when you're
 // asking "do I have enough artifacts".
+// Basic land for each colour, for the manabase the app adds on finish.
+const BASIC_BY_COLOR = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' }
+
 const CARD_TYPES = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker']
 
 function typesOf(typeLine = '') {
@@ -703,6 +726,7 @@ async function runCommander(name, metaCache, collection = null) {
 
 const METRICS = [
   // ── Independent (simulation, not classifier) ──
+  ['gfColorStuck', 'GF: colour screwed %', 'down'],
   ['gfCommanderT5', 'GF: commander by T5 %', 'up'],
   ['gfAvgCmdTurn', 'GF: avg commander turn', 'down'],
   ['gfManaT5', 'GF: mana on turn 5', 'up'],

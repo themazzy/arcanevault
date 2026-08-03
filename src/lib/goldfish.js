@@ -84,6 +84,63 @@ export function isManaRock(card) {
   return /\{t\}[^.\n]{0,40}\badd\b/.test(o)
 }
 
+// ── Colour ────────────────────────────────────────────────────────────────────
+// Deliberately reimplemented here rather than imported from deckBuildAssistant.
+// This module's whole value is being independent of the classifiers it checks;
+// sharing code with them would let a bug agree with itself.
+
+export const COLORS = ['W', 'U', 'B', 'R', 'G']
+const BASIC_TYPE_COLOR = { plains: 'W', island: 'U', swamp: 'B', mountain: 'R', forest: 'G' }
+
+/** Colours a permanent can produce once in play. */
+export function producedColors(card) {
+  const t = String(card?.type_line || '').toLowerCase()
+  const o = String(card?.oracle_text || '').toLowerCase()
+  const out = new Set()
+  for (const [sub, col] of Object.entries(BASIC_TYPE_COLOR)) if (t.includes(sub)) out.add(col)
+  for (const clause of o.split(/[.\n;]/)) {
+    if (!clause.includes('add')) continue
+    if (/\bany (color|type)\b/.test(clause)) { COLORS.forEach(c => out.add(c)); continue }
+    for (const c of COLORS) {
+      if (new RegExp(`\{[^}]*${c.toLowerCase()}[^}]*\}`).test(clause)) out.add(c)
+    }
+  }
+  return out
+}
+
+/**
+ * Coloured pips a spell needs. Prefers the real mana cost; falls back to colour
+ * identity (one pip per colour) when the cost wasn't exported, which understates
+ * double-pip costs but still catches the case that matters — a card you simply
+ * cannot produce the colours for.
+ */
+export function colorRequirements(card) {
+  const req = {}
+  const cost = String(card?.mana_cost || '')
+  if (cost) {
+    for (const sym of cost.match(/\{[^}]+\}/g) || []) {
+      const inner = sym.slice(1, -1).toUpperCase()
+      // Hybrid and Phyrexian pips are payable another way; they set no hard
+      // requirement, so only strict single-colour symbols count.
+      if (COLORS.includes(inner)) req[inner] = (req[inner] || 0) + 1
+    }
+    return req
+  }
+  for (const c of card?.color_identity || []) {
+    const u = String(c).toUpperCase()
+    if (COLORS.includes(u)) req[u] = 1
+  }
+  return req
+}
+
+/** Can the colours currently available pay this spell's coloured pips? */
+export function colorsAvailable(req, sourcesByColor) {
+  for (const [c, n] of Object.entries(req)) {
+    if ((sourcesByColor[c] || 0) < n) return false
+  }
+  return true
+}
+
 // ── Opening hand ──────────────────────────────────────────────────────────────
 
 /**
@@ -125,7 +182,7 @@ export function drawOpening(deck, rng, { maxMulligans = 3 } = {}) {
  * The point is comparison between arms on identical shuffles, where these
  * simplifications cancel — not an absolute prediction of a real game.
  */
-export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
+export function simulateGame({ deck, commanderCmc = 4, commanderColors = {}, turns = 8, rng }) {
   const { hand: opening, mulligans } = drawOpening(deck, rng)
   const library = shuffled(deck, rng).filter(c => !opening.includes(c))
   const hand = [...opening]
@@ -133,6 +190,9 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
   let landsInPlay = 0
   let rocks = 0
   let extraDrops = 0
+  const sources = { W: 0, U: 0, B: 0, R: 0, G: 0 }
+  const addSource = card => { for (const c of producedColors(card)) sources[c]++ }
+  let colorStuckTurns = 0
   let commanderTurn = null
   const manaByTurn = []
   const landsByTurn = []
@@ -150,6 +210,7 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
     while (drops > 0) {
       const landIdx = hand.findIndex(isLand)
       if (landIdx < 0) break
+      addSource(hand[landIdx])
       hand.splice(landIdx, 1)
       landsInPlay++
       madeADrop = true
@@ -161,8 +222,14 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
     // Commander first once affordable — it is the deck's engine, and casting it
     // is the single most informative thing about whether the deck functions.
     if (commanderTurn == null && mana >= commanderCmc) {
-      commanderTurn = turn
-      mana -= commanderCmc
+      if (colorsAvailable(commanderColors, sources)) {
+        commanderTurn = turn
+        mana -= commanderCmc
+      } else {
+        // Enough mana, wrong colours — the failure mode a colourless pool can't
+        // see, and the one a greedy five-colour manabase actually suffers.
+        colorStuckTurns++
+      }
     }
     // Then greedily deploy, most expensive first.
     const castable = hand
@@ -172,9 +239,10 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
     const spent = new Set()
     for (const x of castable) {
       if (x.cmc > mana) continue
+      if (!colorsAvailable(colorRequirements(x.c), sources)) continue
       mana -= x.cmc
       spent.add(x.i)
-      if (isManaRock(x.c)) rocks++
+      if (isManaRock(x.c)) { rocks++; addSource(x.c) }
       // Ramp that fetches lands into play, and permanents that grant extra drops.
       landsInPlay += landsPutIntoPlay(x.c)
       extraDrops += extraLandDrops(x.c)
@@ -189,7 +257,7 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
     landsInHandByTurn.push(hand.filter(isLand).length)
   }
 
-  return { mulligans, commanderTurn, manaByTurn, landsByTurn, landsInHandByTurn, missedLandDrops, stuckInHand: hand.length }
+  return { mulligans, commanderTurn, manaByTurn, landsByTurn, landsInHandByTurn, missedLandDrops, colorStuckTurns, stuckInHand: hand.length }
 }
 
 // ── Aggregate ─────────────────────────────────────────────────────────────────
@@ -199,7 +267,7 @@ export function simulateGame({ deck, commanderCmc = 4, turns = 8, rng }) {
  * classifier verdict — this is the part that can contradict the rest of the
  * project rather than agree with it by construction.
  */
-export function goldfishDeck({ deck = [], commanderCmc = 4, games = 200, turns = 8, seed = 12345 } = {}) {
+export function goldfishDeck({ deck = [], commanderCmc = 4, commanderColors = {}, games = 200, turns = 8, seed = 12345 } = {}) {
   if (!deck.length) return null
   const rng = makeRng(seed)
   let castByT5 = 0
@@ -208,15 +276,17 @@ export function goldfishDeck({ deck = [], commanderCmc = 4, games = 200, turns =
   let flooded = 0
   let mulliganed = 0
   let missedSum = 0
+  let colorStuck = 0
   let commanderTurnSum = 0
   let commanderTurnN = 0
   const manaT5 = []
   const landsT4 = []
 
   for (let g = 0; g < games; g++) {
-    const r = simulateGame({ deck, commanderCmc, turns, rng })
+    const r = simulateGame({ deck, commanderCmc, commanderColors, turns, rng })
     if (r.mulligans > 0) mulliganed++
     missedSum += r.missedLandDrops
+    if (r.colorStuckTurns > 0) colorStuck++
     if (r.commanderTurn == null) neverCast++
     else {
       commanderTurnSum += r.commanderTurn
@@ -243,5 +313,6 @@ export function goldfishDeck({ deck = [], commanderCmc = 4, games = 200, turns =
     floodedPct: (flooded / games) * 100,
     mulliganPct: (mulliganed / games) * 100,
     avgMissedLandDrops: missedSum / games,
+    colorStuckPct: (colorStuck / games) * 100,
   }
 }
