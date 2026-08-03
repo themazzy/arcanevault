@@ -68,8 +68,35 @@ const RECURSION = /return [^.\n]{0,70}from (your|a|target player's) graveyard to
 /** Extra land drops, the engine a landfall commander actually runs on. */
 const EXTRA_LAND = /play (an|one|two|three|up to (one|two|three)) additional lands?/
 
-/** Untapper — the engine behind a "tap:" commander (Krenko, Kinnan). */
-const UNTAPPER = /untap (target|another target|up to (one|two)) [a-z ]{0,25}(creature|permanent|artifact)/
+/**
+ * Untapper — the engine behind a "{T}:" commander (Krenko, Kinnan).
+ * "untap all creatures" (Intruder Alarm) counts too; it was missed by requiring
+ * a targeted untap.
+ */
+const UNTAPPER = /untap (target|another target|up to (one|two)|all|each) [a-z ]{0,25}(creature|permanent|artifact)/
+
+/**
+ * Sacrifice fodder: things you don't mind losing.
+ *
+ * A sacrifice deck needs BOTH halves — outlets and things to feed them. The
+ * source video makes the point explicitly ("cards that make things we don't
+ * care about sacrificing"), and a deck with six outlets and nothing to sacrifice
+ * is as broken as the reverse. Artifact tokens count: the common templating is
+ * "sacrifice another creature or artifact" (Hei Bai) or "another permanent"
+ * (Korvold), so Treasures are fodder too.
+ */
+const FODDER = /create [^.\n]{0,60}(creature|artifact|treasure|clue|food|blood) tokens?/
+
+/**
+ * Haste GRANTED to others — what an attack-triggered commander needs to do
+ * anything the turn it lands.
+ *
+ * Must be granted, not possessed: Gishath's own type line reads "Vigilance,
+ * trample, haste", which makes it a haste creature, not a haste enabler. The
+ * grant templating always has has/have/gains, or Thousand-Year Elixir's "as
+ * though those creatures had haste".
+ */
+const HASTE_GRANT = /(creatures? you control|equipped creature|enchanted creature|target creature|they|it) (has|have|gains?) [a-z, ]{0,30}haste|as though (those|these) creatures had haste/
 
 export const ENABLERS = {
   sacOutlet: {
@@ -108,6 +135,18 @@ export const ENABLERS = {
     why: 'Your commander has a tap ability worth using more than once per turn.',
     test: (o) => UNTAPPER.test(o),
   },
+  fodder: {
+    id: 'fodder',
+    label: 'sacrifice fodder',
+    why: "Your commander sacrifices permanents — it needs a supply of things you don't mind losing, or the outlets have nothing to eat.",
+    test: (o) => FODDER.test(o),
+  },
+  haste: {
+    id: 'haste',
+    label: 'haste enablers',
+    why: 'Your commander pays off attacking, so it wants to attack the turn it lands rather than surviving a rotation first.',
+    test: (o) => HASTE_GRANT.test(o),
+  },
 }
 
 /** Every enabler a card provides. Tribe membership is handled separately. */
@@ -137,6 +176,9 @@ export function isTribeMember(typeLine = '', tribe = null) {
 // what should ultimately set them — treat these as hypotheses, not findings.
 const HOOK_NEEDS = [
   { hook: 'sacrifice', enabler: 'sacOutlet', target: 6 },
+  { hook: 'sacrifice', enabler: 'fodder', target: 8 },
+  { hook: 'attack', enabler: 'haste', target: 4 },
+  { hook: 'tapAbility', enabler: 'untapper', target: 3 },
   { hook: 'leaves', enabler: 'sacOutlet', target: 4 },
   { hook: 'etbOthers', enabler: 'blink', target: 5 },
   { hook: 'graveyard', enabler: 'selfMill', target: 4 },
@@ -177,6 +219,12 @@ export function caresAboutOthersEntering(oracleText = '') {
  * A real sacrifice commander either instructs you to sacrifice, or pays off
  * OTHER permanents dying.
  */
+/** Does the commander's own engine run off a {T} ability? */
+export function hasTapAbility(oracleText = '') {
+  const o = stripReminders(String(oracleText)).toLowerCase()
+  return /\{t\}[^:\n]{0,40}:/.test(o)
+}
+
 export function wantsSacrificeOutlets(oracleText = '') {
   const o = stripReminders(String(oracleText)).toLowerCase()
   if (!o) return false
@@ -252,6 +300,9 @@ export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle 
   const effective = new Set(hooks)
   // Synthetic hook: only a commander that pays off OTHERS entering wants blink.
   if (caresAboutOthersEntering(commanderOracle)) effective.add('etbOthers')
+  // Synthetic hook: a commander whose engine is a {T} ability (Krenko, Kinnan)
+  // gets far more out of untappers than one that just has a static buff.
+  if (hasTapAbility(commanderOracle)) effective.add('tapAbility')
   // The bare `sacrifice` hook fires on any "dies", including equipment
   // self-protection — Halvar's back face reads "Whenever equipped creature dies,
   // return it to its owner's hand", and the sweep duly demanded 6 sacrifice

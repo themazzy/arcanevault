@@ -317,3 +317,72 @@ describe('commanderNeeds — measured targets override the constants', () => {
     expect(needs.find(n => n.enabler === 'sacOutlet').target).toBe(3)
   })
 })
+
+// A sacrifice deck needs BOTH halves. Six outlets and nothing to feed them is
+// as broken as the reverse — the source video makes the point explicitly.
+describe('fodder detection', () => {
+  const t = (o, ty = 'Enchantment') => cardEnablers(o, ty).has('fodder')
+
+  it('accepts repeatable creature-token makers', () => {
+    expect(t('At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying.')).toBe(true)
+    expect(t('At the beginning of your upkeep, create a 1/1 green Saproling creature token for each +1/+1 counter on this creature.')).toBe(true)
+    expect(t('Whenever this creature enters or attacks, create two 2/2 black Zombie creature tokens.', 'Creature — Giant')).toBe(true)
+  })
+
+  it('accepts one-shot token makers — still something to sacrifice', () => {
+    expect(t('Create two 1/1 white Soldier creature tokens.', 'Instant')).toBe(true)
+  })
+
+  // Korvold sacrifices "another permanent" and Hei Bai "another creature or
+  // artifact", so Treasures are fodder too.
+  it('accepts artifact tokens', () => {
+    expect(t('Whenever another creature you control dies, create a Treasure token.', 'Creature')).toBe(true)
+  })
+
+  it('rejects cards that make no tokens', () => {
+    expect(t('{T}: Add {C}{C}.', 'Artifact')).toBe(false)
+    expect(t('Sacrifice a creature: Add {C}{C}.', 'Artifact')).toBe(false)
+  })
+})
+
+describe('haste enabler detection', () => {
+  const t = (o, ty = 'Enchantment') => cardEnablers(o, ty).has('haste')
+
+  it('accepts cards that GRANT haste', () => {
+    expect(t('Creatures you control have haste.')).toBe(true)
+    expect(t('Equipped creature has haste and shroud.\nEquip {0}', 'Artifact — Equipment')).toBe(true)
+    expect(t('Equipped creature has hexproof and haste.', 'Artifact — Equipment')).toBe(true)
+    expect(t('You may activate abilities of creatures you control as though those creatures had haste.', 'Artifact')).toBe(true)
+  })
+
+  // Gishath's own type line is "Vigilance, trample, haste" — that makes it a
+  // haste creature, not a haste enabler. Counting it would tell an attack-
+  // trigger deck it already has what it needs.
+  it('rejects a creature that merely HAS haste itself', () => {
+    expect(t('Vigilance, trample, haste\nWhenever Gishath deals combat damage to a player, reveal that many cards.', 'Legendary Creature — Dinosaur Avatar')).toBe(false)
+  })
+})
+
+describe('untapper + tap-ability hook', () => {
+  it('accepts mass untappers as well as targeted ones', () => {
+    expect(cardEnablers('Whenever a creature enters, untap all creatures.', 'Enchantment').has('untapper')).toBe(true)
+    expect(cardEnablers('{1}, {T}: Untap target creature.', 'Artifact').has('untapper')).toBe(true)
+  })
+
+  it('derives an untapper need from a {T}-ability commander', () => {
+    const needs = commanderNeeds(new Set(), null, '{T}: Create X 1/1 red Goblin creature tokens, where X is the number of Goblins you control.')
+    expect(needs.map(n => n.enabler)).toContain('untapper')
+  })
+
+  it('does not derive one from a commander with no tap ability', () => {
+    const needs = commanderNeeds(new Set(['attack']), null, 'Whenever Edgar Markov attacks, put a +1/+1 counter on each Vampire you control.')
+    expect(needs.map(n => n.enabler)).not.toContain('untapper')
+  })
+})
+
+describe('attack hook derives haste', () => {
+  it('asks an attack-trigger commander for haste enablers', () => {
+    const needs = commanderNeeds(new Set(['attack']), null, 'Whenever Gishath deals combat damage to a player, reveal that many cards.')
+    expect(needs.map(n => n.enabler)).toContain('haste')
+  })
+})
