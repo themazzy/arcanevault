@@ -19,6 +19,9 @@
 // Env: HARNESS_COMMANDERS=name1,name2  (override the built-in list)
 //      HARNESS_OUT=path                (report destination)
 //      HARNESS_LIMIT=n                 (first n commanders only — smoke runs)
+//      HARNESS_MAXADD=n                (override the engine pass add ceiling —
+//                                       used to prove the cap is honoured: 1 gives
+//                                       66% coverage on Muldrotha, 6 gives 100%)
 
 import { it } from 'vitest'
 import fs from 'fs'
@@ -34,6 +37,8 @@ import {
   planAutoFill,
   planTargetAvgCmc,
   upgradePoolDepth,
+  analyzeCut,
+  coarseRole,
   COMMANDER_TEMPLATE,
   COMMANDER_DECK_SIZE,
   ROLE_ORDER,
@@ -431,33 +436,69 @@ async function runCommander(name, metaCache) {
     })
     let finalPicks = picks
     if (arm.enginePass && needs.length) {
-      // In-memory equivalent of runEnginePass: the harness has no deck rows to
-      // add/remove, so it applies the same provider selection directly to the
-      // pick list, swapping out the lowest-ranked non-provider filler.
-      const asCard = c => ({ name: c.name, oracle: String(c.oracle || c.oracle_text || ''), type: String(c.type || c.type_line || '') })
-      const cov = analyzeEngineCoverage(picks.map(p => asCard(p.cand)), needs)
-      const inDeck = new Set(picks.map(p => (p.cand.name || '').toLowerCase()))
-      const pool = []
-      for (const spec of roles) for (const c of [...(spec.ownedCandidates || []), ...(spec.upgrades || [])]) pool.push(c)
-      const swaps = []
-      for (const need of cov.filter(c => c.short > 0).sort((a, b) => b.short - a.short)) {
-        let taken = 0
-        for (const c of pool) {
-          if (taken >= need.short || swaps.length >= 6) break
-          const k = (c.name || '').toLowerCase()
-          if (inDeck.has(k)) continue
-          if (!cardEnablers(String(c.oracle || ''), String(c.type || '')).has(need.enabler)) continue
-          inDeck.add(k); swaps.push({ role: need.enabler, cand: c, owned: false }); taken++
-        }
+      // Calls the REAL runEnginePass rather than approximating it. The previous
+      // in-memory approximation ignored the budget gate, cut the last picks
+      // instead of the worst-ranked, and hardcoded its own add ceiling — so its
+      // ~99% coverage was an upper bound rather than a measurement. Feeding the
+      // shipped pass synthetic deck rows and in-memory add/remove callbacks
+      // measures what users will actually get.
+      const rowOf = (p, i) => ({
+        id: `r${i}`, name: p.cand.name, qty: 1,
+        type_line: String(p.cand.type || p.cand.type_line || ''),
+        oracle_text: String(p.cand.oracle || p.cand.oracle_text || ''),
+        cmc: p.cand.cmc ?? 0,
+      })
+      const rows = picks.map(rowOf)
+      const byId = new Map(rows.map((r, i) => [r.id, picks[i]]))
+      const byName = new Map()
+      for (const spec of roles) for (const c of [...(spec.ownedCandidates || []), ...(spec.upgrades || [])]) {
+        const k = (c.name || '').toLowerCase()
+        if (!byName.has(k)) byName.set(k, c)
       }
-      if (swaps.length) {
-        const provider = new Set()
-        for (const c of cov) for (const p of c.providers) provider.add(p.toLowerCase())
-        const cuttable = picks
-          .filter(p => !provider.has((p.cand.name || '').toLowerCase()))
-          .slice(-swaps.length)
-        const cutSet = new Set(cuttable.map(p => p.cand.name))
-        finalPicks = [...picks.filter(p => !cutSet.has(p.cand.name)), ...swaps]
+      const populated = [
+        { id: 'cmd', name: commanderCard.name, qty: 1, is_commander: true, type_line: commanderCard.type_line },
+        ...rows,
+      ]
+      const cov = analyzeEngineCoverage(
+        picks.map(p => ({
+          name: p.cand.name,
+          oracle: String(p.cand.oracle || p.cand.oracle_text || ''),
+          type: String(p.cand.type || p.cand.type_line || ''),
+        })),
+        needs,
+      )
+      const ranked = [...byName.values()].sort((a, b) => (b.edhrecInclusion || 0) - (a.edhrecInclusion || 0))
+      let addedRows = []
+      const pass = await runEnginePass({
+        populated,
+        fillIds: rows.map(r => r.id),
+        coverage: cov,
+        providersFor: enabler => ranked.filter(c =>
+          cardEnablers(String(c.oracle || ''), String(c.type || '')).has(enabler)),
+        deckSize: COMMANDER_DECK_SIZE,
+        isLandRow: d => String(d?.type_line || '').toLowerCase().includes('land'),
+        passesBudget: () => true,
+        analyzeCutFn: args => analyzeCut({
+          plan: basePlan, sfMap: {}, cutMode: 'balanced',
+          roleOf: dc => coarseRole(dc, dc),
+          inclusionOf: name => byName.get(String(name).toLowerCase())?.edhrecInclusion ?? 0,
+          ...args,
+        }),
+        addCards: async items => {
+          addedRows = items.map((it, i) => ({ id: `e${i}`, name: it.name, qty: 1 }))
+          return { rows: addedRows }
+        },
+        removeCards: async ids => ids,
+        maxAdd: Number(process.env.HARNESS_MAXADD) || EXPERIMENTAL_DEFAULTS.engineMaxAdd,
+      })
+      if (pass.added) {
+        const cutSet = new Set(pass.cutIds)
+        const kept = rows.filter(r => !cutSet.has(r.id)).map(r => byId.get(r.id))
+        const addedPicks = pass.engineRows.map(r => {
+          const cand = byName.get((r.name || '').toLowerCase()) || { name: r.name, cmc: 0 }
+          return { role: ROLE_SYNERGY, cand, owned: false }
+        })
+        finalPicks = [...kept, ...addedPicks]
       }
     }
     results[arm.id] = measure(finalPicks, commanderCard, needs)

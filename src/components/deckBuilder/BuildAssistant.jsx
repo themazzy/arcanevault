@@ -775,12 +775,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         // this every existing deck card classifies as Synergy until the much
         // larger owned-collection backfill finishes — which on big collections
         // can take many seconds, leaving the other roles looking empty.
-        // Lab mode also needs the COMMANDER's oracle text — the keyword-overlap
-        // signal is derived from it. The shipped path never classifies the
-        // commander, so it stays excluded there and the batch is unchanged.
+        // Includes the COMMANDER: its rules text is what the engine needs are
+        // derived from (a commander that says "sacrifice" needs outlets and
+        // fodder), so every build needs it, not just lab mode.
         const deckIds = [...new Set(
           (deckCards || [])
-            .filter(dc => (experimental || !dc?.is_commander) && dc?.scryfall_id && !sfById[dc.scryfall_id]?.oracle_text)
+            .filter(dc => dc?.scryfall_id && !sfById[dc.scryfall_id]?.oracle_text)
             .map(dc => dc.scryfall_id),
         )]
         if (deckIds.length) {
@@ -919,7 +919,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const commanderSf = commanderRow ? (sfMap?.[commanderRow.scryfall_id] || null) : null
 
   const scoringCtx = useMemo(() => {
-    if (!experimental) return null
     return buildScoringContext({
       commanderOracle: commanderSf?.oracle_text || commanderRow?.oracle_text || '',
       commanderType: commanderSf?.type_line || commanderRow?.type_line || '',
@@ -931,7 +930,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           return { oracle: sf?.oracle_text || d?.oracle_text || '', type: sf?.type_line || d?.type_line || '' }
         }),
     })
-  }, [experimental, commanderRow, commanderSf, deckCards, sfMap])
+  }, [commanderRow, commanderSf, deckCards, sfMap])
 
   // ── Engine coverage ───────────────────────────────────────────────────────
   // What the commander's own text says the deck needs in order to FUNCTION —
@@ -941,10 +940,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // work. Measured across 51 commanders, roughly one in ten auto-filled decks
   // comes up short on something its commander requires.
   const engineNeeds = useMemo(() => {
-    if (!experimental || !scoringCtx) return []
+    if (!scoringCtx) return []
     const oracle = commanderSf?.oracle_text || commanderRow?.oracle_text || ''
     return commanderNeeds(scoringCtx.keywords, scoringCtx.tribe, oracle, plan?.engineTargets)
-  }, [experimental, scoringCtx, commanderSf, commanderRow, plan])
+  }, [scoringCtx, commanderSf, commanderRow, plan])
 
   const engineCoverage = useMemo(() => {
     if (!engineNeeds.length) return []
@@ -966,6 +965,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const expScore = useCallback(
     cand => (experimental && scoringCtx ? scoreCandidate(cand, scoringCtx, expCfg) : null),
     [experimental, scoringCtx, expCfg],
+  )
+  // Ranking used by the engine pass — must follow the ACTIVE config, since that
+  // pass now runs for everyone and lab mode's tile readout does not.
+  const rankOf = useCallback(
+    cand => scoreCandidate(cand, scoringCtx, activeCfg).rank,
+    [scoringCtx, activeCfg],
   )
 
   // Role of a card already in the deck. In lab mode a card whose only "draw" is
@@ -1547,7 +1552,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         }
       }
     }
-    const ranked = [...pool].sort((a, b) => (expScore(b)?.rank ?? 0) - (expScore(a)?.rank ?? 0))
+    const ranked = [...pool].sort((a, b) => rankOf(b) - rankOf(a))
     const pass = await enginePassCore({
       populated,
       fillIds,
@@ -1575,7 +1580,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       }),
       addCards: onAddCards,
       removeCards: onRemoveCards,
-      maxAdd: expCfg.engineMaxAdd,
+      maxAdd: activeCfg.engineMaxAdd,
     })
     markAdded(pass.engineRows)
     return pass
@@ -1616,7 +1621,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
     // Engine pass runs FIRST (lab mode only): a deck that can't do what its
     // commander requires is broken in a way no combo fixes.
-    if (experimental && expCfg.enginePass && typeof onAddCards === 'function' && (addedCardIds?.length)) {
+    if (activeCfg.enginePass && typeof onAddCards === 'function' && (addedCardIds?.length)) {
       const pass = await runEnginePass([...deckCards, ...rows], addedCardIds)
       if (pass.added) {
         engineAdded = pass.engineRows.length

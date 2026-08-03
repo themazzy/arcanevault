@@ -102,8 +102,9 @@ export const EXPERIMENTAL_DEFAULTS = {
  *     re-ranking by it changes almost nothing.
  *   • drawCurve — made its own target metric worse.
  *   • the commander-cost curve shift — unproven, and it moved the wrong way.
- *   • the engine pass — real, but fires on ~1 deck in 10 and is newer; it stays
- *     in lab mode until its targets are calibrated from data rather than guessed.
+ * The engine pass IS included: its targets are now derived per commander from
+ * EDHREC (deriveEnablerTargets) instead of guessed, which was the condition for
+ * promoting it.
  *
  * Known trade-off: multi-role slightly worsens draw quality on its own
  * (selection-only +0.65 in isolation) because a two-job card often does its
@@ -119,7 +120,12 @@ export const SHIPPED_SIGNALS = {
   commanderKw: false,
   deckAffinity: false,
   comboType: false,
-  enginePass: false,
+  // Promoted: with per-commander targets derived from EDHREC rather than
+  // guessed, this takes engine coverage from 57.8% to ~99% across 51
+  // commanders — and specifically reverses the 6.4-point coverage regression
+  // the three ranking signals above introduce by preferring generically
+  // stronger cards over narrow enablers.
+  enginePass: true,
 }
 
 // Beyond three roles the signal is almost certainly a classifier false positive

@@ -425,8 +425,15 @@ describe('SHIPPED_SIGNALS', () => {
 
   it('leaves the signals that measured negative or unproven off', () => {
     expect(SHIPPED_SIGNALS.drawCurve).toBe(false)   // worsened its own metric
-    expect(SHIPPED_SIGNALS.enginePass).toBe(false)  // targets still guessed
     expect(SHIPPED_SIGNALS.comboType).toBe(false)   // not measured in isolation
+  })
+
+  // Promoted once its targets came from EDHREC rather than from me. It also
+  // reverses the coverage regression the three ranking signals cause by
+  // preferring generically stronger cards over narrow enablers.
+  it('includes the engine pass', () => {
+    expect(SHIPPED_SIGNALS.enginePass).toBe(true)
+    expect(SHIPPED_SIGNALS.engineMaxAdd).toBeGreaterThan(0)
   })
 
   it('still gates the top end and the draw quota', () => {
