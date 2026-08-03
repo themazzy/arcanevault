@@ -324,7 +324,10 @@ export function cardRoleTags(oracle = '', typeLine = '') {
   // land-fetch spell in the format a multi-engine bonus it hasn't earned. The
   // shipped ladder avoids this by ordering (land fetch is checked before Tutor);
   // independent predicates have no ordering to lean on, so it must be explicit.
-  if (/search your library (and\/or graveyard )?for (a|an|up to (one|two|three|four)) (?![a-z, ]{0,30}\b(lands?|forests?|islands?|plains|swamps?|mountains?|wastes?)\b)[a-z, ]{0,40}(card|instant|sorcery|creature|artifact|enchantment|planeswalker|legendary)/.test(o)) {
+  // The quantifier list runs past "four" because real cards do: Tiamat searches
+  // for "up to five Dragon cards", and stopping at four silently dropped the
+  // biggest tutors in the format out of the Draw role entirely.
+  if (/search your library (and\/or graveyard )?for (a|an|up to (one|two|three|four|five|six|seven|eight|nine|ten|x|\d+)) (?![a-z, ]{0,30}\b(lands?|forests?|islands?|plains|swamps?|mountains?|wastes?)\b)[a-z, ]{0,40}(card|instant|sorcery|creature|artifact|enchantment|planeswalker|legendary)/.test(o)) {
     roles.add(ROLE_DRAW)
   }
 

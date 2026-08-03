@@ -626,8 +626,12 @@ describe('Draw quota picks only what it counts', () => {
     expect(gate(up('Faithless Looting', { oracle: 'Draw two cards, then discard two cards.', type: 'Sorcery' }), info)).toBe(true)
   })
 
-  it('rejects a card whose oracle text could not be resolved', () => {
-    expect(gate(up('Mystery Card'), info)).toBe(true)
+  // Deliberately lenient: demote only on text that says "not draw", never on
+  // absent text. Rejecting the unjudgeable left the Draw role stuck at 3/12
+  // whenever the metadata batch came back short, which is the far worse
+  // failure — an unfilled quota, not merely a questionable pick.
+  it('accepts a card whose oracle text could not be resolved', () => {
+    expect(gate(up('Mystery Card'), info)).toBe(false)
   })
 
   it('accepts impulse draw, which red fills this role with', () => {
@@ -665,14 +669,21 @@ describe('novelty floor', () => {
         ...Array.from({ length: 5 }, (_, i) => novel(`Novel ${i}`)),
       ],
     }]
+    // The budget has to be genuinely scarce for the reserve to mean anything:
+    // 20 nonland slots against 25 candidates. Given a 99-slot budget instead,
+    // spillover simply drains the whole pool and every novelty gets in for
+    // reasons that have nothing to do with the floor.
     const picks = planAutoFill({
       roles,
       liveCounts: new Map([[ROLE_RAMP, 0]]),
-      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      totalCards: 1, deckSize: 21, landsTarget: 0, currentLands: 0,
       source: 'recommended',
       noveltyFloor: 3,
       isNovel: isNoveltyPick,
     })
+    expect(picks).toHaveLength(20)
+    // 3 reserved novelties, and the 17 best staples take everything else —
+    // the remaining 2 novelties rank far below them and never get a slot.
     expect(picks.filter(p => isNoveltyPick(p.cand)).length).toBe(3)
   })
 

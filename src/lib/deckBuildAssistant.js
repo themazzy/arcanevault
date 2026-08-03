@@ -550,7 +550,14 @@ export function rankCutCandidates(candidates, mode = 'balanced') {
 // EDHREC staples sitting at 20-50% inclusion and auto-fill skewed heavily
 // off-meta. ×RECOMMANDER_RANK_SCALE caps its reach: a perfect score ties a
 // solidly-played card, but consensus staples above that always win.
-export const RECOMMANDER_RANK_SCALE = 60
+//
+// 60 was still too generous, because the scale was doing two jobs at once:
+// making off-meta picks *visible* and ranking them *honestly*. It can't do
+// both — at 60 a routine 0.5 score outranked a 25%-inclusion staple and
+// surfaced sixth under a "best overall" heading. `noveltyFloor` owns visibility
+// now (it reserves slots outright), so this is free to be an honest strength
+// estimate: a middling co-occurrence pick sits below anything real decks play.
+export const RECOMMANDER_RANK_SCALE = 35
 export function recRank(c) {
   return Math.max(c?.edhrecInclusion || 0, Math.round((c?.score || 0) * RECOMMANDER_RANK_SCALE))
 }

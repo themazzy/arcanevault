@@ -569,8 +569,9 @@ describe('deriveTopEndAllowance', () => {
   const many = (n, cmc) => Array.from({ length: n }, () => c(0.6, cmc))
 
   it('gives a dragon-style deck room for its bombs', () => {
-    // 40 cards at 0.6 = 24 covered; 20 of them are 6-drops -> ~half the deck.
-    const allowance = deriveTopEndAllowance([...many(20, 7), ...many(20, 3)], 6, 99)
+    // 42 cards at 0.6 = 25.2 covered, which clears the 25%-of-deck floor the
+    // function needs before it will trust the page at all; half are 6-drops.
+    const allowance = deriveTopEndAllowance([...many(21, 7), ...many(21, 3)], 6, 99)
     expect(allowance).toBeGreaterThan(20)
   })
 
@@ -581,8 +582,10 @@ describe('deriveTopEndAllowance', () => {
   })
 
   it('ignores lands, which have no mana value to speak of', () => {
+    // The lands contribute nothing to coverage, so the 45 spells have to carry
+    // it on their own (45 × 0.6 = 27, past the 24.75 floor).
     const lands = Array.from({ length: 40 }, () => ({ inclusionPct: 0.9, cmc: 0, type: 'Land' }))
-    expect(deriveTopEndAllowance([...lands, ...many(30, 7)], 6, 99)).toBeGreaterThan(TOP_END_FLOOR)
+    expect(deriveTopEndAllowance([...lands, ...many(45, 7)], 6, 99)).toBeGreaterThan(TOP_END_FLOOR)
   })
 
   it('returns null when the page is too thin, so the flat cap still applies', () => {

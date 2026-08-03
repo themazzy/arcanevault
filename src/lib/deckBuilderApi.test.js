@@ -24,6 +24,7 @@ import {
   parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings,
   getDeckBuilderCardMeta, importProxyUrl,
   fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
+  RECOMMENDATION_META_BATCH,
   pickAutomaticDeckPrinting, FORMATS, nameToSlug, getEdhrecPartnerSlugCandidates,
   fetchEdhrecCommander,
   importFromArchidekt, importFromMoxfield,
@@ -169,14 +170,55 @@ describe('recommendation metadata', () => {
 
     const cards = await fetchRecommendationMetadataByNames(names)
 
-    expect(sb.rpc).toHaveBeenCalledTimes(2)
-    expect(sb.rpc.mock.calls[0][1].requested_names).toHaveLength(300)
-    expect(sb.rpc.mock.calls[1][1].requested_names).toHaveLength(5)
+    const sizes = sb.rpc.mock.calls.map(call => call[1].requested_names.length)
+    expect(sizes.reduce((sum, n) => sum + n, 0)).toBe(305)
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(RECOMMENDATION_META_BATCH)
     expect(cards).toHaveLength(305)
     expect(cards.at(-1).name).toBe('Card 304')
   })
 
-  it('surfaces RPC failures to callers so they can degrade explicitly', async () => {
+  // A build plan asks for ~250 names at once. One timing-out batch used to throw
+  // away the whole result, which silently demoted every unowned EDHREC
+  // suggestion to header/type classification (mana dorks became "Creatures" ->
+  // Synergy rather than Ramp) with cmc 0 across the pool. Keep the rows we got.
+  it('keeps the batches that succeeded when one of them fails', async () => {
+    const names = Array.from({ length: RECOMMENDATION_META_BATCH * 2 }, (_, i) => `Card ${i}`)
+    sb.rpc.mockImplementation(async (_fn, { requested_names }) => {
+      // Fail every attempt that contains this one name, retry splits included.
+      if (requested_names.includes('Card 0')) {
+        return { data: null, error: new Error('canceling statement due to statement timeout') }
+      }
+      return {
+        data: requested_names.map(name => ({
+          scryfall_id: `id-${name}`, oracle_id: `oracle-${name}`, name, set_code: 'tst', legalities: {},
+        })),
+        error: null,
+      }
+    })
+
+    const cards = await fetchRecommendationMetadataByNames(names)
+
+    // The failing batch is retried as halves, so the half without 'Card 0' still lands.
+    expect(cards.length).toBeGreaterThan(RECOMMENDATION_META_BATCH)
+    expect(cards.some(c => c.name === 'Card 0')).toBe(false)
+    expect(cards.some(c => c.name === `Card ${RECOMMENDATION_META_BATCH * 2 - 1}`)).toBe(true)
+  })
+
+  it('retries a failed batch once before giving up on it', async () => {
+    sb.rpc
+      .mockResolvedValueOnce({ data: null, error: new Error('statement timeout') })
+      .mockResolvedValueOnce({
+        data: [{ scryfall_id: 'print-1', oracle_id: 'oracle-1', name: 'Sol Ring', set_code: 'cmm', legalities: {} }],
+        error: null,
+      })
+
+    const cards = await fetchRecommendationMetadataByNames(['Sol Ring'])
+
+    expect(sb.rpc).toHaveBeenCalledTimes(2)
+    expect(cards).toHaveLength(1)
+  })
+
+  it('surfaces RPC failures to callers when nothing at all resolved', async () => {
     sb.rpc.mockResolvedValue({ data: null, error: new Error('rpc unavailable') })
     await expect(fetchRecommendationMetadataByNames(['Sol Ring'])).rejects.toThrow('rpc unavailable')
   })

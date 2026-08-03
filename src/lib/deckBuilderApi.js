@@ -361,17 +361,57 @@ export function recommendationMetadataRowToCard(row) {
  * Rankings still come from EDHREC/Recommander; this replaces runtime Scryfall
  * enrichment for images, rules text, print identity, and format legalities.
  */
+// The RPC's cost is strongly superlinear in batch size (measured: 100 names
+// ≈ 325 ms, 250 names ≈ 3.2 s), so a single big batch sits close enough to the
+// 8 s statement timeout that it fails intermittently under autovacuum load.
+// A build plan asks for ~250 names at once, and it was timing out often enough
+// that unowned EDHREC suggestions regularly arrived with no oracle text and no
+// cmc — which silently demotes them to header/type classification (every mana
+// dork becomes "Creatures" → Synergy instead of Ramp) and zeroes curve fit.
+// Smaller batches are also *faster* in total, so there is no trade here.
+export const RECOMMENDATION_META_BATCH = 75
+
 export async function fetchRecommendationMetadataByNames(names) {
   const uniqueNames = [...new Set((names || []).map(name => String(name || '').trim()).filter(Boolean))]
   if (!uniqueNames.length) return []
   const cards = []
-  for (let i = 0; i < uniqueNames.length; i += 300) {
-    const { data, error } = await sb.rpc('get_recommendation_card_metadata', {
-      requested_names: uniqueNames.slice(i, i + 300),
-    })
+  let failed = 0
+  let lastError = null
+
+  const run = async batch => {
+    const { data, error } = await sb.rpc('get_recommendation_card_metadata', { requested_names: batch })
     if (error) throw error
     cards.push(...(data || []).map(recommendationMetadataRowToCard).filter(Boolean))
   }
+
+  for (let i = 0; i < uniqueNames.length; i += RECOMMENDATION_META_BATCH) {
+    const batch = uniqueNames.slice(i, i + RECOMMENDATION_META_BATCH)
+    try {
+      await run(batch)
+    } catch (err) {
+      lastError = err
+      // One retry — a statement timeout is load-dependent, not a bad request.
+      // Split it when there is something to split, so the retry is also cheaper.
+      const halves = batch.length > 1
+        ? [batch.slice(0, Math.ceil(batch.length / 2)), batch.slice(Math.ceil(batch.length / 2))]
+        : [batch]
+      // Each half is attempted independently — one bad half must not cancel the
+      // other. Partial metadata beats none: callers classify per card, so losing
+      // a slice costs a few classifications instead of the whole build plan.
+      for (const half of halves) {
+        try {
+          await run(half)
+        } catch (err2) {
+          lastError = err2
+          failed += 1
+        }
+      }
+    }
+  }
+
+  // Only surface the error when nothing at all resolved — otherwise callers
+  // would throw away good rows they can use.
+  if (!cards.length && failed) throw lastError
   return cards
 }
 
