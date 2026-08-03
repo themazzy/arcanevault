@@ -81,8 +81,6 @@ import {
   makeExperimentalComparatorFor,
   makeExperimentalExclude,
   countTopEnd,
-  preferResourceCombos,
-  adjustTargetForCommander,
   isNoveltyPick,
   candidateOracle,
   candidateType,
@@ -1051,18 +1049,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // (EDHREC data for this commander/theme, or an archetype fallback). Advisory —
   // shown on the summary curve so the player can see if the deck runs heavy.
   const avgCmc = useMemo(() => deckAvgCmc(deckCards, sfMap), [deckCards, sfMap])
-  // Lab mode shifts the curve target by what the commander costs: an expensive
-  // commander wants cheap support so there's a board before it lands, a cheap
-  // one leaves room for a higher curve. Identity function when off.
-  const effectiveCurveTarget = useMemo(
-    () => (experimental && scoringCtx
-      ? adjustTargetForCommander(curveTarget, scoringCtx.commanderCmc)
-      : curveTarget),
-    [experimental, scoringCtx, curveTarget],
-  )
   const curveStatus = useMemo(
-    () => curveVerdict(avgCmc, effectiveCurveTarget),
-    [avgCmc, effectiveCurveTarget],
+    () => curveVerdict(avgCmc, curveTarget),
+    [avgCmc, curveTarget],
   )
 
   const totalCards = useMemo(() => countDeckCards(deckCards), [deckCards])
@@ -1437,7 +1426,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // Curve plays a subordinate role in which good cards get picked: within a
       // band of similarly-recommended cards, auto-fill favors the ones that pull
       // the deck toward its target curve (see rankComparator/curveFitKey).
-      targetCmc: effectiveCurveTarget,
+      targetCmc: curveTarget,
       curveStatus: curveStatus.status,
       exclude: autoFillExclude,
       // Novelty band: the exclude gate caps off-meta picks, this guarantees a
@@ -1455,12 +1444,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       // simulated colour screw.
       comparatorFor: makeExperimentalComparatorFor({
         ctx: scoringCtx, cfg: activeCfg,
-        targetCmc: effectiveCurveTarget, curveStatus: curveStatus.status,
+        targetCmc: curveTarget, curveStatus: curveStatus.status,
       }),
     }
   }, [plan, loading, liveCounts, totalCards, landsTarget, manaSources.lands,
       nonbasicTarget, currentBasicLands, landCandidates, autoFillExclude,
-      effectiveCurveTarget, curveStatus.status, scoringCtx, activeCfg])
+      curveTarget, curveStatus.status, scoringCtx, activeCfg])
 
   // Auto-fill draws the FULL retained pool (Infinity), not the small display
   // cap — planAutoFill's exclude gate then removes over-budget / over-bracket /
@@ -1567,12 +1556,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       }),
       addCards: onAddCards,
       removeCards: onRemoveCards,
-      // Lab mode's "soft combo" preference: below bracket 4, complete the loops
-      // that make a resource (infinite mana / tokens / triggers) before the ones
-      // that just end the game.
-      orderCombos: experimental
-        ? list => preferResourceCombos(list, targetBracket, expCfg)
-        : undefined,
     })
     markAdded(pass.comboRows)
     return pass
@@ -2394,7 +2377,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   expCfg.commanderKw && 'keywords',
                   expCfg.topEndCap && 'top-end',
                   expCfg.drawQuality && 'draw quality',
-                  expCfg.comboType && 'combo type',
                 ].filter(Boolean).join(' · ') || 'all off'}
               </span>
             </summary>
@@ -2455,12 +2437,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 on={expCfg.drawCurve} onChange={v => setExpField('drawCurve', v)}
                 label="Draw sub-curve"
                 desc="Only a minority of the draw package may be expensive, and those must draw 3+."
-              />
-
-              <LabToggle
-                on={expCfg.comboType} onChange={v => setExpField('comboType', v)}
-                label="Prefer resource combos"
-                desc="Below Bracket 4, complete loops that make a resource before loops that just win."
               />
 
               <LabToggle
@@ -2691,13 +2667,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 const overall = rankOverallRecommendations({
                   ownedCandidates,
                   upgrades,
-                  targetCmc: effectiveCurveTarget,
+                  targetCmc: curveTarget,
                   curveStatus: curveStatus.status,
                   // Keep the visible ordering identical to what auto-fill would
                   // pick — the two must never disagree about what's best.
                   comparator: makeExperimentalComparator({
                     ctx: scoringCtx, cfg: activeCfg,
-                    targetCmc: effectiveCurveTarget, curveStatus: curveStatus.status,
+                    targetCmc: curveTarget, curveStatus: curveStatus.status,
                   }),
                 })
                   .filter(({ cand }) => (!onLands || !isBasicLandName(cand.name)) && passesBudget(cand.name, cand.sfCard))
@@ -3084,9 +3060,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 {avgCmc != null && (
                   <span className={styles.sectionHint}>
                     {' · avg '}{avgCmc.toFixed(2)}
-                    {effectiveCurveTarget != null && (
+                    {curveTarget != null && (
                       <>
-                        {' · target ~'}{effectiveCurveTarget.toFixed(1)}
+                        {' · target ~'}{curveTarget.toFixed(1)}
                         {curveStatus.status !== 'on' && (
                           <span
                             className={`${styles.curveVerdict} ${curveStatus.status === 'high' ? styles.curveHigh : styles.curveLow}`}

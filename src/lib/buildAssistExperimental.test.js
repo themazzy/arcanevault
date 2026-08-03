@@ -7,12 +7,8 @@ import {
   makeExperimentalComparator,
   makeExperimentalComparatorFor,
   makeExperimentalExclude,
-  synergyBonus,
   countTopEnd,
   isWeakExpensiveDraw,
-  classifyComboOutcome,
-  preferResourceCombos,
-  adjustTargetForCommander,
   candidateOracle,
   candidateType,
   candidateRoleTags,
@@ -311,106 +307,6 @@ describe('#5 draw quota quality + sub-curve', () => {
   })
 })
 
-describe('#6 combo outcome typing', () => {
-  const winCombo = { id: 1, uses: ['A', 'B'], produces: ['Infinite damage', 'Win the game'] }
-  const manaCombo = { id: 2, uses: ['C', 'D'], produces: ['Infinite colorless mana'] }
-  const tokenCombo = { id: 3, uses: ['E', 'F'], produces: ['Infinite creature tokens'] }
-
-  it('classifies produced features', () => {
-    expect(classifyComboOutcome(winCombo.produces)).toBe('win')
-    expect(classifyComboOutcome(manaCombo.produces)).toBe('resource')
-    expect(classifyComboOutcome(['Each opponent loses the game'])).toBe('win')
-    expect(classifyComboOutcome([])).toBe('resource')
-  })
-
-  it('floats resource loops above kill loops below bracket 4', () => {
-    const out = preferResourceCombos([winCombo, manaCombo, tokenCombo], 3, cfg)
-    expect(out.map(c => c.id)).toEqual([2, 3, 1])
-  })
-
-  it('leaves a high-power deck the kill', () => {
-    const out = preferResourceCombos([winCombo, manaCombo], 4, cfg)
-    expect(out.map(c => c.id)).toEqual([1, 2])
-  })
-
-  it('is a no-op when the signal is switched off', () => {
-    const out = preferResourceCombos([winCombo, manaCombo], 2, { ...cfg, comboType: false })
-    expect(out.map(c => c.id)).toEqual([1, 2])
-  })
-
-  it('preserves the caller ordering within each group', () => {
-    const out = preferResourceCombos([manaCombo, winCombo, tokenCombo], 2, cfg)
-    expect(out.map(c => c.id)).toEqual([2, 3, 1])
-  })
-})
-
-describe('adjustTargetForCommander', () => {
-  it('pulls the curve down for an expensive commander', () => {
-    expect(adjustTargetForCommander(3.2, 6)).toBeLessThan(3.2)
-  })
-  it('allows a higher curve behind a cheap commander', () => {
-    expect(adjustTargetForCommander(3.2, 1)).toBeGreaterThan(3.2)
-  })
-  it('leaves a mid-cost commander alone', () => {
-    expect(adjustTargetForCommander(3.2, 3)).toBeCloseTo(3.2)
-  })
-  it('passes through nulls', () => {
-    expect(adjustTargetForCommander(null, 4)).toBe(null)
-    expect(adjustTargetForCommander(3.2, null)).toBe(3.2)
-  })
-})
-
-// EDHREC's own synergy figure — how much more often a card appears in THIS
-// commander's decks than in all decks of the same colours. Fetched by the app
-// since forever and consumed by nothing until now. It is the only theme signal
-// that covers archetypes oracle text can't reach (tribal, enchantress,
-// spellslinger) and the only one that can say a card is actively off-plan.
-describe('EDHREC synergy', () => {
-  const ctx = buildScoringContext({ commanderOracle: KORVOLD.oracle, commanderType: KORVOLD.type })
-  const withSyn = (name, syn, inclusion = 40) => ({ ...up(name, { inclusion }), edhrecSynergy: syn })
-
-  it('rewards a high-synergy card', () => {
-    expect(synergyBonus(withSyn('Captivating Vampire', 0.72), cfg)).toBeGreaterThan(15)
-  })
-
-  it('penalises a card played LESS here than in generic decks', () => {
-    expect(synergyBonus(withSyn('Off Plan', -0.25), cfg)).toBeLessThan(0)
-  })
-
-  it('leaves a colour staple near neutral', () => {
-    expect(Math.abs(synergyBonus(withSyn('Sol Ring', 0.04), cfg))).toBeLessThanOrEqual(2)
-  })
-
-  it('clamps outliers so one card cannot dominate', () => {
-    const huge = synergyBonus(withSyn('Absurd', 5), cfg)
-    expect(huge).toBe(Math.round(cfg.synergyCeil * cfg.synergyWeight))
-  })
-
-  it('is inert when the signal is off', () => {
-    expect(synergyBonus(withSyn('X', 0.7), { ...cfg, edhrecSynergy: false })).toBe(0)
-  })
-
-  it('lifts an on-plan card over a more played generic one', () => {
-    const staple = withSyn('Generic Staple', 0.02, 55)
-    const payoff = withSyn('Tribal Payoff', 0.70, 45)
-    const cmp = makeExperimentalComparator({ ctx, cfg })
-    expect([{ cand: staple }, { cand: payoff }].sort(cmp)[0].cand.name).toBe('Tribal Payoff')
-  })
-
-  // Running both theme signals on the same card would double-count it, and the
-  // empirical one is better informed wherever it exists.
-  it('suppresses the keyword fallback when synergy data is present', () => {
-    const clamp = { ...up('Skullclamp', { oracle: 'Whenever equipped creature dies, draw two cards.' }), edhrecSynergy: 0.5 }
-    expect(scoreCandidate(clamp, ctx, cfg).parts.keyword).toBe(0)
-    expect(scoreCandidate(clamp, ctx, cfg).parts.synergy).toBeGreaterThan(0)
-  })
-
-  it('still uses the keyword fallback when EDHREC has no figure', () => {
-    const clamp = up('Skullclamp', { oracle: 'Whenever equipped creature dies, draw two cards.' })
-    expect(scoreCandidate(clamp, ctx, cfg).parts.keyword).toBeGreaterThan(0)
-  })
-})
-
 // SHIPPED_SIGNALS is what every user now gets. Pinning its contents so a future
 // tweak to EXPERIMENTAL_DEFAULTS can't silently promote an unmeasured signal.
 describe('SHIPPED_SIGNALS', () => {
@@ -420,10 +316,6 @@ describe('SHIPPED_SIGNALS', () => {
     expect(SHIPPED_SIGNALS.multiRole).toBe(true)
   })
 
-  it('leaves EDHREC synergy off — it correlates 0.63-0.84 with inclusion', () => {
-    expect(SHIPPED_SIGNALS.edhrecSynergy).toBe(false)
-  })
-
   // On the binder path this is the strongest signal there is (no-hook 73.9% ->
   // 64.0%). It looked useless only because it was first measured on the
   // ownership-blind path, where inclusion already separates the candidates.
@@ -431,9 +323,16 @@ describe('SHIPPED_SIGNALS', () => {
     expect(SHIPPED_SIGNALS.commanderKw).toBe(true)
   })
 
-  it('leaves the signals that measured negative or unproven off', () => {
+  it('leaves the signal that measured negative off', () => {
     expect(SHIPPED_SIGNALS.drawCurve).toBe(false)   // worsened its own metric
-    expect(SHIPPED_SIGNALS.comboType).toBe(false)   // not measured in isolation
+  })
+
+  // The three that were deleted rather than left switchable. Pinned by absence
+  // so a revert can't quietly reintroduce a config key nothing reads.
+  it('has no config left for the deleted signals', () => {
+    expect('edhrecSynergy' in SHIPPED_SIGNALS).toBe(false)
+    expect('comboType' in SHIPPED_SIGNALS).toBe(false)
+    expect('synergyWeight' in SHIPPED_SIGNALS).toBe(false)
   })
 
   // Promoted once its targets came from EDHREC rather than from me. It also
@@ -463,7 +362,6 @@ describe('SHIPPED_SIGNALS', () => {
     const res = scoreCandidate(cand, null, SHIPPED_SIGNALS)
     expect(res.parts.multiRole).toBeGreaterThan(0)
     expect(res.parts.keyword).toBe(0)
-    expect(res.parts.synergy).toBe(0)
   })
 })
 

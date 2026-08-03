@@ -34,21 +34,6 @@ import { extractCommanderKeywords, extractTribe, synergyScore, deckKeywordProfil
 export const EXPERIMENTAL_DEFAULTS = {
   multiRole: true,
   multiRoleWeight: 8,      // per extra engine role, capped at MULTI_ROLE_CAP roles
-  // EDHREC's empirical synergy score — the primary theme signal.
-  //
-  // Measured against the regex keyword vocabulary on 51 commanders across 20
-  // archetypes, the vocabulary moved ~1.6 cards and was completely blind on 9
-  // archetypes (tribal, spellslinger, enchantress, blink, mill, stax, big mana,
-  // burn, vanilla). Synergy is derived from what people actually play, so it
-  // covers all of them, and it uniquely PENALISES off-plan cards — a negative
-  // score means the card is played less here than in generic decks of the same
-  // colours, which no oracle-text rule can express.
-  edhrecSynergy: true,
-  synergyWeight: 30,       // rank points per 1.0 of synergy (observed range -0.26..0.75)
-  synergyFloor: -0.30,     // clamp, so one outlier can't dominate
-  synergyCeil: 0.80,
-  // Keyword overlap is now a FALLBACK, used only for candidates EDHREC has no
-  // synergy figure for (recommander picks, cards off the commander's page).
   commanderKw: true,
   commanderKwMax: 12,      // ceiling on the keyword-overlap bonus
   deckAffinity: true,
@@ -66,7 +51,6 @@ export const EXPERIMENTAL_DEFAULTS = {
   drawCurve: false,        // cap expensive draw slots (transcript: 8 of 12 at <=3 MV)
   drawExpensiveThreshold: 4, // "expensive" for a draw slot starts here
   drawExpensiveShare: 1 / 3,
-  comboType: true,         // prefer resource loops below bracket 4
   // Engine pass: after the fill, top up whatever the commander's own text says
   // the deck needs to function (sacrifice outlets, blink, self-mill…). Measured
   // on 51 commanders, ~1 in 10 auto-filled decks is short of something its
@@ -111,14 +95,28 @@ export const EXPERIMENTAL_DEFAULTS = {
  *   multi-role     2+ job cards     9.69 → 12.51
  *
  * Excluded on evidence, not caution:
- *   • EDHREC synergy + keyword overlap — both move ~2 cards of 99. Inside a
- *     commander-specific pool, synergy correlates 0.63-0.84 with inclusion, so
- *     re-ranking by it changes almost nothing.
- *   • drawCurve — made its own target metric worse.
- *   • the commander-cost curve shift — unproven, and it moved the wrong way.
+ *   • drawCurve — made its own target metric worse. Kept switchable so the lab
+ *     panel can re-test it if the rule is reworked.
  * The engine pass IS included: its targets are now derived per commander from
  * EDHREC (deriveEnablerTargets) instead of guessed, which was the condition for
  * promoting it.
+ *
+ * Deleted outright, after measurement (see git history for the numbers):
+ *   • EDHREC synergy re-ranking — 4.2 cards of 99, its own target metric +0.01,
+ *     and engine coverage, enablers missing and net card advantage all slightly
+ *     worse. Inside a commander-specific pool synergy correlates 0.63-0.84 with
+ *     inclusion, so re-ranking by it re-states the ranking it started from. It
+ *     also suppressed recommander picks (6.6% -> 4.0%), fighting the novelty
+ *     floor. The `edhrecSynergy` FIELD survives on candidates — the harness uses
+ *     it as an independent quality metric, which is the one job it is good at.
+ *   • the commander-cost curve shift — double counting. The curve target is
+ *     EDHREC's inclusion-weighted mean for THAT commander, so how real decks
+ *     respond to an expensive commander is already in the number; shifting it
+ *     again moved Ur-Dragon's observed 3.2 down to 2.7.
+ *   • combo outcome typing — unmeasured, and it reordered ahead of
+ *     mapAlmostCombos' owned-first / fewest-missing sort, so it could pick a
+ *     combo needing three unowned pieces over one needing a single owned piece.
+ *     The bracket cap already limits how many combos a <=3 deck completes.
  *
  * Known trade-off: multi-role slightly worsens draw quality on its own
  * (selection-only +0.65 in isolation) because a two-job card often does its
@@ -130,7 +128,6 @@ export const SHIPPED_SIGNALS = {
   topEndCap: true,
   drawQuality: true,
   drawCurve: false,
-  edhrecSynergy: false,
   // ON. Dismissed after measuring only the ownership-blind path, where it moves
   // ~1.7 cards of 99 and looks useless. Measured on the BINDER path against a
   // real 8,199-card collection it is the single strongest signal there: cards
@@ -142,7 +139,6 @@ export const SHIPPED_SIGNALS = {
   // on the other, and source-conditional config is not worth the complexity.
   commanderKw: true,
   deckAffinity: true,
-  comboType: false,
   noveltyMaxShare: 0.15,
   // …and a floor, so they don't vanish entirely. Reported from the app: with
   // only a ceiling, a commander with a rich EDHREC page produced a deck with no
@@ -244,21 +240,9 @@ export function isNoveltyPick(cand) {
   return !(cand?.sfCard || cand?.card) && !(cand?.edhrecInclusion > 0)
 }
 
-/** Has EDHREC published a synergy figure for this candidate? */
-export function hasSynergyData(cand) {
-  return typeof cand?.edhrecSynergy === 'number' && cand.edhrecSynergy !== 0
-}
-
-/** Rank points from EDHREC synergy, clamped. Negative for off-plan cards. */
-export function synergyBonus(cand, cfg = EXPERIMENTAL_DEFAULTS) {
-  if (!cfg.edhrecSynergy || !hasSynergyData(cand)) return 0
-  const s = Math.max(cfg.synergyFloor, Math.min(cfg.synergyCeil, cand.edhrecSynergy))
-  return Math.round(s * (cfg.synergyWeight || 0))
-}
-
 export function scoreCandidate(cand, ctx, cfg = EXPERIMENTAL_DEFAULTS) {
   const base = recRank(cand)
-  const parts = { synergy: 0, multiRole: 0, keyword: 0, affinity: 0, drawPenalty: 0 }
+  const parts = { multiRole: 0, keyword: 0, affinity: 0, drawPenalty: 0 }
   let labels = []
 
   if (cfg.multiRole || cfg.drawQuality) {
@@ -277,12 +261,7 @@ export function scoreCandidate(cand, ctx, cfg = EXPERIMENTAL_DEFAULTS) {
     }
   }
 
-  parts.synergy = synergyBonus(cand, cfg)
-
-  // Keyword overlap only where EDHREC has nothing to say. Running both would
-  // double-count the same theme signal for cards on the commander's page, and
-  // the empirical one is strictly better informed there.
-  if (cfg.commanderKw && (ctx?.keywords?.size || ctx?.tribe) && !(cfg.edhrecSynergy && hasSynergyData(cand))) {
+  if (cfg.commanderKw && (ctx?.keywords?.size || ctx?.tribe)) {
     const syn = synergyScore(candidateOracle(cand), candidateType(cand), ctx.keywords, ctx.tribe)
     parts.keyword = Math.min(cfg.commanderKwMax || 0, Math.round(syn.score * 4))
     labels = syn.labels
@@ -291,7 +270,7 @@ export function scoreCandidate(cand, ctx, cfg = EXPERIMENTAL_DEFAULTS) {
     }
   }
 
-  const rank = base + parts.synergy + parts.multiRole + parts.keyword + parts.affinity + parts.drawPenalty
+  const rank = base + parts.multiRole + parts.keyword + parts.affinity + parts.drawPenalty
   return { rank, base, parts, labels }
 }
 
@@ -468,49 +447,3 @@ export function makeExperimentalExclude({
   }
 }
 
-// ── #6 Combo outcome typing ───────────────────────────────────────────────────
-// The "soft combo" idea: a loop producing infinite mana / tokens / ETB triggers
-// is a resource you play around with; a loop that reads "you win the game" ends
-// the table. Commander Spellbook already tells us which is which via each
-// combo's produced features — `mapAlmostCombos` extracts them and the shipped
-// pass then ignores them.
-
-const WIN_FEATURE = /win the game|loses? the game|infinite damage|infinite loops? of damage|each opponent loses/i
-
-/** 'win' when the combo ends the game outright, 'resource' otherwise. */
-export function classifyComboOutcome(produces = []) {
-  for (const f of produces) {
-    if (WIN_FEATURE.test(String(f || ''))) return 'win'
-  }
-  return 'resource'
-}
-
-/**
- * Reorder near-complete combos for the post-fill pass. Below bracket 4 the
- * resource loops sort first, so a casual build gets an engine rather than a
- * "press here to end the game" button. At bracket 4+ the order is untouched —
- * a high-power deck wants the kill.
- *
- * Stable within each group, so the caller's existing owned-first / fewest-
- * missing ordering survives.
- */
-export function preferResourceCombos(combos = [], targetBracket = null, cfg = EXPERIMENTAL_DEFAULTS) {
-  if (!cfg.comboType) return combos
-  if (targetBracket != null && targetBracket >= 4) return combos
-  const resource = []
-  const win = []
-  for (const c of combos) {
-    ;(classifyComboOutcome(c?.produces) === 'win' ? win : resource).push(c)
-  }
-  return [...resource, ...win]
-}
-
-// ── Commander-cost-aware curve target ─────────────────────────────────────────
-// "My commander costs four and I want a board before I cast it, so I load up on
-// one, two and three drops." An expensive commander pulls the rest of the deck
-// cheaper; a one- or two-mana commander leaves room for a higher curve.
-export function adjustTargetForCommander(targetCmc, commanderCmc) {
-  if (targetCmc == null || commanderCmc == null) return targetCmc
-  const shift = Math.max(-0.3, Math.min(0.5, (commanderCmc - 3) * 0.15))
-  return Math.max(1.5, targetCmc - shift)
-}

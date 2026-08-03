@@ -125,12 +125,11 @@ const COMMANDERS = {
 // quality cost could not be attributed to any one of them. Each "only" arm
 // isolates a single signal; `scoped` tests the proposed fix — keyword bonus
 // confined to Synergy + Win Cons, leaving the functional roles on pure quality.
-const OFF = { multiRole: false, edhrecSynergy: false, commanderKw: false, deckAffinity: false, topEndCap: false, drawQuality: false, drawCurve: false }
+const OFF = { multiRole: false, commanderKw: false, deckAffinity: false, topEndCap: false, drawQuality: false, drawCurve: false }
 const ARMS = [
   { id: 'shipped', label: 'shipped', cfg: null },
   { id: 'all', label: 'all signals', cfg: { ...EXPERIMENTAL_DEFAULTS } },
-  { id: 'syn', label: 'EDHREC synergy only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, edhrecSynergy: true } },
-  { id: 'kw', label: 'keywords only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, edhrecSynergy: false, commanderKw: true, deckAffinity: true } },
+  { id: 'kw', label: 'keywords only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, commanderKw: true, deckAffinity: true } },
   { id: 'multi', label: 'multi-role only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, multiRole: true } },
   { id: 'topend', label: 'top-end cap only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, topEndCap: true } },
   { id: 'drawq', label: 'draw quality only', cfg: { ...EXPERIMENTAL_DEFAULTS, ...OFF, drawQuality: true } },
