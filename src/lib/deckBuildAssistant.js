@@ -20,7 +20,7 @@ import {
   ROLE_PROTECTION, ROLE_WINCON, ROLE_SYNERGY, ROLE_LANDS, ROLE_ORDER,
 } from './buildRoles'
 import { deriveEnablerTargets, deriveTypeFloors, deriveTopEndAllowance,
-  deriveDrawExpensiveShare } from './engineEnablers'
+  deriveDrawExpensiveShare, cardEnablers } from './engineEnablers'
 import { cardRoleTags } from './cardRoles'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
@@ -586,6 +586,27 @@ function cutReason(c, mode) {
  * @param {string} mode  'balanced' | 'popularity' | 'redundancy'
  * @returns {Array} new array sorted desc by cuttability, each with `reason`.
  */
+// Cards the rest of the assistant refuses to cut, so the advisory cut list
+// stops recommending what the automated passes protect:
+//
+//   • repeatable mana sources — runEnginePass excludes these outright, and
+//     goldfish measured why: letting it cut rocks to fit enablers dropped
+//     commander-by-T5 71.3% -> 68.4% and raised mana screw 7.0% -> 9.8%.
+//   • enablers the commander actually needs — the whole point of the engine
+//     pass is putting those IN; recommending them for the cut undoes it.
+//   • pieces of a combo the deck has completed — cutting one leaves the other
+//     as a dead card. runComboPass already locks these; this matches it.
+//
+// Applied as a TIER, not a weight: protected cards sort after everything else
+// and are cut only when nothing unprotected is left. A tier needs no invented
+// constant, and it keeps them cuttable for a deck that is genuinely over.
+export function cutProtection(c) {
+  if (c?.isManaSource) return 'mana source'
+  if (c?.neededEnabler) return `${c.neededEnabler} the commander needs`
+  if (c?.isComboPiece) return 'combo piece'
+  return null
+}
+
 export function rankCutCandidates(candidates, mode = 'balanced') {
   const scored = (candidates || []).map(c => {
     const inclusion = Math.max(0, Math.min(100, c.inclusion || 0))
@@ -604,12 +625,14 @@ export function rankCutCandidates(candidates, mode = 'balanced') {
     return { ...c, score }
   })
   scored.sort((a, b) =>
+    // Protected last, whatever their score.
+    ((cutProtection(a) ? 1 : 0) - (cutProtection(b) ? 1 : 0)) ||
     (b.score - a.score) ||
     ((a.inclusion || 0) - (b.inclusion || 0)) ||
     ((b.cmc || 0) - (a.cmc || 0)) ||
     String(a.name || '').localeCompare(String(b.name || '')),
   )
-  return scored.map(c => ({ ...c, reason: cutReason(c, mode) }))
+  return scored.map(c => ({ ...c, reason: cutReason(c, mode), protectedAs: cutProtection(c) }))
 }
 
 // ── Auto-fill ─────────────────────────────────────────────────────────────────
@@ -911,11 +934,16 @@ export function tcgplayerMassEntryUrl(items) {
 export function analyzeCut({
   plan, deckCards = [], sfMap = {}, totalCards = 0, cutMode = 'balanced',
   lockedIds = new Set(), roleOf, inclusionOf,
+  // Optional protection inputs — see cutProtection. Omitted, nothing is
+  // protected and the ranking is exactly what it was.
+  engineNeeds = [],          // [{ enabler, label }] from commanderNeeds
+  comboNames = null,         // Set of lowercased names in completed combos
 }) {
   if (!plan) return null
   const over = totalCards - plan.deckSize
   const targets = new Map(plan.roles.map(r => [r.role, r.target]))
   const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
+  const neededEnablers = new Set((engineNeeds || []).map(n => n?.enabler).filter(Boolean))
   const rows = []
   let totalLands = 0
   for (const dc of deckCards || []) {
@@ -927,12 +955,25 @@ export function analyzeCut({
     const isLand = (sf?.type_line || dc?.type_line || '').toLowerCase().includes('land')
     if (isLand) totalLands += (dc.qty || 1)
     const inclusion = inclusionOf(name) ?? 0
+    const oracle = faceOracleText(sf, dc)
+    const typeLine = faceTypeLine(sf, dc)
+    // A land is already handled by the lands reserve, so only nonland rocks and
+    // dorks need protecting here.
+    const manaSource = !isLand && isManaSource(oracle, typeLine)
+    const provides = neededEnablers.size
+      ? [...cardEnablers(oracle, typeLine)].find(e => neededEnablers.has(e))
+      : null
     rows.push({
       id: dc.id, name, role, isLand,
       qty: dc.qty || 1,
       scryfall_id: dc.scryfall_id,
       cmc: sf?.cmc ?? dc?.cmc ?? 0,
       inclusion, hasData: inclusion > 0,
+      isManaSource: manaSource,
+      neededEnabler: provides || null,
+      isComboPiece: comboNames
+        ? cardNameMatchKeys(name).some(k => comboNames.has(k))
+        : false,
     })
   }
   if (over <= 0) return { over, cutTarget: 0, recommended: [], extra: [], landOver: 0 }

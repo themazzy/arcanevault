@@ -12,6 +12,7 @@ import {
   granularToCoarse,
   edhrecHeaderToRole,
   coarseRole,
+  cutProtection,
   analyzeBuildPlan,
   enrichPlanWithEdhrec,
   archetypeAdjustments,
@@ -2101,5 +2102,65 @@ describe('RECOMMANDER_RANK_SCALE', () => {
     const strong = { name: 'Strong Pick', score: 0.9, edhrecInclusion: 0 }
     const fringe = { name: 'Fringe', score: 0, edhrecInclusion: 8 }
     expect(recRank(strong)).toBeGreaterThan(recRank(fringe))
+  })
+})
+
+// The advisory cut list used to recommend exactly what the automated passes
+// refuse to touch. On a real Ur-Dragon deck it suggested cutting two mana rocks
+// in Balanced mode and a haste enabler in Least-played — while runEnginePass
+// excludes mana rows outright (goldfish: protecting them is worth 2.9 points of
+// commander-by-T5) and runComboPass locks combo pieces.
+describe('cut protections', () => {
+  const row = (id, name, extra = {}) => ({
+    id, name, qty: 1, role: ROLE_RAMP, cmc: 3, inclusion: 10, hasData: true, roleOver: 2, ...extra,
+  })
+
+  it('names why a card is protected', () => {
+    expect(cutProtection(row('a', 'Signet', { isManaSource: true }))).toBe('mana source')
+    expect(cutProtection(row('b', 'Altar', { neededEnabler: 'sacOutlet' }))).toContain('sacOutlet')
+    expect(cutProtection(row('c', 'Piece', { isComboPiece: true }))).toBe('combo piece')
+    expect(cutProtection(row('d', 'Filler'))).toBeNull()
+  })
+
+  // A TIER, not a weight: no invented constant, and a deck genuinely far over
+  // can still reach them once the unprotected cards are gone.
+  it('sorts protected cards last however cuttable they score', () => {
+    const ranked = rankCutCandidates([
+      // Deliberately the most cuttable card on every axis except protection.
+      row('rock', 'Mana Rock', { isManaSource: true, inclusion: 0, hasData: false, cmc: 9, roleOver: 9 }),
+      row('keep', 'Popular Card', { inclusion: 95, cmc: 1, roleOver: 0 }),
+    ], 'balanced')
+    expect(ranked.map(r => r.name)).toEqual(['Popular Card', 'Mana Rock'])
+    expect(ranked[1].protectedAs).toBe('mana source')
+  })
+
+  it('still cuts protected cards when nothing else is left', () => {
+    const ranked = rankCutCandidates([
+      row('a', 'Rock A', { isManaSource: true, inclusion: 5 }),
+      row('b', 'Rock B', { isManaSource: true, inclusion: 80 }),
+    ], 'balanced')
+    // Both protected, so the normal ranking decides between them.
+    expect(ranked.map(r => r.name)).toEqual(['Rock A', 'Rock B'])
+  })
+
+  it('protects nothing when the caller supplies no protection inputs', () => {
+    const deckCards = [
+      { id: '1', name: 'Sol Ring', qty: 1, scryfall_id: 's1' },
+      { id: '2', name: 'Filler', qty: 1, scryfall_id: 's2' },
+    ]
+    const sfMap = {
+      s1: { type_line: 'Artifact', oracle_text: '{T}: Add {C}{C}.', cmc: 1 },
+      s2: { type_line: 'Enchantment', oracle_text: 'Draw a card.', cmc: 6 },
+    }
+    const plan = { deckSize: 100, roles: [{ role: ROLE_RAMP, target: 0 }, { role: ROLE_LANDS, target: 37 }] }
+    const res = analyzeCut({
+      plan, deckCards, sfMap, totalCards: 101,
+      roleOf: () => ROLE_RAMP, inclusionOf: () => 0,
+    })
+    // No engineNeeds and no comboNames -> the mana source is flagged, but a
+    // caller passing neither still gets the old ordering for enablers/combos.
+    expect(res.recommended.length).toBe(1)
+    expect(res.recommended[0].isComboPiece).toBe(false)
+    expect(res.recommended[0].neededEnabler).toBeNull()
   })
 })

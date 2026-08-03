@@ -40,6 +40,7 @@ import {
   planTargetAvgCmc,
   upgradePoolDepth,
   analyzeCut,
+  roleOfDeckCard,
   coarseRole,
   planBasicLands,
   isBasicLandName,
@@ -164,6 +165,14 @@ const KNOB_ARMS = [
 // card, so deriving multiRoleWeight from inclusion would set it negative and
 // invert a signal the sweep shows is positive. They have to be calibrated
 // against outcomes instead, which is what this does.
+// HARNESS_CUT=1: cut-assistant protections on vs off. Same built deck, same
+// number of cards removed — the only difference is which ones the ranking
+// chose to lose, so goldfishing the survivors isolates the cut logic.
+const CUT_ARMS = [
+  { id: 'cutraw',  label: 'cut, unprotected', cfg: { ...SHIPPED }, drawShare: 'derived', enginePass: true, cutTest: 'raw' },
+  { id: 'cutprot', label: 'cut, protected',   cfg: { ...SHIPPED }, drawShare: 'derived', enginePass: true, cutTest: 'protected' },
+]
+
 const SWEEPS = {
   multiRoleWeight: [0, 4, 8, 12, 16, 24],
   commanderKwMax:  [0, 6, 12, 18, 24],
@@ -182,7 +191,8 @@ function sweepArms(key) {
   }))
 }
 
-const ARMS = process.env.HARNESS_SWEEP ? sweepArms(process.env.HARNESS_SWEEP) : KNOB_ARMS
+const ARMS = process.env.HARNESS_SWEEP ? sweepArms(process.env.HARNESS_SWEEP)
+  : (process.env.HARNESS_CUT ? CUT_ARMS : KNOB_ARMS)
 
 
 // ── Owned collection (binder path) ────────────────────────────────────────────
@@ -853,6 +863,43 @@ async function runCommander(name, metaCache, collection = null) {
         })
         finalPicks = [...kept, ...addedPicks]
       }
+    }
+    // HARNESS_CUT: does protecting mana sources / needed enablers from the cut
+    // list leave a better deck? Cut the SAME number of cards from the SAME built
+    // deck with protections on and off, then goldfish what survives — deck sizes
+    // match, so the only difference is which cards the ranking chose to lose.
+    if (arm.cutTest) {
+      const CUT = 6
+      // Own inclusion lookup: the engine pass's `byName` is scoped to its block.
+      const cutIncl = new Map()
+      for (const spec of roles) {
+        for (const c of [...(spec.ownedCandidates || []), ...(spec.upgrades || [])]) {
+          const k = String(c.name || '').toLowerCase()
+          if (k && !cutIncl.has(k)) cutIncl.set(k, c.edhrecInclusion || 0)
+        }
+      }
+      const cutRows = finalPicks.map((p, i) => ({
+        id: `c${i}`, name: p.cand.name, qty: 1,
+        type_line: candidateType(p.cand), oracle_text: candidateOracle(p.cand),
+        cmc: p.cand.cmc ?? 0, scryfall_id: `c${i}`,
+      }))
+      const cutSf = Object.fromEntries(cutRows.map(r => [r.scryfall_id,
+        { type_line: r.type_line, oracle_text: r.oracle_text, cmc: r.cmc }]))
+      const cut = analyzeCut({
+        plan: basePlan,
+        deckCards: cutRows,
+        sfMap: cutSf,
+        // finalPicks is the ~62 NONLAND picks, not the finished 100-card deck,
+        // so deriving the overage from its length reads as "31 under" and cuts
+        // nothing. State the overage directly instead.
+        totalCards: (basePlan.deckSize || COMMANDER_DECK_SIZE) + CUT,
+        cutMode: 'balanced',
+        roleOf: dc => roleOfDeckCard(dc, cutSf, null),
+        inclusionOf: n => cutIncl.get(String(n).toLowerCase()) || 0,
+        engineNeeds: arm.cutTest === 'protected' ? needs : [],
+      })
+      const dropped = new Set(cut.recommended.map(r => r.name.toLowerCase()))
+      finalPicks = finalPicks.filter(p => !dropped.has(String(p.cand.name).toLowerCase()))
     }
     results[arm.id] = measure(finalPicks, commanderCard, needs, basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37)
   }

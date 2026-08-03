@@ -1131,11 +1131,30 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // overage. Protections: the commander is never a candidate; locked cards are
   // excluded; lands are only eligible when above the land target, and only the
   // worst (overage) of them — so trimming never breaks the manabase.
+  // Names in combos the deck has already completed. Cutting one piece leaves the
+  // other as a dead card, so they sort last — the same lock runComboPass applies
+  // when it does its own cutting.
+  const comboPieceNames = useMemo(() => {
+    if (!combos.fetched) return null
+    const out = new Set()
+    for (const c of combos.included || []) {
+      for (const u of c.uses || []) {
+        const n = u.card?.name || u.template?.name || ''
+        for (const k of cardNameMatchKeys(n)) out.add(k)
+      }
+    }
+    return out.size ? out : null
+  }, [combos.fetched, combos.included])
+
   const cutAnalysis = useMemo(() => analyzeCut({
     plan, deckCards, sfMap, totalCards, cutMode, lockedIds: lockedCutIds,
     roleOf: roleOfDeck,
     inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
-  }), [plan, deckCards, sfMap, inclusionByName, totalCards, roleOfDeck, cutMode, lockedCutIds])
+    // Stop the advisory list recommending what the automated passes protect.
+    engineNeeds,
+    comboNames: comboPieceNames,
+  }), [plan, deckCards, sfMap, inclusionByName, totalCards, roleOfDeck, cutMode, lockedCutIds,
+       engineNeeds, comboPieceNames])
 
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
