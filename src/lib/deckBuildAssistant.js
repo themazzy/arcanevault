@@ -15,6 +15,7 @@ import { getCardLegalityWarnings } from './deckLegality'
 import { isMassLandDenial, isExtraTurn } from './commanderBracket'
 import { cardNameMatchKeys, isGroupFolder } from './deckBuilderHelpers'
 import { isBasicLandName } from './basicLands'
+import { deriveEnablerTargets } from './engineEnablers'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
 // Collapses the ~30 granular categories from getCardCategory into the 8 build
@@ -1445,7 +1446,24 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta, { m
     return { ...role, current, gap, ownedCandidates, edhrecUpgrades }
   })
 
-  return { ...plan, roles }
+  // Per-commander engine targets, derived from this page's inclusion data. Free
+  // here: `byName` holds every cardview and `metaByName` the oracle text we
+  // already fetched to classify them. Constants in engineEnablers are only a
+  // fallback — measured across 51 commanders they were wrong by up to 4x, and
+  // the true value varies 2.3-8.6 between commanders for the same enabler.
+  const engineTargets = deriveEnablerTargets(
+    [...byName.entries()].map(([key, { cv }]) => {
+      const meta = metaByName.get(key)
+      return {
+        inclusionPct: (cv.potentialDecks || 0) > 0 ? (cv.inclusion || 0) / cv.potentialDecks : 0,
+        oracle: meta?.oracle_text || '',
+        type: meta?.type_line || cv.type || '',
+      }
+    }),
+    (plan.deckSize || COMMANDER_DECK_SIZE) - 1,
+  )
+
+  return { ...plan, roles, engineTargets }
 }
 
 // ── Recommander augmentation ──────────────────────────────────────────────────

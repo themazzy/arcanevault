@@ -15,6 +15,7 @@
 // roles the assistant already reasons about — they are NOT a second, competing
 // taxonomy, and nothing here feeds deck grouping or stats.
 
+import { stripReminders } from './oracleText'
 import {
   ROLE_RAMP,
   ROLE_DRAW,
@@ -39,15 +40,10 @@ export const ENGINE_ROLES = [
 
 // ── Text normalization ────────────────────────────────────────────────────────
 
-// Strip parenthetical reminder text before matching. Scryfall bakes reminder
-// text into oracle_text, and it is a real false-positive source here: every
-// Treasure-making card carries "(It's an artifact with "{T}, Sacrifice this
-// token: Add one mana of any color.")", which the mana-production predicate
-// would otherwise read as the CARD adding mana. Costs ({2}{R}) are unaffected —
-// they're braces, not parens.
-export function stripReminders(oracle = '') {
-  return String(oracle).replace(/\([^)]*\)/g, ' ')
-}
+// Re-exported for the callers that already import it from here. The
+// implementation moved to oracleText.js to break an import cycle — see the note
+// in that file.
+export { stripReminders }
 
 // Whole-card text: front face plus every card_faces entry, reminder-stripped
 // and lowercased. A back-face Armageddon or an MDFC's land half is part of what

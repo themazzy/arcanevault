@@ -943,8 +943,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const engineNeeds = useMemo(() => {
     if (!experimental || !scoringCtx) return []
     const oracle = commanderSf?.oracle_text || commanderRow?.oracle_text || ''
-    return commanderNeeds(scoringCtx.keywords, scoringCtx.tribe, oracle)
-  }, [experimental, scoringCtx, commanderSf, commanderRow])
+    return commanderNeeds(scoringCtx.keywords, scoringCtx.tribe, oracle, plan?.engineTargets)
+  }, [experimental, scoringCtx, commanderSf, commanderRow, plan])
 
   const engineCoverage = useMemo(() => {
     if (!engineNeeds.length) return []

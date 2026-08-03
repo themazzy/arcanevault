@@ -18,7 +18,10 @@
 // sacrifice" is a solid statement about what the deck needs, even though it is
 // a useless statement about which card should rank higher.
 
-import { stripReminders } from './cardRoles'
+// From oracleText, NOT cardRoles: cardRoles imports the role constants from
+// deckBuildAssistant, which imports this module — reaching into cardRoles here
+// closes that loop and breaks module init. See oracleText.js.
+import { stripReminders } from './oracleText'
 
 // ── Detectors ─────────────────────────────────────────────────────────────────
 // Precision matters more than recall here: a false positive makes the deck look
@@ -199,7 +202,53 @@ export const TRIBE_TARGET = 25
  *
  * @returns {Array<{ enabler, label, why, target, hooks: string[] }>}
  */
-export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle = '') {
+/**
+ * Derive per-commander enabler targets from EDHREC, instead of guessing.
+ *
+ * The expected number of an enabler in an average deck for this commander is the
+ * inclusion-weighted sum over its page. Crowd data answers this specific
+ * question well — a deck missing the outlets it needs doesn't function, so it
+ * doesn't survive to be uploaded — unlike mana curve, where the crowd is
+ * measurably wrong.
+ *
+ * Measured on 51 commanders, the constants below were wrong in both directions
+ * and the variance is far too large for any constant: sacrifice outlets range
+ * from 2.3 (Hei Bai) to 8.6 (Meren). That split is not noise, it's the
+ * self-trigger distinction — Korvold and Hei Bai sacrifice via their own
+ * ability and need few outlets, Meren and Marchesa pay off OTHER things dying
+ * and need many. Deriving per commander captures that without a rule for it.
+ *
+ * @param {Array} cards  [{ inclusionPct (0..1), oracle, type }] — every cardview
+ *                       on the page for which oracle text could be resolved
+ * @param {number} deckSize
+ * @returns {Object} enabler id → target count, or {} when there's too little data
+ */
+export function deriveEnablerTargets(cards = [], deckSize = 99) {
+  const totals = {}
+  let covered = 0
+  for (const c of cards) {
+    const incl = Math.min(1, Math.max(0, c?.inclusionPct ?? 0))
+    if (!incl || !c?.oracle) continue
+    // Numerator and denominator must range over the SAME cards: the app can
+    // only resolve oracle text for the top slice of the page, and counting
+    // unclassifiable cards toward coverage would bias every target downward.
+    covered += incl
+    for (const e of cardEnablers(c.oracle, c.type || '')) {
+      totals[e] = (totals[e] || 0) + incl
+    }
+  }
+  // An EDHREC page lists 240-320 cards whose inclusion sums to only ~46-64 of a
+  // 99-card deck — the rest of every real deck is long-tail cards it never
+  // shows. Scaling by coverage converts "expected among the cards we can see"
+  // into "expected in the whole deck".
+  if (covered < deckSize * 0.25) return {} // too thin to extrapolate from
+  const scale = deckSize / covered
+  const out = {}
+  for (const [k, v] of Object.entries(totals)) out[k] = Math.round(v * scale * 10) / 10
+  return out
+}
+
+export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle = '', measuredTargets = null) {
   const effective = new Set(hooks)
   // Synthetic hook: only a commander that pays off OTHERS entering wants blink.
   if (caresAboutOthersEntering(commanderOracle)) effective.add('etbOthers')
@@ -215,13 +264,24 @@ export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle 
   const byEnabler = new Map()
   for (const { hook, enabler, target } of HOOK_NEEDS) {
     if (!hooks?.has?.(hook)) continue
+    // A measured target always wins over the constant. The constants are only a
+    // fallback for when EDHREC is unavailable or its page is too thin to
+    // extrapolate from; measured across 51 commanders they were wrong in both
+    // directions and by up to 4x. Rounded up: a fractional expectation of 3.6
+    // outlets means a real deck runs 3 or 4, and undershooting is what breaks
+    // the engine.
+    const measured = measuredTargets?.[enabler]
+    const effective = measured != null ? Math.ceil(measured) : target
     const prev = byEnabler.get(enabler)
     if (prev) {
-      prev.target = Math.max(prev.target, target)
+      prev.target = Math.max(prev.target, effective)
       prev.hooks.push(hook)
     } else {
       const def = ENABLERS[enabler]
-      byEnabler.set(enabler, { enabler, label: def.label, why: def.why, target, hooks: [hook] })
+      byEnabler.set(enabler, {
+        enabler, label: def.label, why: def.why,
+        target: effective, measured: measured ?? null, hooks: [hook],
+      })
     }
   }
   // No tribe quota — see the note on TRIBE_TARGET. `tribe` is still accepted so

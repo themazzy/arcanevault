@@ -294,3 +294,24 @@ describe('cardRoleTagsFromCard', () => {
     expect(roles.has(ROLE_DRAW)).toBe(true)
   })
 })
+
+// Regression: engineEnablers used to import stripReminders from THIS module,
+// closing the cycle cardRoles -> deckBuildAssistant -> engineEnablers ->
+// cardRoles. The role constants then resolved to undefined at module-init time,
+// ENGINE_ROLES became a list of undefineds, and engineRoleCount silently
+// returned 0 for every card — disabling the multi-role signal with no error,
+// just a number that quietly became zero.
+describe('module init (import cycle regression)', () => {
+  it('has real role constants, not undefined', () => {
+    expect(ENGINE_ROLES).toHaveLength(6)
+    for (const r of ENGINE_ROLES) expect(typeof r).toBe('string')
+  })
+
+  it('counts engine roles for a genuinely two-job card', () => {
+    const { jobs } = cardRoleTags(
+      'When this creature enters, you may search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.\nWhen this creature dies, you may draw a card.',
+      'Artifact Creature — Golem',
+    )
+    expect(engineRoleCount(jobs)).toBe(2)
+  })
+})

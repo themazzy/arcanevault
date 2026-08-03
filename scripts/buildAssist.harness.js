@@ -291,6 +291,48 @@ function measure(picks, commanderCard, needs) {
   }
 }
 
+// ── Target calibration ────────────────────────────────────────────────────────
+// The engine targets in engineEnablers.js (sacOutlet 6, selfMill 4, …) are
+// guesses. This derives them instead: the expected number of each enabler in an
+// AVERAGE deck for this commander is the inclusion-weighted sum over every card
+// on its EDHREC page. Crowd data is trustworthy for this specific question in a
+// way it isn't for mana curve — a deck missing its outlets doesn't function, so
+// it doesn't survive to be uploaded.
+//
+// Uses the FULL page (no metadata cap): accuracy matters more here than
+// mirroring the app's runtime behaviour, and the tail is cheap to resolve.
+function expectedEnablerCounts(edhrec, metaByName) {
+  const totals = {}
+  let deckCovered = 0
+  const seen = new Set()
+  for (const cat of edhrec?.categories || []) {
+    for (const cv of cat.cards || []) {
+      const key = (cv.name || '').toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      const pot = cv.potentialDecks || 0
+      if (!pot) continue
+      const incl = Math.min(1, (cv.inclusion || 0) / pot)
+      deckCovered += incl
+      const meta = metaByName.get(key)
+      if (!meta) continue
+      for (const e of cardEnablers(meta.oracle_text || '', meta.type_line || '')) {
+        totals[e] = (totals[e] || 0) + incl
+      }
+    }
+  }
+  // An EDHREC page lists 240-320 cards but their inclusion sums to only ~46-64
+  // of a 99-card deck: the rest of every real deck is long-tail cards the page
+  // never shows. Scaling by that coverage turns "expected count among the cards
+  // EDHREC lists" into "expected count in the whole deck". Conservative — the
+  // unlisted tail is idiosyncratic and probably enabler-poor, so this is an
+  // upper bound on the true figure.
+  const coverage = deckCovered > 0 ? deckCovered / 99 : 1
+  const scaled = {}
+  for (const [k, v] of Object.entries(totals)) scaled[k] = v / coverage
+  return { raw: totals, scaled, coverage, deckCovered }
+}
+
 // ── One commander, all arms ───────────────────────────────────────────────────
 
 async function runCommander(name, metaCache) {
@@ -302,10 +344,23 @@ async function runCommander(name, metaCache) {
   if (!edhrec?.categories?.length) return { name, error: 'no EDHREC page' }
   const edhrecCards = edhrec.categories.reduce((s, c) => s + (c.cards?.length || 0), 0)
 
+  // Full-page metadata for calibration (the arms still use the app's cap).
+  const allNames = []
+  {
+    const seen = new Set()
+    for (const cat of edhrec.categories || []) for (const cv of cat.cards || []) {
+      const k = (cv.name || '').toLowerCase()
+      if (k && !seen.has(k)) { seen.add(k); allNames.push(cv.name) }
+    }
+  }
+  await metaFetch(allNames)
+  const expected = expectedEnablerCounts(edhrec, metaCache)
+
   const needs = commanderNeeds(
     extractCommanderKeywords(commanderCard.oracle_text, commanderCard.type_line),
     extractTribe(commanderCard.oracle_text, commanderCard.type_line),
     commanderCard.oracle_text,
+    expected.scaled,
   )
   const recRows = await fetchRecommanderRows(name)
   const targetCmc = planTargetAvgCmc(edhrec, '')
@@ -353,11 +408,13 @@ async function runCommander(name, metaCache) {
       liveCounts: new Map(ROLE_ORDER.map(r => [r, 0])),
       totalCards: 1, // commander only
       deckSize: COMMANDER_DECK_SIZE,
-      // Lands are left to the basics top-up in the app; here we zero the land
-      // reserve so every arm spends its whole budget on the spells under test.
-      landsTarget: 0,
+      // Reserve the land slots. Zeroing them (as this used to) makes every arm
+      // build 99 SPELLS where a real deck has ~62, which silently inflates every
+      // absolute count by ~1.6x — fine for arm-vs-arm comparison, fatal when
+      // comparing against real-deck figures during calibration.
+      landsTarget: basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37,
       currentLands: 0,
-      nonbasicTarget: 0,
+      nonbasicTarget: basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37,
       currentNonbasicLands: 0,
       source: 'recommended',
       targetCmc,
@@ -412,6 +469,7 @@ async function runCommander(name, metaCache) {
     recCount: recRows.length,
     hooks: [...extractCommanderKeywords(commanderCard.oracle_text, commanderCard.type_line)],
     needs,
+    expected,
     results,
   }
 }
@@ -558,6 +616,36 @@ it('build assistant A/B sweep', async () => {
     'HOOKS 4+ (text-rich)': all.filter(r => r.hooks.length >= 4),
   }
   for (const [label, rows] of Object.entries(byHooks)) tierTable(label, rows, out)
+
+  out.push('')
+  out.push('TARGET CALIBRATION — what an AVERAGE EDHREC deck actually runs')
+  out.push('(avg deck = inclusion-weighted, scaled for EDHREC page coverage; both decks now ~62 spells)')
+  out.push(pad('commander', 30) + pad('enabler', 18) + pad('guessed', 9) + pad('avg deck', 10) + 'shipped fill')
+  const calib = {}
+  for (const r of all) {
+    for (const need of r.needs || []) {
+      const exp = r.expected?.scaled?.[need.enabler]
+      if (exp == null) continue
+      const got = (r.results?.shipped?.coverage || []).find(c => c.enabler === need.enabler)?.have
+      ;(calib[need.enabler] ||= []).push(exp)
+      out.push(
+        pad(r.name.slice(0, 28), 30) + pad(need.enabler, 18) +
+        pad(need.target, 9) + pad(exp.toFixed(1), 10) + (got ?? '—'),
+      )
+    }
+  }
+  out.push('')
+  out.push('PROPOSED TARGETS (median of the average-deck counts)')
+  out.push(pad('enabler', 18) + pad('guessed', 9) + pad('median', 9) + pad('min', 8) + pad('max', 8) + 'n')
+  for (const [enabler, vals] of Object.entries(calib)) {
+    const sorted = [...vals].sort((a, b) => a - b)
+    const mid = sorted[Math.floor(sorted.length / 2)]
+    const guessed = all.flatMap(r => r.needs || []).find(n => n.enabler === enabler)?.target
+    out.push(
+      pad(enabler, 18) + pad(guessed ?? '—', 9) + pad(mid.toFixed(1), 9) +
+      pad(sorted[0].toFixed(1), 8) + pad(sorted[sorted.length - 1].toFixed(1), 8) + vals.length,
+    )
+  }
 
   out.push('')
   out.push('ENGINE COVERAGE GAP IN THE SHIPPED BUILD (step 0 — is there a problem to fix?)')

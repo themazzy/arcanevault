@@ -5,6 +5,7 @@ import {
   commanderNeeds,
   analyzeEngineCoverage,
   caresAboutOthersEntering,
+  deriveEnablerTargets,
   TRIBE_TARGET,
 } from './engineEnablers'
 
@@ -250,5 +251,69 @@ describe('caresAboutOthersEntering — no phantom blink requirement', () => {
   it('does demand blink from an enters-matters commander', () => {
     const needs = commanderNeeds(new Set(['etb']), null, 'Whenever another creature you control enters, draw a card.')
     expect(needs.map(n => n.enabler)).toContain('blink')
+  })
+})
+
+// The constants this replaces were wrong in both directions and by up to 4x.
+// Measured across 51 commanders, sacrifice outlets range 2.3 (Hei Bai, who
+// sacrifices via his own ability) to 8.6 (Meren, who pays off others dying) —
+// variance no single constant can express.
+describe('deriveEnablerTargets', () => {
+  const card = (inclusionPct, key) => ({ inclusionPct, oracle: C[key].o, type: C[key].t })
+
+  it('scales the inclusion-weighted count up to a full deck', () => {
+    // Two outlets at 50% inclusion = 1.0 expected among cards we can see; that
+    // slice covers 1.0 of a 99-card deck, so the whole-deck expectation is 99×
+    // — the guard below stops such a thin sample being extrapolated at all.
+    const targets = deriveEnablerTargets([card(0.5, 'ashnodsAltar'), card(0.5, 'visceraSeer')], 99)
+    expect(targets).toEqual({})
+  })
+
+  it('derives a target from a realistic page', () => {
+    // 60 cards at 50% inclusion = 30 covered, well past the guard. Six of them
+    // are outlets → 3.0 expected among covered, scaled by 99/30 = 9.9.
+    const cards = [
+      ...Array.from({ length: 6 }, () => card(0.5, 'ashnodsAltar')),
+      ...Array.from({ length: 54 }, () => card(0.5, 'solRing')),
+    ]
+    const targets = deriveEnablerTargets(cards, 99)
+    expect(targets.sacOutlet).toBeCloseTo(9.9, 1)
+  })
+
+  it('ignores cards whose oracle text could not be resolved', () => {
+    const cards = [
+      ...Array.from({ length: 60 }, () => card(0.5, 'ashnodsAltar')),
+      ...Array.from({ length: 40 }, () => ({ inclusionPct: 0.9, oracle: '', type: 'Artifact' })),
+    ]
+    // The unresolvable cards must not inflate coverage and deflate the target.
+    expect(deriveEnablerTargets(cards, 99).sacOutlet).toBeCloseTo(99, 0)
+  })
+
+  it('returns nothing when the sample is too thin to extrapolate', () => {
+    expect(deriveEnablerTargets([card(0.1, 'ashnodsAltar')], 99)).toEqual({})
+    expect(deriveEnablerTargets([], 99)).toEqual({})
+  })
+})
+
+describe('commanderNeeds — measured targets override the constants', () => {
+  const oracle = 'Whenever another creature you control dies, you get an experience counter.'
+
+  it('uses the measured target when supplied', () => {
+    const needs = commanderNeeds(new Set(['sacrifice']), null, oracle, { sacOutlet: 8.6 })
+    const sac = needs.find(n => n.enabler === 'sacOutlet')
+    expect(sac.target).toBe(9) // rounded up — undershooting is what breaks the engine
+    expect(sac.measured).toBe(8.6)
+  })
+
+  it('falls back to the constant when EDHREC gave nothing', () => {
+    const needs = commanderNeeds(new Set(['sacrifice']), null, oracle, {})
+    expect(needs.find(n => n.enabler === 'sacOutlet').target).toBe(6)
+  })
+
+  it('can lower a target as well as raise it', () => {
+    // Hei Bai sacrifices via his own ability and real decks run ~2.3 outlets,
+    // where the constant demanded 6.
+    const needs = commanderNeeds(new Set(['sacrifice']), null, oracle, { sacOutlet: 2.3 })
+    expect(needs.find(n => n.enabler === 'sacOutlet').target).toBe(3)
   })
 })
