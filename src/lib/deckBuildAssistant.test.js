@@ -939,6 +939,55 @@ describe('producedColors', () => {
   it('ignores colorless-only producers', () => {
     expect([...producedColors('{T}: Add {C}{C}.', 'Artifact')]).toEqual([])
   })
+
+  // Fetchlands never say "add", so reading only "add" clauses scored them zero.
+  // In a real five-colour build that was ten of thirty-four lands counted as no
+  // source of anything, which reported every single colour as short at once.
+  describe('fetchlands count for what they fetch', () => {
+    const fetch = types =>
+      `{T}, Pay 1 life, Sacrifice this land: Search your library for a ${types} card, put it onto the battlefield, then shuffle.`
+
+    it('credits both named basic types', () => {
+      expect([...producedColors(fetch('Mountain or Plains'), 'Land')].sort()).toEqual(['R', 'W'])
+      expect([...producedColors(fetch('Forest or Island'), 'Land')].sort()).toEqual(['G', 'U'])
+      expect([...producedColors(fetch('Swamp or Forest'), 'Land')].sort()).toEqual(['B', 'G'])
+    })
+
+    it('credits all five for a generic basic-land fetch', () => {
+      // Evolving Wilds / Fabled Passage: whichever basics the deck actually runs.
+      expect([...producedColors(
+        '{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.',
+        'Land',
+      )].sort()).toEqual(['B', 'G', 'R', 'U', 'W'])
+    })
+
+    it('does not credit spells that fetch lands', () => {
+      // Farseek and Path to Exile match the same wording and are not sources.
+      expect([...producedColors(
+        'Search your library for a Plains, Island, Swamp, or Mountain card, put it onto the battlefield tapped, then shuffle.',
+        'Sorcery',
+      )]).toEqual([])
+      expect([...producedColors(
+        'Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+        'Instant',
+      )]).toEqual([])
+    })
+
+    it('does not credit a land that searches for something other than a land', () => {
+      expect([...producedColors(
+        '{4}, {T}, Sacrifice this land: Search your library for a Dragon card, reveal it, put it into your hand, then shuffle.',
+        'Land',
+      )]).toEqual([])
+    })
+
+    it('still reads a dual land that also fetches', () => {
+      // Fetch credit is additive, never a replacement for the "add" clauses.
+      expect([...producedColors(
+        `({T}: Add {B} or {R}.)\n${fetch('Swamp or Mountain')}`,
+        'Land — Swamp Mountain',
+      )].sort()).toEqual(['B', 'R'])
+    })
+  })
 })
 
 describe('isManaSource', () => {

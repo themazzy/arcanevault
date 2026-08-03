@@ -2552,9 +2552,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     const n = manaSources[c] || 0
                     const req = karstenReqs[c]
                     const thin = req ? n < req.needed : n < THIN_SOURCE_FLOOR
+                    // The target belongs to ONE greedy spell, so say which, and
+                    // say what falling short actually costs — you cast that card
+                    // late, you don't have a broken manabase. "Consider more
+                    // fixing" was misleading advice at 24 sources in five colors,
+                    // where a {U}{U} two-drop is simply an expensive ask.
                     const title = req
-                      ? `${c}: ${n} of ${req.needed} sources — most demanding: ${req.card} (${c.repeat(req.pips)} at ${req.cmc} mana)`
-                        + (thin ? ' — consider more fixing' : '')
+                      ? `${c}: ${n} of ${req.needed} sources — set by ${req.card} (${c.repeat(req.pips)} at ${req.cmc} mana)`
+                        + (thin
+                          ? `. Below ${req.needed} you'll often cast it later than turn ${req.cmc} — either add ${c} fixing or accept it as a late-game card.`
+                          : '')
                       : `${c}: ${n} sources${thin ? ' — consider more fixing' : ''}`
                     return (
                       <span key={c} className={`${styles.sourceItem}${thin ? ' ' + styles.sourceThin : ''}`} title={title}>

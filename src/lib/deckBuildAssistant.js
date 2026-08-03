@@ -215,9 +215,44 @@ export function bracketFlagFor(name, sfCard, gameChangerNames) {
 export const WUBRG = ['W', 'U', 'B', 'R', 'G']
 const BASIC_SUBTYPE = { plains: 'W', island: 'U', swamp: 'B', mountain: 'R', forest: 'G' }
 
+// A land that sacrifices itself to fetch a land of a named basic type is a
+// source of every colour it can fetch — Karsten counts fetchlands exactly that
+// way, and so does every manabase primer. Reading only "add" clauses missed
+// them completely: they never say "add", so all ten fetchlands in a real
+// five-colour build counted as ZERO coloured sources (a third of that
+// manabase), which is what made every colour report "low" at once.
+//
+// Deliberately scoped to LANDS. Farseek and Path to Exile match the same
+// wording and are emphatically not mana sources; they are filtered out before
+// this by isManaSource, but keeping the rule land-only means it stays correct
+// if that ever changes.
+function fetchedColors(oracleText = '', typeLine = '') {
+  const out = new Set()
+  const t = String(typeLine).toLowerCase()
+  if (!t.includes('land')) return out
+  const o = String(oracleText).toLowerCase()
+  if (!/sacrifice this land|sacrifice \w+( \w+)?: search|, sacrifice/.test(o)) return out
+  const search = o.match(/search your library for (?:an?|any number of) ([^.]*?) card/)
+  if (!search) return out
+  const what = search[1]
+  // "a basic land card" (Evolving Wilds, Fabled Passage, Prismatic Vista) can
+  // get whichever basics the deck runs — credit all five. Only the commander's
+  // colours are ever displayed, so this can't invent a colour the deck cares
+  // about.
+  if (/\bbasic\b/.test(what) && !Object.keys(BASIC_SUBTYPE).some(sub => what.includes(sub))) {
+    WUBRG.forEach(c => out.add(c))
+    return out
+  }
+  for (const [sub, col] of Object.entries(BASIC_SUBTYPE)) {
+    if (what.includes(sub)) out.add(col)
+  }
+  return out
+}
+
 // Colors a card can add. Basic land subtypes count; "add … any color/type"
-// counts as all five; otherwise we scan each "add" clause for mana symbols
-// (incl. hybrid pips like {W/U}). Returns a Set of WUBRG letters.
+// counts as all five; a fetchland counts for what it fetches; otherwise we scan
+// each "add" clause for mana symbols (incl. hybrid pips like {W/U}). Returns a
+// Set of WUBRG letters.
 export function producedColors(oracleText = '', typeLine = '') {
   const out = new Set()
   const t = String(typeLine).toLowerCase()
@@ -231,6 +266,7 @@ export function producedColors(oracleText = '', typeLine = '') {
       if (new RegExp(`\\{[^}]*${c.toLowerCase()}[^}]*\\}`).test(clause)) out.add(c)
     }
   }
+  for (const c of fetchedColors(oracleText, typeLine)) out.add(c)
   return out
 }
 
