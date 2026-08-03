@@ -1022,13 +1022,19 @@ export function planComboCompletion({
   return { pieces, combosCompleted, protectedNames }
 }
 
-// ── Game Changer top-up room ──────────────────────────────────────────────────
-// Open slots the Bracket-4 Game Changer top-up may consume WITHOUT eating into
-// the manabase: the basics top-up that runs after it needs `landTarget −
-// currentLands` of the open slots, so only what's left beyond that is spendable
-// on GCs. Without this guard the top-up filled "basic-land slots" and could
-// finish a B4 deck several lands below its (already floored) land target.
-export function gameChangerSlotRoom({ openSlots = 0, currentLands = 0, landTarget = 0 } = {}) {
+// ── Post-fill slot room ───────────────────────────────────────────────────────
+// Open slots a post-fill pass may consume WITHOUT eating into the manabase.
+//
+// Every pass that runs after the main fill (engine, combo, Game Changer) sees a
+// deck whose nonland slots are full but whose BASICS HAVEN'T BEEN ADDED YET —
+// so `deckSize − populatedCount` looks like free space when most of it is the
+// land reserve. Spending it leaves the basics top-up with only the leftovers and
+// the build finishes below its land target: an 8-card engine pass plus a combo
+// piece landed a deck on 34 lands against a target of 37.
+//
+// The basics top-up needs `landTarget − currentLands` of the open slots, so only
+// what remains beyond that is actually spendable.
+export function spendableSlotsAfterLands({ openSlots = 0, currentLands = 0, landTarget = 0 } = {}) {
   const landsShort = Math.max(0, landTarget - currentLands)
   return Math.max(0, openSlots - landsShort)
 }

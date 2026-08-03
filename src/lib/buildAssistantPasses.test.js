@@ -409,3 +409,105 @@ describe('engine pass and combo pass interaction', () => {
     expect(locked.has('engine1')).toBe(true)
   })
 })
+
+// Both post-fill passes run BEFORE the basics top-up, so the deck they see has
+// its nonland slots full and its land slots empty. Treating that gap as free
+// space is how an auto-fill finished on 34 lands against a 37 target: the
+// engine pass took 8 of the reserved slots and the combo pass took another.
+describe('post-fill passes leave the basics top-up its land slots', () => {
+  // 55 nonlands + 30 lands = 85 copies, so 15 slots are open — but the build
+  // wants 37 lands and only has 30, so 7 of those 15 belong to the manabase.
+  const partlyLanded = () => [
+    { id: 'cmd', name: 'Cmd', qty: 1, is_commander: true, type_line: 'Legendary Creature' },
+    ...Array.from({ length: 54 }, (_, i) => spell(`f${i}`, `Filler ${i}`)),
+    { id: 'lands', name: 'Mountain', qty: 30, type_line: 'Basic Land — Mountain' },
+  ]
+  const coverage = short => ([{
+    enabler: 'sacOutlet', label: 'sacrifice outlets', why: '', target: 20,
+    have: 20 - short, short, providers: [],
+  }])
+  const manyProviders = Array.from({ length: 20 }, (_, i) => ({ name: `Outlet ${i}` }))
+
+  it('caps the engine pass to the slots the manabase does not need', async () => {
+    const addCards = vi.fn(async () => ({ rows: [] }))
+    const out = await runEnginePass({
+      populated: partlyLanded(),
+      fillIds: [], // no cuttable filler, so open slots are the only room
+      coverage: coverage(20),
+      providersFor: () => manyProviders,
+      deckSize: 100,
+      maxAdd: 20, // above the default 8, so the land reserve is what binds
+      landTarget: 37,
+      isLandRow,
+      analyzeCutFn: () => ({ recommended: [] }),
+      addCards,
+    })
+    // 15 open − 7 still owed to the manabase = 8 spendable.
+    expect(out.added).toBe(8)
+  })
+
+  it('spends every open slot when the manabase is already at target', async () => {
+    const addCards = vi.fn(async () => ({ rows: [] }))
+    const out = await runEnginePass({
+      populated: partlyLanded(),
+      fillIds: [],
+      coverage: coverage(20),
+      providersFor: () => manyProviders,
+      deckSize: 100,
+      maxAdd: 20, // above the default 8, so the land reserve is what binds
+      landTarget: 30, // already met
+      isLandRow,
+      analyzeCutFn: () => ({ recommended: [] }),
+      addCards,
+    })
+    expect(out.added).toBe(15)
+  })
+
+  it('caps the combo pass the same way', async () => {
+    const addCards = vi.fn(async () => ({ rows: [] }))
+    // Four separate one-piece-away combos: uncapped the pass would add all four.
+    const almost = [
+      rawCombo('a', ['Filler 0', 'Piece A']),
+      rawCombo('b', ['Filler 1', 'Piece B']),
+      rawCombo('c', ['Filler 2', 'Piece C']),
+      rawCombo('d', ['Filler 3', 'Piece D']),
+    ]
+    const out = await runComboPass({
+      populated: [
+        { id: 'cmd', name: 'Cmd', qty: 1, is_commander: true, type_line: 'Legendary Creature' },
+        ...Array.from({ length: 54 }, (_, i) => spell(`f${i}`, `Filler ${i}`)),
+        { id: 'lands', name: 'Mountain', qty: 43, type_line: 'Basic Land — Mountain' },
+      ],
+      fillIds: [], // nothing cuttable
+      targetBracket: 4,
+      commanderColorIdentity: ['R'],
+      ownedNameKeys: new Set(['piece a', 'piece b', 'piece c', 'piece d']),
+      deckSize: 100,
+      landTarget: 45, // 2 lands short, and only 2 slots open
+      isLandRow,
+      fetchCombos: async () => ({ almost }),
+      analyzeCutFn: () => ({ recommended: [] }),
+      addCards,
+      removeCards: vi.fn(),
+    })
+    // 2 open slots, both owed to the manabase -> nothing spendable.
+    expect(out.comboRows).toEqual([])
+    expect(addCards).not.toHaveBeenCalled()
+  })
+
+  it('is unchanged when no land target is supplied', async () => {
+    const addCards = vi.fn(async () => ({ rows: [] }))
+    const out = await runEnginePass({
+      populated: partlyLanded(),
+      fillIds: [],
+      coverage: coverage(20),
+      providersFor: () => manyProviders,
+      deckSize: 100,
+      maxAdd: 20, // above the default 8, so the land reserve is what binds
+      isLandRow,
+      analyzeCutFn: () => ({ recommended: [] }),
+      addCards,
+    })
+    expect(out.added).toBe(15)
+  })
+})

@@ -47,7 +47,7 @@ import {
   basicsForAutoFill,
   isBasicLandName,
   analyzeCut,
-  gameChangerSlotRoom,
+  spendableSlotsAfterLands,
   CUT_MODES,
   attachRecommenderUpgrades,
   selectUpgrades,
@@ -1553,6 +1553,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       commanderColorIdentity: commander?.color_identity,
       ownedNameKeys: ownedNameSet,
       deckSize: plan?.deckSize || 100,
+      // Both post-fill passes run before the basics top-up, so the land slots
+      // are still open and would otherwise read as free space to spend.
+      landTarget: landsTarget,
       isLandRow,
       fetchCombos: combos.fetchCombos,
       passesBudget: name => passesBudget(name, null),
@@ -1632,6 +1635,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         return cardEnablers(candidateOracle(c), candidateType(c)).has(enabler)
       }),
       deckSize: plan?.deckSize || 100,
+      landTarget: landsTarget,
       isLandRow,
       // Protect the manabase. Goldfish simulation caught this pass cutting mana
       // rocks to fit enablers: commander-cast-by-turn-5 fell 71.3% -> 68.4% and
@@ -1748,7 +1752,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // (already B4-floored) land target.
     if (targetBracket === 4 && gameChangers && typeof onAddCards === 'function' && (addedCardIds?.length)) {
       const postFill = [...deckCards, ...effectiveRows]
-      const openForGC = gameChangerSlotRoom({
+      const openForGC = spendableSlotsAfterLands({
         openSlots: Math.max(0, (plan?.deckSize || 100) - (totalCards + effectiveAdded)),
         currentLands: countDeckCards(postFill.filter(d => !d?.is_commander && isLandRow(d))),
         landTarget: landsTarget,

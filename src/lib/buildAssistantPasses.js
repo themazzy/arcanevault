@@ -11,7 +11,20 @@ import {
   planComboCompletion,
   comboInColorIdentity,
   comboTargetForBracket,
+  spendableSlotsAfterLands,
 } from './deckBuildAssistant'
+
+// Both passes run BEFORE the basics top-up, so the slots the manabase still
+// needs are open and look spendable. Counting them as free is how a build ends
+// under its land target. Callers pass the deck's land target and its current
+// land count; omit them and this collapses to the old `deckSize − populated`.
+function openNonlandSlots({ deckSize, populatedCount, currentLands, landTarget }) {
+  return spendableSlotsAfterLands({
+    openSlots: Math.max(0, deckSize - populatedCount),
+    currentLands,
+    landTarget,
+  })
+}
 
 /**
  * Post-fill combo completion. Re-queries Commander Spellbook on the just-
@@ -30,6 +43,8 @@ import {
  * @param {Array}    args.commanderColorIdentity
  * @param {Set}      args.ownedNameKeys  lowercased binder-available names
  * @param {number}   args.deckSize
+ * @param {number}   [args.landTarget]   lands the build is aiming for, so the
+ *                                       pass leaves the basics top-up its slots
  * @param {Function} args.isLandRow      (deckRow) => bool
  * @param {Function} args.fetchCombos    async (deck) => { almost } | null
  * @param {Function} args.passesBudget   (name) => bool
@@ -48,6 +63,7 @@ export async function runComboPass({
   commanderColorIdentity = [],
   ownedNameKeys = new Set(),
   deckSize = 100,
+  landTarget = 0,
   isLandRow = () => false,
   fetchCombos,
   passesBudget = () => true,
@@ -87,7 +103,10 @@ export async function runComboPass({
     // COPIES, not rows — a multi-qty basics row would otherwise make the deck
     // look emptier than it is and let combo pieces overfill it past deckSize.
     const populatedCount = countDeckCards(populated)
-    const openSlots = Math.max(0, deckSize - populatedCount)
+    const openSlots = openNonlandSlots({
+      deckSize, populatedCount, currentLands: countDeckCards(populated.filter(d => !d?.is_commander && isLandRow(d))),
+      landTarget,
+    })
     const cuttableFillCount = protNames => populated.filter(d =>
       !d?.is_commander && fillSet.has(d.id) && !isLandRow(d)
       && !cardNameMatchKeys(d?.name).some(k => protNames.has(k))).length
@@ -248,6 +267,8 @@ export async function runGameChangerPass({
  * @param {Array}    args.coverage     from analyzeEngineCoverage
  * @param {Function} args.providersFor (enabler) => ranked candidate list
  * @param {number}   args.deckSize
+ * @param {number}   [args.landTarget]  lands the build is aiming for, so the
+ *                                      pass leaves the basics top-up its slots
  * @param {Function} args.isLandRow
  * @param {Function} [args.isManaRow]  a mana source — protected from the cut
  * @param {Function} args.passesBudget
@@ -263,6 +284,7 @@ export async function runEnginePass({
   coverage = [],
   providersFor = () => [],
   deckSize = 100,
+  landTarget = 0,
   isLandRow = () => false,
   isManaRow = () => false,
   passesBudget = () => true,
@@ -281,7 +303,10 @@ export async function runEnginePass({
     )
     const fillSet = new Set(fillIds || [])
     const populatedCount = countDeckCards(populated)
-    const openSlots = Math.max(0, deckSize - populatedCount)
+    const openSlots = openNonlandSlots({
+      deckSize, populatedCount, currentLands: countDeckCards(populated.filter(d => !d?.is_commander && isLandRow(d))),
+      landTarget,
+    })
 
     // Pick providers, most-short need first so a deck missing 3 outlets and 1
     // mill spends its budget on outlets.

@@ -22,7 +22,7 @@ import {
   comboInColorIdentity,
   mapAlmostCombos,
   comboTargetForBracket,
-  gameChangerSlotRoom,
+  spendableSlotsAfterLands,
   effectiveComboBracket,
   planComboCompletion,
   bracketFlagFor,
@@ -1834,18 +1834,18 @@ describe('mapAlmostCombos', () => {
   })
 })
 
-describe('gameChangerSlotRoom', () => {
+describe('spendableSlotsAfterLands', () => {
   it('reserves the lands shortfall out of the open slots', () => {
     // 6 open slots, 30/33 lands → 3 slots belong to basics, 3 free for GCs.
-    expect(gameChangerSlotRoom({ openSlots: 6, currentLands: 30, landTarget: 33 })).toBe(3)
+    expect(spendableSlotsAfterLands({ openSlots: 6, currentLands: 30, landTarget: 33 })).toBe(3)
   })
   it('gives every open slot when the manabase is at/above target', () => {
-    expect(gameChangerSlotRoom({ openSlots: 4, currentLands: 33, landTarget: 33 })).toBe(4)
-    expect(gameChangerSlotRoom({ openSlots: 4, currentLands: 35, landTarget: 33 })).toBe(4)
+    expect(spendableSlotsAfterLands({ openSlots: 4, currentLands: 33, landTarget: 33 })).toBe(4)
+    expect(spendableSlotsAfterLands({ openSlots: 4, currentLands: 35, landTarget: 33 })).toBe(4)
   })
   it('gives nothing when basics need every open slot (or more)', () => {
-    expect(gameChangerSlotRoom({ openSlots: 4, currentLands: 25, landTarget: 33 })).toBe(0)
-    expect(gameChangerSlotRoom({ openSlots: 0, currentLands: 30, landTarget: 33 })).toBe(0)
+    expect(spendableSlotsAfterLands({ openSlots: 4, currentLands: 25, landTarget: 33 })).toBe(0)
+    expect(spendableSlotsAfterLands({ openSlots: 0, currentLands: 30, landTarget: 33 })).toBe(0)
   })
 })
 
