@@ -130,8 +130,17 @@ export const SHIPPED_SIGNALS = {
   drawQuality: true,
   drawCurve: false,
   edhrecSynergy: false,
-  commanderKw: false,
-  deckAffinity: false,
+  // ON. Dismissed after measuring only the ownership-blind path, where it moves
+  // ~1.7 cards of 99 and looks useless. Measured on the BINDER path against a
+  // real 8,199-card collection it is the single strongest signal there: cards
+  // hitting no commander hook 73.9% -> 64.0%, better than every other signal and
+  // better than all of them combined. That is the situation it was designed for
+  // and the one never tested -- most of a real collection is not on the
+  // commander's EDHREC page, so inclusion is 0 for the bulk of the pool and every
+  // candidate ties. Kept on for both paths: strongly positive on one, ~neutral
+  // on the other, and source-conditional config is not worth the complexity.
+  commanderKw: true,
+  deckAffinity: true,
   comboType: false,
   noveltyMaxShare: 0.15,
   // Promoted: with per-commander targets derived from EDHREC rather than
@@ -358,10 +367,18 @@ export function makeExperimentalExclude({
       }
     }
 
-    // Novelty ceiling: keep off-meta picks a supplement rather than the deck.
-    if (cfg.noveltyMaxShare != null && !(cand?.edhrecInclusion > 0)) {
+    // Novelty ceiling: keep off-meta SUGGESTIONS a supplement rather than the
+    // deck. Owned cards are exempt — on the binder path "the crowd never plays
+    // this" describes most of a real collection, and capping it made the build
+    // reject the user's own cards to reach for EDHREC staples they happen to
+    // own, which defeats the point of building from binders. Measured on a real
+    // 8,199-card pool, the cap was cutting off-meta owned cards from 23% to 13%.
+    // The risk this guards against is the recommender taking over, and the
+    // recommender only ever supplies unowned candidates.
+    const isOwned = !!(cand?.sfCard || cand?.card)
+    if (cfg.noveltyMaxShare != null && !isOwned && !(cand?.edhrecInclusion > 0)) {
       const allowed = Math.floor(nonlandBudget * cfg.noveltyMaxShare)
-      const taken = deckNovelty + picks.filter(p => !(p.cand?.edhrecInclusion > 0)).length
+      const taken = deckNovelty + picks.filter(p => !(p.cand?.sfCard || p.cand?.card) && !(p.cand?.edhrecInclusion > 0)).length
       if (taken >= allowed) return true
     }
 

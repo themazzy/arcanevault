@@ -19,6 +19,8 @@
 // Env: HARNESS_COMMANDERS=name1,name2  (override the built-in list)
 //      HARNESS_OUT=path                (report destination)
 //      HARNESS_LIMIT=n                 (first n commanders only — smoke runs)
+//      HARNESS_COLLECTION=path         (JSON export of a real binder pool -- switches
+//                                       the sweep to the OWNED build path)
 //      HARNESS_MAXADD=n                (override the engine pass add ceiling —
 //                                       used to prove the cap is honoured: 1 gives
 //                                       66% coverage on Muldrotha, 6 gives 100%)
@@ -55,6 +57,12 @@ import {
   buildScoringContext,
   makeExperimentalComparatorFor,
   makeExperimentalExclude,
+  // Candidates come in two shapes: unowned suggestions carry `oracle`/`type`
+  // directly, owned ones carry a full Scryfall entry on `sfCard`. Reading only
+  // the first shape reported "100% of picks have no oracle text" on the binder
+  // path and zeroed every text-derived metric.
+  candidateOracle,
+  candidateType,
 } from '../src/lib/buildAssistExperimental'
 import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles'
 import { recRank } from '../src/lib/deckBuildAssistant'
@@ -120,6 +128,32 @@ const ARMS = [
   { id: 'derived', label: '+ type floors', cfg: { ...EXPERIMENTAL_DEFAULTS }, enginePass: true },
 ]
 
+
+// ── Owned collection (binder path) ────────────────────────────────────────────
+// The ownership-blind path is what every sweep so far measured. The binder path
+// -- "build the best deck from what I actually own" -- is the one this app is
+// uniquely placed to do, and it had never been measured at all. It differs in a
+// way that matters to several conclusions: most of a real collection is not on
+// the commander's EDHREC page, so inclusion % is 0 for the bulk of the pool and
+// every candidate ties. That is exactly the situation the keyword signal was
+// built for and was never tested in.
+function loadCollection(file) {
+  const rows = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const ownedCards = []
+  const sfMap = {}
+  for (const r of rows) {
+    if (!r.scryfall_id || !r.name) continue
+    ownedCards.push({ id: r.scryfall_id, scryfall_id: r.scryfall_id, name: r.name, qty: 1 })
+    sfMap[r.scryfall_id] = {
+      name: r.name,
+      cmc: Number(r.cmc) || 0,
+      type_line: r.type_line || '',
+      oracle_text: r.oracle_text || '',
+      color_identity: r.color_identity || [],
+    }
+  }
+  return { ownedCards, sfMap }
+}
 
 // ── Pool construction ─────────────────────────────────────────────────────────
 
@@ -215,7 +249,7 @@ async function fetchCommanderCard(name, metaFetch) {
 function measure(picks, commanderCard, needs) {
   const kw = extractCommanderKeywords(commanderCard?.oracle_text || '', commanderCard?.type_line || '')
   const cards = picks.map(p => p.cand)
-  const nonland = cards.filter(c => !String(c.type || c.type_line || '').toLowerCase().includes('land'))
+  const nonland = cards.filter(c => !candidateType(c).includes('land'))
 
   let synSum = 0, synNeg = 0
   let netDraw = 0, selection = 0, multi2 = 0, multi3 = 0
@@ -224,8 +258,8 @@ function measure(picks, commanderCard, needs) {
   const drawCards = []
 
   for (const c of nonland) {
-    const oracle = String(c.oracle || c.oracle_text || '')
-    const type = String(c.type || c.type_line || '')
+    const oracle = candidateOracle(c)
+    const type = candidateType(c)
     if (!oracle) noText++
     const { roles, jobs, tags } = cardRoleTags(oracle, type)
     if (roles.has(ROLE_DRAW)) { netDraw++; drawCards.push(c) }
@@ -254,8 +288,8 @@ function measure(picks, commanderCard, needs) {
   const perRole = {}
   for (const p of picks) {
     const c = p.cand
-    const oracle = String(c.oracle || c.oracle_text || '')
-    const type = String(c.type || c.type_line || '')
+    const oracle = candidateOracle(c)
+    const type = candidateType(c)
     const r = (perRole[p.role] ||= { n: 0, base: 0, kw: 0, names: new Set() })
     r.n++
     r.base += recRank(c)
@@ -270,7 +304,7 @@ function measure(picks, commanderCard, needs) {
   // Engine coverage: does the finished deck actually contain the enablers the
   // commander's own text says it needs?
   const coverage = analyzeEngineCoverage(
-    cards.map(c => ({ name: c.name, oracle: String(c.oracle || c.oracle_text || ''), type: String(c.type || c.type_line || '') })),
+    cards.map(c => ({ name: c.name, oracle: candidateOracle(c), type: candidateType(c) })),
     needs || [],
   )
   const covPct = coverage.length
@@ -289,7 +323,7 @@ function measure(picks, commanderCard, needs) {
 
   const typeCounts = {}
   for (const c of cards) {
-    for (const ct of typesOf(String(c.type || c.type_line || ''))) {
+    for (const ct of typesOf(candidateType(c))) {
       typeCounts[ct] = (typeCounts[ct] || 0) + 1
     }
   }
@@ -408,7 +442,7 @@ function expectedEnablerCounts(edhrec, metaByName) {
 
 // ── One commander, all arms ───────────────────────────────────────────────────
 
-async function runCommander(name, metaCache) {
+async function runCommander(name, metaCache, collection = null) {
   const metaFetch = makeMetaFetcher(metaCache)
   const commanderCard = await fetchCommanderCard(name, metaFetch)
   if (!commanderCard) return { name, error: 'commander metadata not found' }
@@ -474,8 +508,8 @@ async function runCommander(name, metaCache) {
       : COMMANDER_TEMPLATE
     const base = analyzeBuildPlan({
       commander: commanderCard,
-      ownedCards: [],
-      sfMap: {},
+      ownedCards: collection?.ownedCards || [],
+      sfMap: collection?.sfMap || {},
       currentDeckCards: [],
       template,
       deckSize: COMMANDER_DECK_SIZE,
@@ -520,7 +554,7 @@ async function runCommander(name, metaCache) {
       currentLands: 0,
       nonbasicTarget: basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37,
       currentNonbasicLands: 0,
-      source: 'recommended',
+      source: collection ? 'owned' : 'recommended',
       targetCmc,
       curveStatus: 'on',
       comparatorFor: cfg ? makeExperimentalComparatorFor({ ctx, cfg, targetCmc, curveStatus: 'on' }) : null,
@@ -544,8 +578,8 @@ async function runCommander(name, metaCache) {
       // measures what users will actually get.
       const rowOf = (p, i) => ({
         id: `r${i}`, name: p.cand.name, qty: 1,
-        type_line: String(p.cand.type || p.cand.type_line || ''),
-        oracle_text: String(p.cand.oracle || p.cand.oracle_text || ''),
+        type_line: candidateType(p.cand),
+        oracle_text: candidateOracle(p.cand),
         cmc: p.cand.cmc ?? 0,
       })
       const rows = picks.map(rowOf)
@@ -560,11 +594,7 @@ async function runCommander(name, metaCache) {
         ...rows,
       ]
       const cov = analyzeEngineCoverage(
-        picks.map(p => ({
-          name: p.cand.name,
-          oracle: String(p.cand.oracle || p.cand.oracle_text || ''),
-          type: String(p.cand.type || p.cand.type_line || ''),
-        })),
+        picks.map(p => ({ name: p.cand.name, oracle: candidateOracle(p.cand), type: candidateType(p.cand) })),
         needs,
       )
       const ranked = [...byName.values()].sort((a, b) => (b.edhrecInclusion || 0) - (a.edhrecInclusion || 0))
@@ -685,6 +715,13 @@ it('build assistant A/B sweep', async () => {
     : COMMANDERS
   const limit = Number(process.env.HARNESS_LIMIT) || Infinity
 
+  const collectionFile = process.env.HARNESS_COLLECTION
+  const collection = collectionFile ? loadCollection(collectionFile) : null
+  if (collection) {
+    process.stdout.write(`  binder pool: ${collection.ownedCards.length} distinct cards
+`)
+  }
+
   const metaCache = new Map() // shared across commanders — card meta is intrinsic
   const byTier = {}
   const errors = []
@@ -694,7 +731,7 @@ it('build assistant A/B sweep', async () => {
     for (const name of names.slice(0, limit)) {
       let res
       try {
-        res = await runCommander(name, metaCache)
+        res = await runCommander(name, metaCache, collection)
       } catch (e) {
         res = { name, error: e?.message || String(e) }
       }

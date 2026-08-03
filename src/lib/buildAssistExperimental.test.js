@@ -417,10 +417,15 @@ describe('SHIPPED_SIGNALS', () => {
     expect(SHIPPED_SIGNALS.multiRole).toBe(true)
   })
 
-  it('leaves the two ranking signals off — each moved ~2 cards of 99', () => {
+  it('leaves EDHREC synergy off — it correlates 0.63-0.84 with inclusion', () => {
     expect(SHIPPED_SIGNALS.edhrecSynergy).toBe(false)
-    expect(SHIPPED_SIGNALS.commanderKw).toBe(false)
-    expect(SHIPPED_SIGNALS.deckAffinity).toBe(false)
+  })
+
+  // On the binder path this is the strongest signal there is (no-hook 73.9% ->
+  // 64.0%). It looked useless only because it was first measured on the
+  // ownership-blind path, where inclusion already separates the candidates.
+  it('enables keyword overlap for the binder path', () => {
+    expect(SHIPPED_SIGNALS.commanderKw).toBe(true)
   })
 
   it('leaves the signals that measured negative or unproven off', () => {
@@ -507,5 +512,36 @@ describe('novelty ceiling', () => {
       exclude: makeExperimentalExclude({ cfg: { ...SHIPPED_SIGNALS, noveltyMaxShare: null }, nonlandBudget: 60 }),
     })
     expect(picks.length).toBe(20)
+  })
+})
+
+// The cap exists to stop the recommender taking over, and the recommender only
+// ever supplies UNOWNED candidates. On the binder path "the crowd never plays
+// this" describes most of a real collection, so capping it there made the build
+// reject the user's own cards to reach for staples they happen to own.
+describe('novelty ceiling exempts owned cards', () => {
+  const ownedNovel = name => ({
+    name, cmc: 2, edhrecInclusion: 0,
+    card: { name }, sfCard: { name, type_line: 'Artifact', oracle_text: '{T}: Add {C}.', cmc: 2 },
+  })
+
+  it('does not cap cards from your own collection', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_RAMP, target: 20, ownedCandidates: Array.from({ length: 20 }, (_, i) => ownedNovel(`Owned ${i}`)) }],
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      exclude: makeExperimentalExclude({ cfg: SHIPPED_SIGNALS, nonlandBudget: 60 }),
+    })
+    expect(picks.length).toBe(20)
+  })
+
+  it('still caps unowned suggestions', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_RAMP, target: 20, ownedCandidates: Array.from({ length: 20 }, (_, i) => ({ name: `Sug ${i}`, cmc: 2, type: 'Artifact', oracle: '', edhrecInclusion: 0 })) }],
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      exclude: makeExperimentalExclude({ cfg: SHIPPED_SIGNALS, nonlandBudget: 60 }),
+    })
+    expect(picks.length).toBe(Math.floor(60 * SHIPPED_SIGNALS.noveltyMaxShare))
   })
 })
