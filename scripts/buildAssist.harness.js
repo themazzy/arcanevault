@@ -65,6 +65,10 @@ import {
   candidateType,
 } from '../src/lib/buildAssistExperimental'
 import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles'
+// Independent ground truth: simulation outputs, not classifier verdicts. This is
+// the one family of metrics here that CAN contradict the rest rather than
+// agreeing with it by construction.
+import { goldfishDeck } from '../src/lib/goldfish'
 import { recRank } from '../src/lib/deckBuildAssistant'
 import { extractCommanderKeywords, extractTribe, synergyScore } from '../src/lib/commanderSynergy'
 import { commanderNeeds, analyzeEngineCoverage, cardEnablers, deriveTypeFloors, isCardType } from '../src/lib/engineEnablers'
@@ -246,7 +250,7 @@ async function fetchCommanderCard(name, metaFetch) {
 // Every metric is computed from the PICKED cards only, using the same pure
 // classifiers the assistant uses, so the harness and the app agree on what a
 // "draw spell" or a "two-job card" is.
-function measure(picks, commanderCard, needs) {
+function measure(picks, commanderCard, needs, landTarget = 37) {
   const kw = extractCommanderKeywords(commanderCard?.oracle_text || '', commanderCard?.type_line || '')
   const cards = picks.map(p => p.cand)
   const nonland = cards.filter(c => !candidateType(c).includes('land'))
@@ -321,6 +325,24 @@ function measure(picks, commanderCard, needs) {
     if (!(c.edhrecInclusion > 0)) zeroIncl++
   }
 
+  // Goldfish the finished list — the only metrics here that are simulation
+  // outputs rather than verdicts from the same classifiers that drive the
+  // signals, so the only ones that can contradict the rest. Basics stand in for
+  // the manabase the app adds on finish, so the simulated deck is real-sized.
+  const landsPicked = cards.filter(c => candidateType(c).includes('land')).length
+  const gf = goldfishDeck({
+    deck: [
+      ...cards.map(c => ({
+        name: c.name, cmc: c.cmc ?? 0,
+        type_line: candidateType(c), oracle_text: candidateOracle(c),
+      })),
+      ...Array.from({ length: Math.max(0, landTarget - landsPicked) },
+        () => ({ name: 'Basic', cmc: 0, type_line: 'Basic Land — Forest' })),
+    ],
+    commanderCmc: commanderCard?.cmc ?? 4,
+    games: 200,
+  })
+
   const typeCounts = {}
   for (const c of cards) {
     for (const ct of typesOf(candidateType(c))) {
@@ -330,6 +352,12 @@ function measure(picks, commanderCard, needs) {
 
   const n = nonland.length || 1
   return {
+    gfCommanderT5: gf?.commanderByT5Pct ?? NaN,
+    gfAvgCmdTurn: gf?.avgCommanderTurn ?? NaN,
+    gfManaT5: gf?.avgManaT5 ?? NaN,
+    gfScrewed: gf?.screwedPct ?? NaN,
+    gfFlooded: gf?.floodedPct ?? NaN,
+    gfMulligan: gf?.mulliganPct ?? NaN,
     recPct: (recPicks / (nonland.length || 1)) * 100,
     zeroInclPct: (zeroIncl / (nonland.length || 1)) * 100,
     typeCounts,
@@ -589,9 +617,18 @@ async function runCommander(name, metaCache, collection = null) {
         const k = (c.name || '').toLowerCase()
         if (!byName.has(k)) byName.set(k, c)
       }
+      // Include the basics the app adds on finish. Without them `populated` is
+      // only ~63 cards, analyzeCut sees the deck as UNDER 100 and cuts nothing,
+      // so the pass's additions made the deck oversized -- which diluted the
+      // manabase and showed up in goldfishing as a mana-screw regression that
+      // was entirely an artifact of this harness, not of the pass.
+      const basicsNeeded = Math.max(0, COMMANDER_DECK_SIZE - 1 - rows.length)
       const populated = [
         { id: 'cmd', name: commanderCard.name, qty: 1, is_commander: true, type_line: commanderCard.type_line },
         ...rows,
+        ...Array.from({ length: basicsNeeded }, (_, i) => ({
+          id: `b${i}`, name: 'Forest', qty: 1, type_line: 'Basic Land — Forest', oracle_text: '', cmc: 0,
+        })),
       ]
       const cov = analyzeEngineCoverage(
         picks.map(p => ({ name: p.cand.name, oracle: candidateOracle(p.cand), type: candidateType(p.cand) })),
@@ -610,7 +647,20 @@ async function runCommander(name, metaCache, collection = null) {
         },
         deckSize: COMMANDER_DECK_SIZE,
         isLandRow: d => String(d?.type_line || '').toLowerCase().includes('land'),
-        passesBudget: () => true,
+        isManaRow: d => /\{t\}[^.\n]{0,40}\badd\b/.test(String(d?.oracle_text || '').toLowerCase()),
+        // The app routes this through the full auto-fill gate; the harness used
+        // to pass everything, so the engine pass added expensive enablers
+        // straight through the top-end cap and goldfishing blamed the pass for a
+        // castability drop that was really this divergence.
+        passesBudget: name => {
+          const c = byName.get(String(name).toLowerCase())
+          if (!c || !cfg) return true
+          return !makeExperimentalExclude({
+            cfg,
+            deckTopEnd: picks.filter(p => (p.cand?.cmc ?? 0) >= (cfg.topEndThreshold ?? 6)).length,
+            nonlandBudget: COMMANDER_DECK_SIZE - 1 - landTarget,
+          })(c, { role: ROLE_SYNERGY, picks: [] })
+        },
         analyzeCutFn: args => analyzeCut({
           plan: basePlan, sfMap: {}, cutMode: 'balanced',
           roleOf: dc => coarseRole(dc, dc),
@@ -634,7 +684,7 @@ async function runCommander(name, metaCache, collection = null) {
         finalPicks = [...kept, ...addedPicks]
       }
     }
-    results[arm.id] = measure(finalPicks, commanderCard, needs)
+    results[arm.id] = measure(finalPicks, commanderCard, needs, basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37)
   }
 
   return {
@@ -652,6 +702,13 @@ async function runCommander(name, metaCache, collection = null) {
 // ── Reporting ─────────────────────────────────────────────────────────────────
 
 const METRICS = [
+  // ── Independent (simulation, not classifier) ──
+  ['gfCommanderT5', 'GF: commander by T5 %', 'up'],
+  ['gfAvgCmdTurn', 'GF: avg commander turn', 'down'],
+  ['gfManaT5', 'GF: mana on turn 5', 'up'],
+  ['gfScrewed', 'GF: mana screwed %', 'down'],
+  ['gfFlooded', 'GF: flooded %', 'down'],
+  ['gfMulligan', 'GF: mulligan %', 'down'],
   ['recPct', '% from recommander', null],
   ['zeroInclPct', '% crowd never plays', null],
   ['covPct', 'engine coverage %', 'up'],

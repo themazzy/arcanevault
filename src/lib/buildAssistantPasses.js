@@ -249,6 +249,7 @@ export async function runGameChangerPass({
  * @param {Function} args.providersFor (enabler) => ranked candidate list
  * @param {number}   args.deckSize
  * @param {Function} args.isLandRow
+ * @param {Function} [args.isManaRow]  a mana source — protected from the cut
  * @param {Function} args.passesBudget
  * @param {Function} args.analyzeCutFn
  * @param {Function} args.addCards
@@ -263,6 +264,7 @@ export async function runEnginePass({
   providersFor = () => [],
   deckSize = 100,
   isLandRow = () => false,
+  isManaRow = () => false,
   passesBudget = () => true,
   analyzeCutFn,
   addCards,
@@ -304,7 +306,11 @@ export async function runEnginePass({
     for (const c of coverage) for (const p of c.providers || []) providerKeys.add(p.toLowerCase())
     const cuttableIds = new Set(
       populated
-        .filter(d => !d?.is_commander && fillSet.has(d.id) && !isLandRow(d)
+        // Mana sources are protected alongside lands. Goldfish simulation caught
+        // this pass cutting rocks to fit enablers: commander-cast-by-turn-5 fell
+        // 71.3% -> 68.4% and mana screw rose 7.0% -> 9.8%. An engine the deck
+        // can't reach its commander to run is not an improvement.
+        .filter(d => !d?.is_commander && fillSet.has(d.id) && !isLandRow(d) && !isManaRow(d)
           && !cardNameMatchKeys(d?.name).some(k => providerKeys.has(k)))
         .map(d => d.id),
     )

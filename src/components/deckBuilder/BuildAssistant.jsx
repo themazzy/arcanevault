@@ -121,6 +121,10 @@ const STEP_SHORT = {
   [ROLE_LANDS]: 'Lands',
 }
 
+// A deck row that taps for mana. Used to protect the manabase from the engine
+// pass's cuts; matches the same shape the goldfish simulation counts.
+const MANA_SOURCE_RE = /\{t\}[^.\n]{0,40}\badd\b/
+
 function roleNameSet(deckCards) {
   // Full + front-face keys, so EDHREC/combo names (front face for DFCs) still
   // match deck rows stored under the full "Front // Back" name.
@@ -1483,6 +1487,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // as fallback) — shared by the combo pass's cuttable filter and the GC
   // top-up's land accounting.
   const isLandRow = d => (sfMap?.[d?.scryfall_id]?.type_line || d?.type_line || '').toLowerCase().includes('land')
+  const isManaSourceRow = d =>
+    MANA_SOURCE_RE.test((sfMap?.[d?.scryfall_id]?.oracle_text || d?.oracle_text || '').toLowerCase())
 
   // Post-fill combo pass (opt-in). Re-queries Commander Spellbook on the just-
   // populated deck, completes as many bracket-appropriate combos as the target
@@ -1570,6 +1576,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       }),
       deckSize: plan?.deckSize || 100,
       isLandRow,
+      // Protect the manabase. Goldfish simulation caught this pass cutting mana
+      // rocks to fit enablers: commander-cast-by-turn-5 fell 71.3% -> 68.4% and
+      // mana screw rose 7.0% -> 9.8%. An engine the deck can't reach its
+      // commander to run is not an improvement.
+      isManaRow: isManaSourceRow,
       // The full auto-fill gate, not just the budget. Without this the engine
       // pass could add a Game Changer above the user's target bracket, or an
       // 8-mana sacrifice outlet straight through the top-end cap the rest of the
