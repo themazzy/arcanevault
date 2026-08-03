@@ -134,6 +134,32 @@ export function roleOfDeckCard(dc, sfMap, roleByName) {
 
 // Live per-role counts from the actual deck contents (commander excluded),
 // using roleOfDeckCard so the progress bars match how the steps display cards.
+//
+// ONE CARD COUNTS ONCE, even when it does two jobs. Deadly Dispute ramps and
+// draws; it fills the Ramp quota and is invisible to Draw. 11.3% of a real
+// EDHREC pool is like that, so this is a deliberate choice, not an oversight.
+//
+// Crediting every role a card fills was built and measured over 51 commanders on
+// both paths. It is a genuine trade, not a win:
+//
+//                        blind            binder
+//   commander by T5      71.1 -> 71.8     73.9 -> 75.6   better
+//   mana screwed          6.53 -> 6.41     6.29 -> 5.97  better
+//   colour screwed        9.63 -> 9.76     0.80 -> 0.66  mixed
+//   engine coverage      92.5 -> 91.2     91.7 -> 89.9   WORSE
+//   net card advantage   14.4 -> 13.4     15.7 -> 14.3   WORSE
+//
+// Multi-credit satisfies each quota with fewer cards, so the freed slots go to
+// the spillover pass and the deck comes out cheaper and smoother — it casts its
+// commander sooner and floods/screws less. But it genuinely draws fewer cards
+// (net card advantage sums cards drawn, not labels) and holds fewer of the
+// enablers its commander needs, and the engine pass cannot make that up because
+// it runs out of PROVIDERS in the pool rather than budget.
+//
+// Kept single-credit: a deck that reliably does its commander's thing beats one
+// that deploys a turn earlier and then does less. Revisit with the harness, not
+// by reasoning about it — and note the targets in COMMANDER_TEMPLATE are set for
+// single-credit, so switching also means re-deriving those.
 export function countByRole(deckCards, sfMap, roleByName) {
   const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
   for (const dc of deckCards || []) {
