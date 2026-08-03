@@ -78,7 +78,7 @@ import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles
 import { goldfishDeck, colorRequirements, producedColors } from '../src/lib/goldfish'
 import { recRank } from '../src/lib/deckBuildAssistant'
 import { extractCommanderKeywords, extractTribe, synergyScore } from '../src/lib/commanderSynergy'
-import { commanderNeeds, analyzeEngineCoverage, cardEnablers, deriveTypeFloors, isCardType, deriveTopEndAllowance } from '../src/lib/engineEnablers'
+import { commanderNeeds, analyzeEngineCoverage, cardEnablers, deriveTypeFloors, isCardType, deriveTopEndAllowance, deriveDrawExpensiveShare } from '../src/lib/engineEnablers'
 import { runEnginePass } from '../src/lib/buildAssistantPasses'
 
 // ── Commander sample ──────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ const COMMANDERS = {
 const SHIPPED = { ...SHIPPED_SIGNALS }
 const ALL_OFF = {
   multiRole: false, commanderKw: false, deckAffinity: false,
-  topEndCap: false, drawQuality: false, drawCurve: false, enginePass: false,
+  topEndCap: false, drawQuality: false, enginePass: false,
 }
 // `cfg: null` injects NO experimental comparator, so planAutoFill falls back to
 // its own rankComparator with no exclude gate. That is the PRE-promotion
@@ -144,14 +144,15 @@ const ALL_OFF = {
 // because it is. It stays as `legacy` for reference, and `shipped` passes
 // SHIPPED_SIGNALS explicitly.
 const ARMS = [
-  { id: 'shipped',   label: 'shipped',          cfg: { ...SHIPPED },                                    enginePass: true },
+  { id: 'shipped',   label: 'shipped',          cfg: { ...SHIPPED },  drawShare: 'derived',             enginePass: true },
   { id: 'legacy',    label: 'pre-promotion',    cfg: null,                                              enginePass: false },
   { id: 'nomulti',   label: '- multi-role',     cfg: { ...SHIPPED, multiRole: false },                  enginePass: true },
   { id: 'nokw',      label: '- keywords',       cfg: { ...SHIPPED, commanderKw: false, deckAffinity: false }, enginePass: true },
   { id: 'notopend',  label: '- top-end cap',    cfg: { ...SHIPPED, topEndCap: false },                  enginePass: true },
   { id: 'nodrawq',   label: '- draw quality',   cfg: { ...SHIPPED, drawQuality: false },                enginePass: true },
   { id: 'noengine',  label: '- engine pass',    cfg: { ...SHIPPED, enginePass: false },                 enginePass: false },
-  { id: 'drawcurve', label: '+ draw sub-curve', cfg: { ...SHIPPED, drawCurve: true },                   enginePass: true },
+  { id: 'flatdraw',  label: 'draw curve flat',  cfg: { ...SHIPPED },  drawShare: 'flat',                enginePass: true },
+  { id: 'nodraw',    label: 'draw curve off',   cfg: { ...SHIPPED },  drawShare: 'off',                 enginePass: true },
   { id: 'alloff',    label: 'all knobs off',    cfg: { ...SHIPPED, ...ALL_OFF },                        enginePass: false },
 ]
 
@@ -625,6 +626,7 @@ async function runCommander(name, metaCache, collection = null) {
   const derived = deriveRoleTemplate(pageCards, COMMANDER_DECK_SIZE - 1 - landTarget)
   const typeFloors = deriveTypeFloors(pageCards, COMMANDER_DECK_SIZE - 1)
   const topEndAllowance = deriveTopEndAllowance(pageCards, 6, COMMANDER_DECK_SIZE - 1)
+  const drawShare = deriveDrawExpensiveShare(pageCards, 4, COMMANDER_DECK_SIZE - 1)
 
   const arm0TypeFloors = typeFloors
   const needs = commanderNeeds(
@@ -724,6 +726,14 @@ async function runCommander(name, metaCache, collection = null) {
             drawRole: ROLE_DRAW,
             drawTarget: basePlan.roles.find(r => r.role === ROLE_DRAW)?.target || 0,
             topEndAllowance,
+            // The draw sub-curve gate is unconditional in the code now, so the
+            // arms express its three states through the share itself:
+            //   'off'     — share 1.0, i.e. the whole Draw quota may be expensive
+            //   'flat'    — null, so the gate falls back to the guessed 1/3
+            //   'derived' — this commander's measured share
+            drawExpensiveShare: arm.drawShare === 'off' ? 1
+              : arm.drawShare === 'flat' ? null
+              : drawShare,
             nonlandBudget: COMMANDER_DECK_SIZE - 1 - (basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37),
           })
         : undefined,

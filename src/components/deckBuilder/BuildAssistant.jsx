@@ -537,11 +537,15 @@ function MenuOption({ active, onClick, children, desc }) {
 // src/lib/buildAssistExperimental.js.
 //
 // What lab mode still gives you, and the only reason to keep it: the signals
-// become TUNABLE (the panel can switch each one off, or switch on drawCurve,
-// which ships off because it measured negative), and each candidate shows its
-// score breakdown so you can see why it ranked where it did. That is a
+// become TUNABLE (the panel can switch each one off), and each candidate shows
+// its score breakdown so you can see why it ranked where it did. That is a
 // measurement harness with a UI, which is what the next round of signals will
 // need. Admin-gated at the call site.
+//
+// Nothing here is a value a normal user has to pick. Every number the assistant
+// needs — enabler targets, type floors, top-end allowance, the draw sub-curve
+// share — is derived per commander from that commander's EDHREC page, so the
+// settings that used to be knobs tune themselves and stay hidden.
 export function BuildAssistant({ userId, commander, deckCards = [], accessToken, experimental = false, onAddCard, onAddCards, onUndoAutoFill, onPlaytest, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   // True between the EDHREC plan landing and the Recommander merge resolving —
@@ -1389,9 +1393,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     [deckCards, sfMap, activeCfg.topEndThreshold],
   )
 
-  // Lab-mode gate: the shape constraints (top-end cap, draw-quota quality and
-  // its sub-curve). Composed with — never replacing — the live budget/bracket
-  // filters below.
+  // Shape constraints: top-end cap, draw-quota quality, and the draw sub-curve.
+  // Composed with — never replacing — the live budget/bracket filters below.
   const expExclude = useMemo(() => {
     return makeExperimentalExclude({
       cfg: activeCfg,
@@ -1399,6 +1402,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       topEndAllowance: plan?.topEndAllowance ?? null,
       drawRole: ROLE_DRAW,
       drawTarget: plan?.roles?.find(r => r.role === ROLE_DRAW)?.target || 0,
+      drawExpensiveShare: plan?.drawExpensiveShare ?? null,
       nonlandBudget: Math.max(1, (plan?.deckSize || 100) - 1 - landsTarget),
       // Novelty already in the deck counts against the ceiling, so re-running
       // auto-fill on a part-built deck can't stack a second helping.
@@ -2438,12 +2442,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 on={expCfg.drawQuality} onChange={v => setExpField('drawQuality', v)}
                 label="Draw must net cards"
                 desc="Loot, rummage and cantrips are card selection — they stop filling the Draw quota."
-              />
-
-              <LabToggle
-                on={expCfg.drawCurve} onChange={v => setExpField('drawCurve', v)}
-                label="Draw sub-curve"
-                desc="Only a minority of the draw package may be expensive, and those must draw 3+."
               />
 
               <LabToggle

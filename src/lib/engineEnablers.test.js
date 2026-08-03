@@ -13,6 +13,9 @@ import {
   isCardType,
   TYPE_FLOOR,
   TRIBE_TARGET,
+  deriveDrawExpensiveShare,
+  DRAW_EXPENSIVE_SHARE_FLOOR,
+  DRAW_EXPENSIVE_SHARE_CEIL,
 } from './engineEnablers'
 
 // Verbatim Scryfall oracle text. The negative cases are the point of this file:
@@ -591,5 +594,67 @@ describe('deriveTopEndAllowance', () => {
   it('returns null when the page is too thin, so the flat cap still applies', () => {
     expect(deriveTopEndAllowance([c(0.1, 7)], 6, 99)).toBeNull()
     expect(deriveTopEndAllowance([], 6, 99)).toBeNull()
+  })
+})
+
+// The last guessed constant in the assistant: "only a third of your card draw
+// may cost 4+". Measured across real EDHREC pages that share runs from 0.20
+// (Sythis, Krenko, Uril — cheap decks that draw off cheap permanents) to 0.75
+// (Nikya, Azusa — big-mana decks whose draw IS their expensive creatures), so a
+// flat third was capping the second group below what the crowd actually plays.
+describe('deriveDrawExpensiveShare', () => {
+  const card = (inclusionPct, cmc, oracle, type = 'Sorcery') => ({ inclusionPct, cmc, oracle, type })
+  const draw = 'draw two cards.'
+  const many = (n, cmc, oracle = draw) => Array.from({ length: n }, () => card(0.6, cmc, oracle))
+
+  it('measures the share of the draw package that is expensive', () => {
+    // 30 draw spells at 0.6 = 18 weight; 9 of them cost 5 -> half.
+    const cards = [...many(15, 5), ...many(15, 2), ...many(30, 2, 'Destroy target creature.')]
+    expect(deriveDrawExpensiveShare(cards, 4, 99)).toBeCloseTo(0.5, 2)
+  })
+
+  it('reads a cheap-draw deck below the flat third', () => {
+    const cards = [...many(2, 5), ...many(28, 1), ...many(30, 2, 'Destroy target creature.')]
+    const share = deriveDrawExpensiveShare(cards, 4, 99)
+    expect(share).toBeLessThan(1 / 3)
+    expect(share).toBeGreaterThanOrEqual(DRAW_EXPENSIVE_SHARE_FLOOR)
+  })
+
+  it('reads a big-mana deck above it', () => {
+    const cards = [...many(26, 6), ...many(4, 2), ...many(30, 2, 'Destroy target creature.')]
+    expect(deriveDrawExpensiveShare(cards, 4, 99)).toBeGreaterThan(1 / 3)
+  })
+
+  it('clamps both ends so one page cannot produce an absurd cap', () => {
+    const allCheap = [...many(30, 1), ...many(30, 2, 'Destroy target creature.')]
+    const allPricey = [...many(30, 8), ...many(30, 2, 'Destroy target creature.')]
+    expect(deriveDrawExpensiveShare(allCheap, 4, 99)).toBe(DRAW_EXPENSIVE_SHARE_FLOOR)
+    expect(deriveDrawExpensiveShare(allPricey, 4, 99)).toBe(DRAW_EXPENSIVE_SHARE_CEIL)
+  })
+
+  // Looting and scrying are not the draw package — the Draw quota rejects them,
+  // so counting them in the denominator would understate the expensive share.
+  it('ignores selection that only pretends to be card advantage', () => {
+    const loot = 'draw two cards, then discard two cards.'
+    const cards = [...many(10, 6), ...many(40, 1, loot), ...many(20, 2, 'Destroy target creature.')]
+    expect(deriveDrawExpensiveShare(cards, 4, 99)).toBe(DRAW_EXPENSIVE_SHARE_CEIL)
+  })
+
+  it('ignores lands, which never fill the draw quota', () => {
+    const lands = Array.from({ length: 40 }, () => card(0.9, 0, 'draw two cards.', 'Land'))
+    const cards = [...lands, ...many(10, 6), ...many(30, 1), ...many(25, 2, 'Destroy target creature.')]
+    const share = deriveDrawExpensiveShare(cards, 4, 99)
+    expect(share).toBeCloseTo(0.25, 2)
+  })
+
+  it('returns null when the page is too thin, so the flat share still applies', () => {
+    expect(deriveDrawExpensiveShare([card(0.1, 6, draw)], 4, 99)).toBeNull()
+    expect(deriveDrawExpensiveShare([], 4, 99)).toBeNull()
+  })
+
+  it('returns null when the page has almost no draw to measure', () => {
+    // Plenty of coverage, but only two draw spells — not enough to derive from.
+    const cards = [...many(2, 6), ...many(60, 2, 'Destroy target creature.')]
+    expect(deriveDrawExpensiveShare(cards, 4, 99)).toBeNull()
   })
 })

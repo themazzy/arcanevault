@@ -19,7 +19,8 @@ import {
   ROLE_RAMP, ROLE_DRAW, ROLE_REMOVAL, ROLE_WIPE,
   ROLE_PROTECTION, ROLE_WINCON, ROLE_SYNERGY, ROLE_LANDS, ROLE_ORDER,
 } from './buildRoles'
-import { deriveEnablerTargets, deriveTypeFloors, deriveTopEndAllowance } from './engineEnablers'
+import { deriveEnablerTargets, deriveTypeFloors, deriveTopEndAllowance,
+  deriveDrawExpensiveShare } from './engineEnablers'
 import { cardRoleTags } from './cardRoles'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
@@ -1620,8 +1621,12 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta, { m
   // and a spellslinger want wildly different numbers and the flat cap served
   // neither.
   const topEndAllowance = deriveTopEndAllowance(pageCards, 6, budget)
+  // …and what share of the draw package real decks for this commander pay 4+
+  // for. Same story as the top end: a spellslinger draws on cantrips, a big-mana
+  // deck draws off six-drops, and one flat fraction was wrong for both.
+  const drawExpensiveShare = deriveDrawExpensiveShare(pageCards, 4, budget)
 
-  return { ...plan, roles, engineTargets, typeFloors, topEndAllowance }
+  return { ...plan, roles, engineTargets, typeFloors, topEndAllowance, drawExpensiveShare }
 }
 
 // ── Recommander augmentation ──────────────────────────────────────────────────

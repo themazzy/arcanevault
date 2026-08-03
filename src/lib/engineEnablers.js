@@ -22,6 +22,7 @@
 // deckBuildAssistant, which imports this module — reaching into cardRoles here
 // closes that loop and breaks module init. See oracleText.js.
 import { stripReminders } from './oracleText'
+import { drawQuality } from './cardRoles'
 
 // ── Detectors ─────────────────────────────────────────────────────────────────
 // Precision matters more than recall here: a false positive makes the deck look
@@ -286,6 +287,59 @@ export function deriveTypeFloors(cards = [], deckSize = 99) {
  * target here, with a floor so a very cheap deck still gets a little headroom.
  */
 export const TOP_END_FLOOR = 3
+
+/**
+ * What share of a real deck's DRAW package for this commander is expensive.
+ *
+ * The draw sub-curve rule ("only a minority of your card draw may cost 4+, and
+ * that minority must draw explosively") came from a deckbuilding video as a flat
+ * one-third. That is the last guessed constant in the assistant, and guessed
+ * constants have been wrong here every single time they were finally measured:
+ * sacrifice outlets 6 -> 4.4, fodder 8 -> 14.6, haste 4 -> 1.3, tutors 4 -> 2.3,
+ * top end 4 -> anywhere from 3 to 32 depending on the commander.
+ *
+ * One third is not wrong so much as it is one number for every deck. A spell-
+ * slinger list draws with cantrips and one-mana rituals; a big-mana or tribal
+ * list draws off six-drops that also happen to be its win conditions, and
+ * capping those at a third makes it play a worse deck than the crowd does. So
+ * measure the crowd instead: of the cards real decks run for THIS commander that
+ * fill the Draw role, how much of that weight costs `threshold` or more?
+ *
+ * Theme comes along for free — a themed EDHREC page returns that theme's cards,
+ * so the derived share is the theme's share without needing a theme parameter.
+ *
+ * Returns null when the page is too thin to trust (same 25%-of-deck coverage
+ * guard the other derivations use), so the caller keeps the flat fallback.
+ */
+export const DRAW_EXPENSIVE_SHARE_FLOOR = 0.2
+export const DRAW_EXPENSIVE_SHARE_CEIL = 0.75
+
+export function deriveDrawExpensiveShare(cards = [], threshold = 4, deckSize = 99) {
+  let drawWeight = 0
+  let expensiveDraw = 0
+  let covered = 0
+  for (const c of cards) {
+    const incl = Math.min(1, Math.max(0, c?.inclusionPct ?? 0))
+    if (!incl) continue
+    const type = String(c.type || '').toLowerCase()
+    if (type.includes('land')) continue
+    covered += incl
+    // Only cards that are genuinely card ADVANTAGE count as the draw package —
+    // the same bar the Draw quota itself applies, so the share is measured
+    // against the thing it will be used to cap. Looting and scrying would
+    // otherwise inflate the denominator with cards the quota won't accept.
+    if (drawQuality(String(c.oracle || '').toLowerCase()).kind !== 'advantage') continue
+    drawWeight += incl
+    // Counts every expensive draw card, burst or not, because that is what the
+    // gate's running total counts. Only the non-burst ones get BLOCKED, so a
+    // deck whose expensive draw genuinely is explosive still fills its quota.
+    if ((c.cmc ?? 0) >= threshold) expensiveDraw += incl
+  }
+  if (covered < deckSize * 0.25) return null
+  if (drawWeight < 3) return null
+  const share = expensiveDraw / drawWeight
+  return Math.min(DRAW_EXPENSIVE_SHARE_CEIL, Math.max(DRAW_EXPENSIVE_SHARE_FLOOR, share))
+}
 
 export function deriveTopEndAllowance(cards = [], threshold = 6, deckSize = 99) {
   let expensive = 0

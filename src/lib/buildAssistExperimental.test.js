@@ -261,21 +261,21 @@ describe('#5 draw quota quality + sub-curve', () => {
     expect(isWeakExpensiveDraw(up('Divination', { cmc: 3, oracle: 'Draw two cards.' }), cfg)).toBe(false)
   })
 
-  // Measured counterproductive on a 36-commander sweep, so it ships off. The
-  // mechanic still has to work when switched on in the tuning panel, which is
-  // what this covers — hence the explicit drawCurve: true.
-  it('is off by default', () => {
-    expect(EXPERIMENTAL_DEFAULTS.drawCurve).toBe(false)
+  // Unconditional now. It shipped off while the share was a flat third, which
+  // was wrong for both ends of the range; the share is derived per commander, so
+  // there is nothing left to switch.
+  it('has no on/off switch left', () => {
+    expect('drawCurve' in EXPERIMENTAL_DEFAULTS).toBe(false)
   })
 
-  it('caps how many expensive non-burst draw spells the package takes when enabled', () => {
+  it('caps how many expensive non-burst draw spells the package takes', () => {
     const slow = Array.from({ length: 6 }, (_, i) =>
       up(`Slow Draw ${i}`, { cmc: 5, type: 'Sorcery', oracle: 'Draw two cards.', inclusion: 50 - i }))
     const picks = planAutoFill({
       roles: [{ role: ROLE_DRAW, target: 6, ownedCandidates: slow }],
       liveCounts: new Map([[ROLE_DRAW, 0]]),
       totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
-      exclude: makeExperimentalExclude({ cfg: { ...cfg, drawCurve: true }, drawRole: ROLE_DRAW, drawTarget: 6 }),
+      exclude: makeExperimentalExclude({ cfg, drawRole: ROLE_DRAW, drawTarget: 6 }),
     })
     expect(picks.length).toBe(2) // floor(6 * 1/3)
   })
@@ -323,16 +323,32 @@ describe('SHIPPED_SIGNALS', () => {
     expect(SHIPPED_SIGNALS.commanderKw).toBe(true)
   })
 
-  it('leaves the signal that measured negative off', () => {
-    expect(SHIPPED_SIGNALS.drawCurve).toBe(false)   // worsened its own metric
-  })
-
   // The three that were deleted rather than left switchable. Pinned by absence
   // so a revert can't quietly reintroduce a config key nothing reads.
   it('has no config left for the deleted signals', () => {
     expect('edhrecSynergy' in SHIPPED_SIGNALS).toBe(false)
     expect('comboType' in SHIPPED_SIGNALS).toBe(false)
     expect('synergyWeight' in SHIPPED_SIGNALS).toBe(false)
+    expect('drawCurve' in SHIPPED_SIGNALS).toBe(false)
+  })
+
+  // The derived share overrides the flat fallback when the caller supplies one,
+  // which is how a big-mana deck keeps the expensive draw its crowd runs while
+  // an enchantress deck gets cut below the flat third.
+  it('honours a per-commander draw share over the flat fallback', () => {
+    const slow = Array.from({ length: 6 }, (_, i) =>
+      up(`Slow Draw ${i}`, { cmc: 5, type: 'Sorcery', oracle: 'Draw two cards.', inclusion: 50 - i }))
+    const run = drawExpensiveShare => planAutoFill({
+      roles: [{ role: ROLE_DRAW, target: 6, ownedCandidates: slow }],
+      liveCounts: new Map([[ROLE_DRAW, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      exclude: makeExperimentalExclude({
+        cfg: SHIPPED_SIGNALS, drawRole: ROLE_DRAW, drawTarget: 6, drawExpensiveShare,
+      }),
+    }).length
+    expect(run(null)).toBe(2)   // flat 1/3 of 6
+    expect(run(0.75)).toBe(4)   // big-mana deck keeps more
+    expect(run(0.2)).toBe(1)    // cheap-draw deck is cut below it
   })
 
   // With every surviving signal promoted, lab mode is no longer a different

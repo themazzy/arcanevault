@@ -42,14 +42,13 @@ export const EXPERIMENTAL_DEFAULTS = {
   topEndThreshold: 6,      // "expensive" starts here (transcript: 6+ MV)
   topEndMax: 4,            // at most this many expensive cards in the deck
   drawQuality: true,       // loot/cantrips don't fill the Draw quota
-  // OFF by default: measured counterproductive. The A/B harness (36 commanders)
-  // showed this rule makes its OWN target metric worse — "weak expensive draw"
-  // rose in every bucket with 2+ commander hooks (+0.48, and +1.50 for text-rich
-  // commanders). Blocking a non-burst 4+ MV draw spell frees the slot for the
-  // spillover pass, which refills it with something no cheaper. Left switchable
-  // so the panel can re-test it after the rule is reworked.
-  drawCurve: false,        // cap expensive draw slots (transcript: 8 of 12 at <=3 MV)
   drawExpensiveThreshold: 4, // "expensive" for a draw slot starts here
+  // Fallback only. The share is normally DERIVED per commander from the EDHREC
+  // page (deriveDrawExpensiveShare); this flat third is what a very thin page
+  // falls back to, and it is the figure the rule shipped off because of — as one
+  // number for every deck it capped big-mana and tribal lists at roughly half
+  // the expensive draw their crowd actually runs, while letting enchantress and
+  // voltron lists run more.
   drawExpensiveShare: 1 / 3,
   // Engine pass: after the fill, top up whatever the commander's own text says
   // the deck needs to function (sacrifice outlets, blink, self-mill…). Measured
@@ -102,9 +101,11 @@ export const EXPERIMENTAL_DEFAULTS = {
  *                                                 with rummaging that nets no cards
  *   multi-role     2+ job cards     9.69 → 12.51
  *
- * Excluded on evidence, not caution:
- *   • drawCurve — made its own target metric worse. Kept switchable so the lab
- *     panel can re-test it if the rule is reworked.
+ * The draw sub-curve was the last hold-out here, switched off because as a flat
+ * one-third it made its own target metric worse. It is no longer flat: the share
+ * is derived per commander (deriveDrawExpensiveShare), which is what that rule
+ * needed, so it is on for everyone with no switch.
+ *
  * The engine pass IS included: its targets are now derived per commander from
  * EDHREC (deriveEnablerTargets) instead of guessed, which was the condition for
  * promoting it.
@@ -135,7 +136,6 @@ export const SHIPPED_SIGNALS = {
   multiRole: true,
   topEndCap: true,
   drawQuality: true,
-  drawCurve: false,
   // ON. Dismissed after measuring only the ownership-blind path, where it moves
   // ~1.7 cards of 99 and looks useless. Measured on the BINDER path against a
   // real 8,199-card collection it is the single strongest signal there: cards
@@ -388,6 +388,9 @@ export function makeExperimentalExclude({
   topEndAllowance = null,
   drawRole = null,
   drawTarget = 0,
+  // Per-commander share of the draw package allowed to be expensive, from
+  // deriveDrawExpensiveShare. Null falls back to cfg.drawExpensiveShare.
+  drawExpensiveShare = null,
   nonlandBudget = 62,
   deckNovelty = 0,
 } = {}) {
@@ -437,9 +440,13 @@ export function makeExperimentalExclude({
           && !candidateRoleTags(cand).roles.has(ROLE_DRAW)) return true
 
       // …and the draw package needs its own curve: only a minority of it may be
-      // expensive, and those must draw explosively.
-      if (cfg.drawCurve && isWeakExpensiveDraw(cand, cfg)) {
-        const maxExpensive = Math.max(1, Math.floor((drawTarget || 0) * (cfg.drawExpensiveShare ?? 1 / 3)))
+      // expensive, and those must draw explosively. The share is derived per
+      // commander (a spellslinger deck draws on cantrips, a big-mana or tribal
+      // one draws off its six-drops), falling back to the flat figure only when
+      // the EDHREC page is too thin to measure.
+      if (isWeakExpensiveDraw(cand, cfg)) {
+        const share = drawExpensiveShare ?? cfg.drawExpensiveShare ?? 1 / 3
+        const maxExpensive = Math.max(1, Math.floor((drawTarget || 0) * share))
         const expensivePicked = picks.filter(
           p => p.role === drawRole && (p.cand?.cmc ?? 0) >= (cfg.drawExpensiveThreshold ?? 4),
         ).length
