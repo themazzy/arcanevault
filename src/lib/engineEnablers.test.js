@@ -7,6 +7,8 @@ import {
   caresAboutOthersEntering,
   deriveEnablerTargets,
   SHORTFALL_ALARM,
+  deriveTopEndAllowance,
+  TOP_END_FLOOR,
   deriveTypeFloors,
   isCardType,
   TYPE_FLOOR,
@@ -556,5 +558,35 @@ describe('severe vs minor shortfall', () => {
   it('never alarms when the target is met', () => {
     expect(analyzeEngineCoverage(outlets(10), need(10))[0].severe).toBe(false)
     expect(analyzeEngineCoverage(outlets(30), need(10))[0].severe).toBe(false)
+  })
+})
+
+// A flat cap of four 6+ MV cards is right for a typical list and plainly wrong
+// for the archetypes built ON expensive cards — dragon tribal, big-mana green,
+// Eldrazi. It didn't restrain those decks, it stopped them working.
+describe('deriveTopEndAllowance', () => {
+  const c = (inclusionPct, cmc, type = 'Creature — Dragon') => ({ inclusionPct, cmc, type })
+  const many = (n, cmc) => Array.from({ length: n }, () => c(0.6, cmc))
+
+  it('gives a dragon-style deck room for its bombs', () => {
+    // 40 cards at 0.6 = 24 covered; 20 of them are 6-drops -> ~half the deck.
+    const allowance = deriveTopEndAllowance([...many(20, 7), ...many(20, 3)], 6, 99)
+    expect(allowance).toBeGreaterThan(20)
+  })
+
+  it('tightens below the flat cap for a genuinely cheap deck', () => {
+    const allowance = deriveTopEndAllowance([...many(1, 7), ...many(49, 2)], 6, 99)
+    expect(allowance).toBeLessThan(4)
+    expect(allowance).toBeGreaterThanOrEqual(TOP_END_FLOOR)
+  })
+
+  it('ignores lands, which have no mana value to speak of', () => {
+    const lands = Array.from({ length: 40 }, () => ({ inclusionPct: 0.9, cmc: 0, type: 'Land' }))
+    expect(deriveTopEndAllowance([...lands, ...many(30, 7)], 6, 99)).toBeGreaterThan(TOP_END_FLOOR)
+  })
+
+  it('returns null when the page is too thin, so the flat cap still applies', () => {
+    expect(deriveTopEndAllowance([c(0.1, 7)], 6, 99)).toBeNull()
+    expect(deriveTopEndAllowance([], 6, 99)).toBeNull()
   })
 })

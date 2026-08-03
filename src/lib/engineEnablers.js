@@ -273,6 +273,35 @@ export function deriveTypeFloors(cards = [], deckSize = 99) {
   return out
 }
 
+/**
+ * How many expensive cards a real deck for this commander runs.
+ *
+ * The shipped cap is a flat 4 at 6+ mana value, taken from a deckbuilding video's
+ * "only three or four of these big cards" rule. That is right for a typical list
+ * and plainly wrong for the archetypes built ON expensive cards -- The Ur-Dragon
+ * is a pile of six-drops, and a big-mana green deck ramps into them on purpose.
+ * A flat cap doesn't restrain those decks, it stops them working.
+ *
+ * Derived per commander, inclusion-weighted and coverage-scaled like every other
+ * target here, with a floor so a very cheap deck still gets a little headroom.
+ */
+export const TOP_END_FLOOR = 3
+
+export function deriveTopEndAllowance(cards = [], threshold = 6, deckSize = 99) {
+  let expensive = 0
+  let covered = 0
+  for (const c of cards) {
+    const incl = Math.min(1, Math.max(0, c?.inclusionPct ?? 0))
+    if (!incl) continue
+    const type = String(c.type || '').toLowerCase()
+    if (type.includes('land')) continue
+    covered += incl
+    if ((c.cmc ?? 0) >= threshold) expensive += incl
+  }
+  if (covered < deckSize * 0.25) return null
+  return Math.max(TOP_END_FLOOR, Math.round((expensive * deckSize) / covered))
+}
+
 // ── Need derivation ───────────────────────────────────────────────────────────
 // Commander hook → the enabler that hook implies, with a target count.
 //

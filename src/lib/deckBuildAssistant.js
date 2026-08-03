@@ -19,7 +19,7 @@ import {
   ROLE_RAMP, ROLE_DRAW, ROLE_REMOVAL, ROLE_WIPE,
   ROLE_PROTECTION, ROLE_WINCON, ROLE_SYNERGY, ROLE_LANDS, ROLE_ORDER,
 } from './buildRoles'
-import { deriveEnablerTargets, deriveTypeFloors } from './engineEnablers'
+import { deriveEnablerTargets, deriveTypeFloors, deriveTopEndAllowance } from './engineEnablers'
 import { cardRoleTags } from './cardRoles'
 
 // ── Coarse role taxonomy ──────────────────────────────────────────────────────
@@ -1559,6 +1559,7 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta, { m
         inclusionPct: (cv.potentialDecks || 0) > 0 ? (cv.inclusion || 0) / cv.potentialDecks : 0,
         oracle: meta?.oracle_text || '',
         type: meta?.type_line || cv.type || '',
+        cmc: meta?.cmc ?? cv.cmc ?? 0,
       }
   })
   const budget = (plan.deckSize || COMMANDER_DECK_SIZE) - 1
@@ -1566,8 +1567,12 @@ export async function enrichPlanWithEdhrec(plan, fetchEdhrec, fetchCardMeta, { m
   // Type floors need only the type line, so they cover the whole page rather
   // than just the slice whose oracle text we could resolve.
   const typeFloors = deriveTypeFloors(pageCards, budget)
+  // How many expensive cards real decks for THIS commander run — a dragon deck
+  // and a spellslinger want wildly different numbers and the flat cap served
+  // neither.
+  const topEndAllowance = deriveTopEndAllowance(pageCards, 6, budget)
 
-  return { ...plan, roles, engineTargets, typeFloors }
+  return { ...plan, roles, engineTargets, typeFloors, topEndAllowance }
 }
 
 // ── Recommander augmentation ──────────────────────────────────────────────────

@@ -695,3 +695,25 @@ describe('novelty floor', () => {
     expect(picks[0].cand.name).toBe('A')
   })
 })
+
+describe('top-end allowance overrides the flat cap', () => {
+  const bombs = n => Array.from({ length: n }, (_, i) => up(`Bomb ${i}`, { cmc: 7, inclusion: 90 - i }))
+  const fill = allowance => planAutoFill({
+    roles: [{ role: ROLE_RAMP, target: 30, ownedCandidates: bombs(30) }],
+    liveCounts: new Map([[ROLE_RAMP, 0]]),
+    totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+    exclude: makeExperimentalExclude({ cfg: SHIPPED_SIGNALS, deckTopEnd: 0, topEndAllowance: allowance }),
+  })
+
+  it('lets a big-mana deck keep its bombs', () => {
+    expect(fill(18).length).toBe(18)
+  })
+
+  it('tightens below the flat cap when real decks are cheap', () => {
+    expect(fill(3).length).toBe(3)
+  })
+
+  it('falls back to the flat cap when EDHREC gave nothing', () => {
+    expect(fill(null).length).toBe(SHIPPED_SIGNALS.topEndMax)
+  })
+})

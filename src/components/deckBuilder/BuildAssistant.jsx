@@ -1396,6 +1396,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return makeExperimentalExclude({
       cfg: activeCfg,
       deckTopEnd,
+      topEndAllowance: plan?.topEndAllowance ?? null,
       drawRole: ROLE_DRAW,
       drawTarget: plan?.roles?.find(r => r.role === ROLE_DRAW)?.target || 0,
       nonlandBudget: Math.max(1, (plan?.deckSize || 100) - 1 - landsTarget),

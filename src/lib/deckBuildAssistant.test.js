@@ -5,6 +5,7 @@ import {
   buyListText,
   tcgplayerMassEntryUrl,
   planAutoFill,
+  recRank,
   deriveRoleTemplate,
   karstenSourcesNeeded,
   karstenColorRequirements,
@@ -43,7 +44,6 @@ import {
   backfillWinconUpgrades,
   selectUpgrades,
   rankOverallRecommendations,
-  recRank,
   RECOMMANDER_RANK_SCALE,
   upgradeDisplayLimit,
   upgradePoolDepth,
@@ -2034,5 +2034,23 @@ describe('deriveRoleTemplate', () => {
   it('sets min below ideal', () => {
     const t = deriveRoleTemplate(many(30, 'Draw two cards.', 'Sorcery'), 62)
     expect(t[ROLE_DRAW].min).toBeLessThan(t[ROLE_DRAW].ideal)
+  })
+})
+
+// The scale was doing two jobs: making recommander picks visible, and ranking
+// them honestly. It cannot do both — at 60 a routine 0.5 score outranked real
+// staples and turned up sixth under a "best overall" heading. noveltyFloor now
+// handles visibility, so this is free to be an honest strength estimate.
+describe('RECOMMANDER_RANK_SCALE', () => {
+  it('keeps a routine recommander pick below a modestly-played staple', () => {
+    const rec = { name: 'Lead Pipe', score: 0.5, edhrecInclusion: 0 }
+    const staple = { name: 'Real Staple', score: 0, edhrecInclusion: 25 }
+    expect(recRank(rec)).toBeLessThan(recRank(staple))
+  })
+
+  it('still lets an exceptional recommander pick beat the long tail', () => {
+    const strong = { name: 'Strong Pick', score: 0.9, edhrecInclusion: 0 }
+    const fringe = { name: 'Fringe', score: 0, edhrecInclusion: 8 }
+    expect(recRank(strong)).toBeGreaterThan(recRank(fringe))
   })
 })

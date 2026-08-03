@@ -401,6 +401,8 @@ export function isWeakExpensiveDraw(cand, cfg = EXPERIMENTAL_DEFAULTS) {
 export function makeExperimentalExclude({
   cfg = EXPERIMENTAL_DEFAULTS,
   deckTopEnd = 0,
+  // Per-commander allowance from EDHREC; falls back to cfg.topEndMax.
+  topEndAllowance = null,
   drawRole = null,
   drawTarget = 0,
   nonlandBudget = 62,
@@ -415,7 +417,7 @@ export function makeExperimentalExclude({
       const cmc = cand?.cmc ?? 0
       if (cmc >= threshold) {
         const picked = picks.filter(p => (p.cand?.cmc ?? 0) >= threshold).length
-        if (deckTopEnd + picked >= (cfg.topEndMax ?? 4)) return true
+        if (deckTopEnd + picked >= (topEndAllowance ?? cfg.topEndMax ?? 4)) return true
       }
     }
 

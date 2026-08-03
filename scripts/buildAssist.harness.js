@@ -77,7 +77,7 @@ import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles
 import { goldfishDeck, colorRequirements, producedColors } from '../src/lib/goldfish'
 import { recRank } from '../src/lib/deckBuildAssistant'
 import { extractCommanderKeywords, extractTribe, synergyScore } from '../src/lib/commanderSynergy'
-import { commanderNeeds, analyzeEngineCoverage, cardEnablers, deriveTypeFloors, isCardType } from '../src/lib/engineEnablers'
+import { commanderNeeds, analyzeEngineCoverage, cardEnablers, deriveTypeFloors, isCardType, deriveTopEndAllowance } from '../src/lib/engineEnablers'
 import { runEnginePass } from '../src/lib/buildAssistantPasses'
 
 // ── Commander sample ──────────────────────────────────────────────────────────
@@ -598,12 +598,16 @@ async function runCommander(name, metaCache, collection = null) {
         inclusionPct: (cv.inclusion || 0) / pot,
         oracle: meta.oracle_text,
         type: meta.type_line || cv.type || '',
+        // Needed by deriveTopEndAllowance; omitting it made every commander
+        // return the floor, which looked like "nobody wants big spells".
+        cmc: meta.cmc ?? cv.cmc ?? 0,
       })
     }
   }
   const landTarget = COMMANDER_TEMPLATE[ROLE_LANDS].ideal
   const derived = deriveRoleTemplate(pageCards, COMMANDER_DECK_SIZE - 1 - landTarget)
   const typeFloors = deriveTypeFloors(pageCards, COMMANDER_DECK_SIZE - 1)
+  const topEndAllowance = deriveTopEndAllowance(pageCards, 6, COMMANDER_DECK_SIZE - 1)
 
   const arm0TypeFloors = typeFloors
   const needs = commanderNeeds(
@@ -702,6 +706,7 @@ async function runCommander(name, metaCache, collection = null) {
             deckTopEnd: 0,
             drawRole: ROLE_DRAW,
             drawTarget: basePlan.roles.find(r => r.role === ROLE_DRAW)?.target || 0,
+            topEndAllowance,
             nonlandBudget: COMMANDER_DECK_SIZE - 1 - (basePlan.roles.find(r => r.role === ROLE_LANDS)?.target || 37),
           })
         : undefined,
@@ -802,6 +807,7 @@ async function runCommander(name, metaCache, collection = null) {
     edhrecCards,
     recCount: recRows.length,
     colorIdentity: commanderCard.color_identity || [],
+    topEndAllowance,
     hooks: [...extractCommanderKeywords(commanderCard.oracle_text, commanderCard.type_line)],
     needs,
     expected,
@@ -996,6 +1002,18 @@ it('build assistant A/B sweep', async () => {
         (tot / rows2.length).toFixed(1),
       )
     }
+  }
+
+  out.push("")
+  out.push("TOP-END ALLOWANCE — what real decks run at 6+ MV (flat cap was 4 for everyone)")
+  {
+    const rows2 = all.filter(r => r.topEndAllowance != null)
+      .map(r => ({ n: r.name.split(",")[0], v: r.topEndAllowance }))
+      .sort((a, b) => b.v - a.v)
+    out.push("  highest:  " + rows2.slice(0, 6).map(x => `${x.n} ${x.v}`).join(" · "))
+    out.push("  lowest:   " + rows2.slice(-6).map(x => `${x.n} ${x.v}`).join(" · "))
+    const over = rows2.filter(x => x.v > 4).length
+    out.push(`  ${over} of ${rows2.length} commanders want MORE than the flat cap of 4`)
   }
 
   out.push('')
