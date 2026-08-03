@@ -315,3 +315,51 @@ describe('module init (import cycle regression)', () => {
     expect(engineRoleCount(jobs)).toBe(2)
   })
 })
+
+
+// Red's card advantage is almost entirely impulse draw — "exile the top N cards,
+// you may play them". None of it says "draw", so the net-advantage rule scored
+// all of it as nothing, and a red deck's Draw quota could never be filled by the
+// cards red actually uses to fill it.
+describe('impulse draw', () => {
+  const q = o => drawQuality(o.toLowerCase())
+
+  it('was previously invisible: none of these say "draw"', () => {
+    for (const o of [
+      'Exile the top two cards of your library. Until the end of your next turn, you may play those cards.',
+      'Exile the top card of your library. You may cast that card.',
+    ]) expect(o.toLowerCase()).not.toContain('draw')
+  })
+
+  it('counts a two-card impulse as advantage', () => {
+    expect(q('Exile the top two cards of your library. Until the end of your next turn, you may play those cards.').kind).toBe('advantage')
+  })
+
+  it('counts a repeatable one-card impulse as advantage', () => {
+    // Outpost Siege — one card per upkeep, forever.
+    expect(q('At the beginning of your upkeep, exile the top card of your library. Until end of turn, you may play that card.').kind).toBe('advantage')
+  })
+
+  it('counts a loyalty-ability impulse as advantage', () => {
+    // Chandra, Torch of Defiance. Loyalty abilities are repeatable, which
+    // isRepeatable did not previously recognise.
+    expect(q('+1: Exile the top card of your library. You may cast that card. If you don\'t, Chandra deals 2 damage to each opponent.').kind).toBe('advantage')
+  })
+
+  it('counts an X impulse as burst', () => {
+    expect(q('Exile the top X cards of your library. Until the end of your next turn, you may play those cards.').burst).toBe(true)
+  })
+
+  // Exiling without permission to play them is mill or removal, not draw.
+  it('does not count exile with no permission to play', () => {
+    expect(q('Exile the top three cards of your library.').kind).not.toBe('advantage')
+  })
+
+  it('fills the Draw role for a red impulse spell', () => {
+    const { roles } = cardRoleTags(
+      'Exile the top two cards of your library. Until the end of your next turn, you may play those cards.',
+      'Sorcery',
+    )
+    expect(roles.has(ROLE_DRAW)).toBe(true)
+  })
+})

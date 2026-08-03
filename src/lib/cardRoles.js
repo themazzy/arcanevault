@@ -92,6 +92,9 @@ export function isRepeatable(o = '') {
   if (/\bwhenever\b|\bat the beginning of\b|\bat end of turn\b/.test(o)) return true
   // Activated ability: something before a colon that looks like a cost.
   if (/(\{[^}]+\}|sacrifice|discard|pay|tap an untapped)[^:\n]{0,60}:/.test(o)) return true
+  // Planeswalker loyalty abilities — once per turn, forever. Their cost is a
+  // bare "+1:" / "−3:", which the activated-ability rule above doesn't see.
+  if (/(^|\n)\s*[+−-]\d+:/.test(o)) return true
   return false
 }
 
@@ -128,6 +131,26 @@ export function drawGiveback(o = '') {
 }
 
 /**
+ * Impulse draw: "exile the top N cards of your library, you may play them".
+ *
+ * This is red's card advantage almost in its entirety — Light Up the Stage,
+ * Reckless Impulse, Wrenn's Resolve, Outpost Siege, Chandra, Professional
+ * Face-Breaker. None of it contains the word "draw", so the net-advantage rule
+ * scored all of it as nothing and a red deck's Draw quota could not be filled by
+ * the cards red actually fills it with. It is genuinely card advantage: you get
+ * the extra cards, just on a timer.
+ *
+ * The permission clause is required — exiling the top of your library without it
+ * is mill or removal, not draw.
+ */
+export function impulseAmount(o = '') {
+  if (!/you may (play|cast)/.test(o)) return 0
+  const m = o.match(/exile the top (?:(a|an|one|two|three|four|five|x|\d+) )?cards? of your library/)
+  if (!m) return 0
+  return m[1] ? toCount(m[1]) : 1
+}
+
+/**
  * Classify a card's card-flow.
  * @returns {{ kind: 'none'|'selection'|'advantage', net: number, burst: boolean }}
  *   kind 'advantage' → counts toward the Draw quota
@@ -135,7 +158,7 @@ export function drawGiveback(o = '') {
  *   burst            → draws 3+ at once, which is what justifies a 4+ MV draw slot
  */
 export function drawQuality(o = '') {
-  const drew = drawAmount(o)
+  const drew = Math.max(drawAmount(o), impulseAmount(o))
   const looksLikeSelection = /\bscry\b|\bsurveil\b|look at the top/.test(o)
   if (!drew) return { kind: looksLikeSelection ? 'selection' : 'none', net: 0, burst: false }
 
