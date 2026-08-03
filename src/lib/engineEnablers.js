@@ -98,6 +98,37 @@ const FODDER = /create [^.\n]{0,60}(creature|artifact|treasure|clue|food|blood) 
  */
 const HASTE_GRANT = /(creatures? you control|equipped creature|enchanted creature|target creature|they|it) (has|have|gains?) [a-z, ]{0,30}haste|as though (those|these) creatures had haste/
 
+/**
+ * A tutor: finds a specific card, which is what makes a deck consistent.
+ *
+ * The land-search exclusion is the same trap as in cardRoles — Rampant Growth
+ * and Cultivate say "search your library for a basic land card" and are ramp,
+ * not consistency. Green Sun's Zenith counts (finds a creature), Demonic and
+ * Vampiric Tutor count (find anything).
+ */
+const TUTOR = /search your library for (a|an|up to (one|two|three|four)) (?![a-z, ]{0,30}\b(lands?|forests?|islands?|plains|swamps?|mountains?|wastes?)\b)[a-z, ']{0,40}(card|creature|instant|sorcery|artifact|enchantment|planeswalker)/
+
+/**
+ * Interaction: removal, counterspells and protection. Deliberately re-stated
+ * here rather than imported from cardRoles — that module imports the role
+ * constants from deckBuildAssistant, which imports this one, and closing that
+ * loop silently broke module init once already (see oracleText.js).
+ */
+const INTERACTION = /(destroy|exile) (x |\d+ )?(target|all|each)|counter target [a-z', ]{0,60}(spell|ability)|return target [a-z' ]{0,40}(creature|permanent|nonland)[^.\n]{0,60}to (its|their) owner|(gains?|have|has) [a-z, ]{0,40}(hexproof|indestructible|shroud|protection)/
+
+/**
+ * Can it be used on someone else's turn? A pile of sorcery-speed removal can't
+ * answer anything, protect anything, or punish a combo attempt — the deck only
+ * interacts when it's already too late. Instants and flash qualify; so does an
+ * activated ability, which can be held up.
+ */
+function isInstantSpeed(o, t) {
+  if (/\binstant\b/.test(t)) return true
+  if (/\bflash\b/.test(o)) return true
+  return /(\{[^}]+\}|sacrifice|discard|pay)[^:\n]{0,60}:/.test(o)
+}
+
+
 export const ENABLERS = {
   sacOutlet: {
     id: 'sacOutlet',
@@ -141,6 +172,18 @@ export const ENABLERS = {
     why: "Your commander sacrifices permanents — it needs a supply of things you don't mind losing, or the outlets have nothing to eat.",
     test: (o) => FODDER.test(o),
   },
+  tutor: {
+    id: 'tutor',
+    label: 'tutors',
+    why: 'Tutors are what make a deck do the same thing every game instead of only when it draws well.',
+    test: (o) => TUTOR.test(o),
+  },
+  instantInteraction: {
+    id: 'instantInteraction',
+    label: 'instant-speed interaction',
+    why: "Sorcery-speed answers can't protect your commander or stop a combo on someone else's turn — by your turn it's already resolved.",
+    test: (o, t) => INTERACTION.test(o) && isInstantSpeed(o, t),
+  },
   haste: {
     id: 'haste',
     label: 'haste enablers',
@@ -157,7 +200,8 @@ export function cardEnablers(oracleText = '', typeLine = '') {
   // Lands are excluded from enabler counting: a fetchland "sacrifices" itself
   // and would otherwise pad the sacrifice-outlet count with the manabase.
   if (String(typeLine).toLowerCase().includes('land')) return out
-  for (const e of Object.values(ENABLERS)) if (e.test(o)) out.add(e.id)
+  const t = String(typeLine).toLowerCase()
+  for (const e of Object.values(ENABLERS)) if (e.test(o, t)) out.add(e.id)
   return out
 }
 
@@ -313,6 +357,20 @@ export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle 
   }
   hooks = effective
   const byEnabler = new Map()
+
+  // Universal needs. Unlike everything in HOOK_NEEDS these aren't implied by
+  // the commander — every Commander deck wants to be consistent and to be able
+  // to act on other players' turns. They only appear when EDHREC gave a
+  // measured target, so a bad guess can't manufacture a requirement.
+  for (const id of ['tutor', 'instantInteraction']) {
+    const measured = measuredTargets?.[id]
+    if (measured == null || measured < 1) continue
+    const def = ENABLERS[id]
+    byEnabler.set(id, {
+      enabler: id, label: def.label, why: def.why,
+      target: Math.ceil(measured), measured, hooks: ['universal'],
+    })
+  }
   for (const { hook, enabler, target } of HOOK_NEEDS) {
     if (!hooks?.has?.(hook)) continue
     // A measured target always wins over the constant. The constants are only a

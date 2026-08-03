@@ -2952,11 +2952,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               {engineCoverage.length > 0 && (
                 <>
                   <div className={styles.sectionLabel}>
-                    Engine check
+                    Deck check
                     <span className={styles.sectionHint}>
                       {engineCoverage.some(c => c.short > 0)
-                        ? ' · your commander needs pieces this deck is missing'
-                        : ' · your commander has what it needs'}
+                        ? ' · pieces this deck is short of, measured against real decks'
+                        : ' · this deck has the pieces it needs'}
                     </span>
                   </div>
                   <div className={styles.engineList}>
@@ -3274,7 +3274,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   {autoFillResult.engineAdded > 0 && (
                     <div className={styles.afResultDetail}>
                       Added {autoFillResult.engineAdded} card{autoFillResult.engineAdded === 1 ? '' : 's'} your
-                      commander needs to function — see Engine check below.
+                      commander needs to function — see Deck check below.
                     </div>
                   )}
 

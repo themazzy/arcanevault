@@ -386,3 +386,71 @@ describe('attack hook derives haste', () => {
     expect(needs.map(n => n.enabler)).toContain('haste')
   })
 })
+
+
+// Unlike every other enabler these aren't implied by the commander — they're
+// universal deck properties. Consistency and the ability to act on someone
+// else's turn matter to every Commander deck.
+describe('tutor detection', () => {
+  const t = (o, ty = 'Sorcery') => cardEnablers(o, ty).has('tutor')
+
+  it('accepts tutors that find a card', () => {
+    expect(t('Search your library for a card, put that card into your hand, then shuffle.')).toBe(true)
+    expect(t('Search your library for a card, then shuffle and put that card on top. You lose 2 life.', 'Instant')).toBe(true)
+    expect(t('Search your library for an artifact or enchantment card, reveal it, then shuffle and put that card on top.', 'Instant')).toBe(true)
+    expect(t('Search your library for a green creature card with mana value X or less, put it onto the battlefield, then shuffle.')).toBe(true)
+  })
+
+  // The same trap as in cardRoles: a land fetch is ramp, not consistency.
+  it('rejects land searches', () => {
+    expect(t('Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.')).toBe(false)
+    expect(t('Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.')).toBe(false)
+  })
+})
+
+describe('instant-speed interaction detection', () => {
+  const t = (o, ty) => cardEnablers(o, ty).has('instantInteraction')
+
+  it('accepts instant-speed answers', () => {
+    expect(t('Exile target creature. Its controller gains life equal to its power.', 'Instant')).toBe(true)
+    expect(t('Counter target spell.', 'Instant')).toBe(true)
+    expect(t('Destroy target permanent. Its controller creates a 3/3 green Beast creature token.', 'Instant')).toBe(true)
+    expect(t('Permanents you control gain hexproof and indestructible until end of turn.', 'Instant')).toBe(true)
+  })
+
+  // A pile of sorcery-speed removal can't protect the commander or answer a
+  // combo attempt — by your turn it has already resolved.
+  it('rejects sorcery-speed answers', () => {
+    expect(t("Destroy all creatures. They can't be regenerated.", 'Sorcery')).toBe(false)
+    expect(t("Destroy target creature. A creature destroyed this way can't be regenerated.", 'Sorcery')).toBe(false)
+    expect(t("Destroy target artifact you don't control.", 'Sorcery')).toBe(false)
+  })
+
+  it('accepts an activated ability, which can be held up', () => {
+    expect(t('{2}, {T}: Destroy target artifact.', 'Artifact')).toBe(true)
+  })
+
+  it('rejects things that are instant speed but not interaction', () => {
+    expect(t('Draw two cards.', 'Instant')).toBe(false)
+    expect(t('Add {B}{B}{B}.', 'Instant')).toBe(false)
+  })
+})
+
+describe('universal needs', () => {
+  it('appear only when EDHREC supplied a measured target', () => {
+    const withMeasured = commanderNeeds(new Set(), null, 'Flying', { tutor: 4.2, instantInteraction: 7.1 })
+    expect(withMeasured.map(n => n.enabler)).toEqual(expect.arrayContaining(['tutor', 'instantInteraction']))
+    expect(withMeasured.find(n => n.enabler === 'tutor').target).toBe(5)
+  })
+
+  // No guessed constant backs these, so an absent measurement means no
+  // requirement rather than an invented one.
+  it('do not appear without measurement', () => {
+    expect(commanderNeeds(new Set(), null, 'Flying', {})).toEqual([])
+    expect(commanderNeeds(new Set(), null, 'Flying', null)).toEqual([])
+  })
+
+  it('are skipped when the measured target rounds to nothing', () => {
+    expect(commanderNeeds(new Set(), null, 'Flying', { tutor: 0.4 })).toEqual([])
+  })
+})
