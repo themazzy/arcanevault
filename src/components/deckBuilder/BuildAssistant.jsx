@@ -83,6 +83,7 @@ import {
   countTopEnd,
   preferResourceCombos,
   adjustTargetForCommander,
+  isNoveltyPick,
   candidateOracle,
   candidateType,
 } from '../../lib/buildAssistExperimental'
@@ -1434,6 +1435,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       targetCmc: effectiveCurveTarget,
       curveStatus: curveStatus.status,
       exclude: autoFillExclude,
+      // Novelty band: the exclude gate caps off-meta picks, this guarantees a
+      // few. Only meaningful for the ownership-blind source — the binder path
+      // has no unowned suggestions to reserve.
+      noveltyFloor: Math.floor(
+        Math.max(1, (plan?.deckSize || 100) - 1 - landsTarget) * (activeCfg.noveltyMinShare || 0),
+      ),
+      isNovel: isNoveltyPick,
       // Per-ROLE ranking, not one comparator for everything. Lands are exempt:
       // landCandidates is already sorted by which colours the deck is short of,
       // and re-ranking it by card quality threw that away — measured, the deck
@@ -1591,12 +1599,28 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       }
     }
     const ranked = [...pool].sort((a, b) => rankOf(b) - rankOf(a))
+    // Coverage recomputed from the POPULATED deck, not the engineCoverage memo.
+    // That memo is keyed on the deckCards prop, which still holds the pre-fill
+    // deck when this runs — so the pass believed the deck was empty, saw the
+    // largest need short by its whole target, and spent its entire budget there
+    // while leaving smaller needs (tutors) completely unfilled.
+    const liveCoverage = analyzeEngineCoverage(
+      populated.filter(d => !d?.is_commander).map(d => {
+        const sf = sfMap?.[d?.scryfall_id] || null
+        return {
+          name: d.name,
+          oracle: sf?.oracle_text || d?.oracle_text || '',
+          type: sf?.type_line || d?.type_line || '',
+        }
+      }),
+      engineNeeds,
+    )
     const pass = await enginePassCore({
       populated,
       fillIds,
-      coverage: engineCoverage,
+      coverage: liveCoverage,
       providersFor: enabler => ranked.filter(c => {
-        const need = engineCoverage.find(n => n.enabler === enabler)
+        const need = liveCoverage.find(n => n.enabler === enabler)
         if (need?.cardType) return isCardType(candidateType(c), need.cardType)
         if (need?.enabler === 'tribe') return isTribeMember(candidateType(c), need.tribe)
         return cardEnablers(candidateOracle(c), candidateType(c)).has(enabler)
@@ -2998,8 +3022,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   <div className={styles.sectionLabel}>
                     Deck check
                     <span className={styles.sectionHint}>
-                      {engineCoverage.some(c => c.short > 0)
-                        ? ' · pieces this deck is short of, measured against real decks'
+                      {engineCoverage.some(c => c.severe)
+                        ? ' · measured against real decks for this commander'
                         : ' · this deck has the pieces it needs'}
                     </span>
                   </div>
@@ -3007,10 +3031,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     {engineCoverage.map(cov => (
                       <div
                         key={cov.enabler}
-                        className={`${styles.engineRow}${cov.short > 0 ? ' ' + styles.engineRowShort : ''}`}
+                        className={`${styles.engineRow}${cov.severe ? ' ' + styles.engineRowShort : ''}`}
                       >
                         <div className={styles.engineHead}>
-                          {cov.short > 0 && <WarningIcon size={12} />}
+                          {cov.severe && <WarningIcon size={12} />}
                           <span className={styles.engineLabel}>{cov.label}</span>
                           <span className={styles.engineCount}>
                             {cov.have}<span className={styles.engineTarget}>/{cov.target}</span>
@@ -3025,7 +3049,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                         {/* The reason only makes sense as a warning. Showing
                             "well below that and the deck stops functioning" next
                             to a count three times OVER target read as nonsense. */}
-                        {cov.short > 0 && <div className={styles.engineWhy}>{cov.why}</div>}
+                        {cov.severe && <div className={styles.engineWhy}>{cov.why}</div>}
                         {cov.providers.length > 0 && (
                           <div className={styles.engineProviders} title={cov.providers.join(', ')}>
                             {cov.providers.slice(0, 4).join(' · ')}

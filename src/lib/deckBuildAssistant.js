@@ -648,6 +648,14 @@ export function planAutoFill({
   // Removal regardless of theme. Falls back to `comparator` when absent, and
   // the spillover pass always uses the global one (its pool spans every role).
   comparatorFor = null,
+  // Reserve a few slots for off-meta picks BEFORE the roles are filled.
+  // Without this they never land: a recommander pick scores ~30 while EDHREC
+  // staples sit at 40-90, so against a full commander page every slot goes to
+  // the crowd's choice and the deck contains nothing you haven't seen. The
+  // ceiling in the exclude gate stops them taking over; this stops them
+  // vanishing. Both are needed — novelty wants a band, not a maximum.
+  noveltyFloor = 0,
+  isNovel = () => false,
 } = {}) {
   const picks = []
   const taken = new Set()
@@ -704,6 +712,19 @@ export function planAutoFill({
       n++
     }
     return n
+  }
+
+  // Novelty reserve, taken first so it survives the roles filling up.
+  if (noveltyFloor > 0 && nonlandBudget > 0) {
+    const novelPool = []
+    for (const spec of roles) {
+      if (spec.role === ROLE_LANDS) continue
+      for (const entry of poolFor(spec.ownedCandidates, spec.upgrades, spec.role)) {
+        if (isNovel(entry.cand)) novelPool.push({ ...entry, role: spec.role })
+      }
+    }
+    novelPool.sort(cmp)
+    nonlandBudget -= takeFrom(novelPool, Math.min(noveltyFloor, nonlandBudget))
   }
 
   for (const spec of roles) {

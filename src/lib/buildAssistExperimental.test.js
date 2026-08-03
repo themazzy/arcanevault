@@ -16,6 +16,7 @@ import {
   candidateOracle,
   candidateType,
   candidateRoleTags,
+  isNoveltyPick,
 } from './buildAssistExperimental'
 import { planAutoFill, rankOverallRecommendations, recRank, ROLE_RAMP, ROLE_DRAW, ROLE_LANDS } from './deckBuildAssistant'
 
@@ -604,5 +605,93 @@ describe('scoring is cached', () => {
   it('returns the same oracle text for the same candidate', () => {
     const cand = { name: 'Y', sfCard: { oracle_text: '{T}: Add {C}.', type_line: 'Artifact' } }
     expect(candidateOracle(cand)).toBe(candidateOracle(cand))
+  })
+})
+
+// The picker and the counter must apply the SAME rule. They didn't: the gate
+// rejected only cards tagged 'selection', while the count required the card to
+// be tagged Draw. Cards with unresolvable oracle text, and tutors, passed the
+// gate and then registered as nothing — a full 100-card deck showing "Draw 7/12"
+// and genuinely short of card advantage.
+describe('Draw quota picks only what it counts', () => {
+  const drawRole = ROLE_DRAW
+  const gate = makeExperimentalExclude({ cfg: SHIPPED_SIGNALS, drawRole, drawTarget: 12 })
+  const info = { role: drawRole, picks: [] }
+
+  it('accepts real card advantage', () => {
+    expect(gate(up('Divination', { oracle: 'Draw two cards.', type: 'Sorcery' }), info)).toBe(false)
+  })
+
+  it('rejects a loot spell', () => {
+    expect(gate(up('Faithless Looting', { oracle: 'Draw two cards, then discard two cards.', type: 'Sorcery' }), info)).toBe(true)
+  })
+
+  it('rejects a card whose oracle text could not be resolved', () => {
+    expect(gate(up('Mystery Card'), info)).toBe(true)
+  })
+
+  it('accepts impulse draw, which red fills this role with', () => {
+    const impulse = up('Reckless Impulse', {
+      type: 'Sorcery',
+      oracle: 'Exile the top two cards of your library. Until the end of your next turn, you may play those cards.',
+    })
+    expect(gate(impulse, info)).toBe(false)
+  })
+
+  it('leaves other roles alone', () => {
+    expect(gate(up('Mystery Card'), { role: ROLE_RAMP, picks: [] })).toBe(false)
+  })
+})
+
+// Novelty needs a BAND, not a maximum. Reported from the app: on a commander
+// with a rich EDHREC page the deck contained no off-meta cards at all, because a
+// recommander pick scores ~30 against staples at 40-90 and never wins a slot.
+describe('novelty floor', () => {
+  const novel = (name, score = 0.5) => ({ name, cmc: 2, type: 'Artifact', oracle: '', edhrecInclusion: 0, score })
+  const staple = (name, inclusion) => up(name, { inclusion })
+
+  it('identifies an off-meta suggestion but not an owned card', () => {
+    expect(isNoveltyPick(novel('X'))).toBe(true)
+    expect(isNoveltyPick(staple('Y', 60))).toBe(false)
+    expect(isNoveltyPick({ name: 'Z', edhrecInclusion: 0, sfCard: {}, card: {} })).toBe(false)
+  })
+
+  it('reserves slots so off-meta picks survive a deep staple pool', () => {
+    const roles = [{
+      role: ROLE_RAMP, target: 20,
+      ownedCandidates: [],
+      upgrades: [
+        ...Array.from({ length: 20 }, (_, i) => staple(`Staple ${i}`, 90 - i)),
+        ...Array.from({ length: 5 }, (_, i) => novel(`Novel ${i}`)),
+      ],
+    }]
+    const picks = planAutoFill({
+      roles,
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      source: 'recommended',
+      noveltyFloor: 3,
+      isNovel: isNoveltyPick,
+    })
+    expect(picks.filter(p => isNoveltyPick(p.cand)).length).toBe(3)
+  })
+
+  it('adds none when there are no off-meta candidates', () => {
+    const picks = planAutoFill({
+      roles: [{ role: ROLE_RAMP, target: 5, ownedCandidates: [], upgrades: Array.from({ length: 5 }, (_, i) => staple(`S${i}`, 50)) }],
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0,
+      source: 'recommended', noveltyFloor: 3, isNovel: isNoveltyPick,
+    })
+    expect(picks.length).toBe(5)
+  })
+
+  it('is inert at zero, so nothing changes for callers that do not set it', () => {
+    const roles = [{ role: ROLE_RAMP, target: 2, ownedCandidates: [], upgrades: [staple('A', 90), novel('B')] }]
+    const picks = planAutoFill({
+      roles, liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100, landsTarget: 0, currentLands: 0, source: 'recommended',
+    })
+    expect(picks[0].cand.name).toBe('A')
   })
 })

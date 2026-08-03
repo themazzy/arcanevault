@@ -486,6 +486,12 @@ export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle 
  * @param {Array} needs  from commanderNeeds
  * @returns {Array<{ ...need, have, short, providers: string[] }>}
  */
+// How far under a target counts as a real problem rather than a rounding miss.
+// The targets are already floors at 75% of what real decks run, so being a card
+// or two under is normal and flagging it made a finished, working deck read as
+// broken. Below this fraction the deck genuinely can't do the thing.
+export const SHORTFALL_ALARM = 0.7
+
 export function analyzeEngineCoverage(cards = [], needs = []) {
   return needs.map(need => {
     const providers = []
@@ -498,10 +504,14 @@ export function analyzeEngineCoverage(cards = [], needs = []) {
           : cardEnablers(c?.oracle || '', type).has(need.enabler)
       if (hit) providers.push(c.name)
     }
+    const have = providers.length
     return {
       ...need,
-      have: providers.length,
-      short: Math.max(0, need.target - providers.length),
+      have,
+      short: Math.max(0, need.target - have),
+      // Distinct from `short`: the pass still tops up any shortfall, but only a
+      // serious one is worth alarming the user about.
+      severe: have < (need.target || 0) * SHORTFALL_ALARM,
       providers,
     }
   })

@@ -6,6 +6,7 @@ import {
   analyzeEngineCoverage,
   caresAboutOthersEntering,
   deriveEnablerTargets,
+  SHORTFALL_ALARM,
   deriveTypeFloors,
   isCardType,
   TYPE_FLOOR,
@@ -529,5 +530,31 @@ describe('commanderNeeds — type floors', () => {
     ], needs)
     expect(cov.have).toBe(2)
     expect(cov.short).toBe(1)
+  })
+})
+
+// The targets are already floors at 75% of what real decks run, so being a card
+// or two under is normal. Flagging every shortfall made a finished, working deck
+// read as broken immediately after auto-fill built it.
+describe('severe vs minor shortfall', () => {
+  const need = target => [{ enabler: 'sacOutlet', label: 'x', why: '', target, hooks: [] }]
+  const outlets = n => Array.from({ length: n }, (_, i) => ({
+    name: `O${i}`, oracle: 'Sacrifice a creature: Add {C}{C}.', type: 'Artifact',
+  }))
+
+  it('does not alarm on a near miss', () => {
+    const [cov] = analyzeEngineCoverage(outlets(9), need(10))
+    expect(cov.short).toBe(1)
+    expect(cov.severe).toBe(false)
+  })
+
+  it('alarms when the deck genuinely cannot do the thing', () => {
+    const [cov] = analyzeEngineCoverage(outlets(2), need(10))
+    expect(cov.severe).toBe(true)
+  })
+
+  it('never alarms when the target is met', () => {
+    expect(analyzeEngineCoverage(outlets(10), need(10))[0].severe).toBe(false)
+    expect(analyzeEngineCoverage(outlets(30), need(10))[0].severe).toBe(false)
   })
 })

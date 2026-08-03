@@ -16,7 +16,7 @@
 // 'explosive-ramp' tag in cardRoles but is not one of the five wired here.)
 
 import { recRank, curveFitKey } from './deckBuildAssistant'
-import { ROLE_LANDS } from './buildRoles'
+import { ROLE_LANDS, ROLE_DRAW } from './buildRoles'
 import {
   cardRoleTagsFromCard,
   cardRoleTags,
@@ -72,7 +72,7 @@ export const EXPERIMENTAL_DEFAULTS = {
   // on 51 commanders, ~1 in 10 auto-filled decks is short of something its
   // commander requires — a correctness problem no ranking signal can see.
   enginePass: true,
-  engineMaxAdd: 6,
+  engineMaxAdd: 10,
   // Cap on cards the crowd never plays for this commander (recommander picks
   // with no EDHREC inclusion). Novelty is WANTED — surprise cards are a large
   // part of why building a deck is fun, and the recommender surfaces synergistic
@@ -144,6 +144,10 @@ export const SHIPPED_SIGNALS = {
   deckAffinity: true,
   comboType: false,
   noveltyMaxShare: 0.15,
+  // …and a floor, so they don't vanish entirely. Reported from the app: with
+  // only a ceiling, a commander with a rich EDHREC page produced a deck with no
+  // off-meta cards at all, because every slot went to a better-ranked staple.
+  noveltyMinShare: 0.08,
   // Promoted: with per-commander targets derived from EDHREC rather than
   // guessed, this takes engine coverage from 57.8% to ~99% across 51
   // commanders — and specifically reverses the 6.4-point coverage regression
@@ -230,6 +234,16 @@ export function buildScoringContext({ commanderOracle = '', commanderType = '', 
  *
  * @returns {{ rank: number, base: number, parts: Object, labels: string[] }}
  */
+/**
+ * An off-meta pick: something the crowd doesn't play for this commander. Only
+ * unowned suggestions qualify — an owned card with no EDHREC inclusion is just a
+ * card from your collection, and treating those as novelty made the binder path
+ * reject its own pool (see noveltyMaxShare).
+ */
+export function isNoveltyPick(cand) {
+  return !(cand?.sfCard || cand?.card) && !(cand?.edhrecInclusion > 0)
+}
+
 /** Has EDHREC published a synergy figure for this candidate? */
 export function hasSynergyData(cand) {
   return typeof cand?.edhrecSynergy === 'number' && cand.edhrecSynergy !== 0
@@ -413,18 +427,23 @@ export function makeExperimentalExclude({
     // 8,199-card pool, the cap was cutting off-meta owned cards from 23% to 13%.
     // The risk this guards against is the recommender taking over, and the
     // recommender only ever supplies unowned candidates.
-    const isOwned = !!(cand?.sfCard || cand?.card)
-    if (cfg.noveltyMaxShare != null && !isOwned && !(cand?.edhrecInclusion > 0)) {
+    if (cfg.noveltyMaxShare != null && isNoveltyPick(cand)) {
       const allowed = Math.floor(nonlandBudget * cfg.noveltyMaxShare)
-      const taken = deckNovelty + picks.filter(p => !(p.cand?.sfCard || p.cand?.card) && !(p.cand?.edhrecInclusion > 0)).length
+      const taken = deckNovelty + picks.filter(p => isNoveltyPick(p.cand)).length
       if (taken >= allowed) return true
     }
 
     // #5 — the Draw quota is for cards that NET cards. A looter or cantrip is
     // card selection; it can still make the deck as synergy, just not here.
     if (info.role && drawRole && info.role === drawRole) {
-      const tags = candidateRoleTags(cand).tags
-      if (cfg.drawQuality && tags.has('selection') && !tags.has('net-draw')) return true
+      // Must be the SAME test the live count uses (roleOfDeck keeps a card in
+      // Draw only when cardRoleTags puts it there). Rejecting merely the cards
+      // tagged 'selection' let two other kinds through that also don't count: a
+      // card whose oracle text couldn't be resolved (tagged neither way) and a
+      // tutor. Both filled Draw slots and then registered as nothing, so a full
+      // 100-card deck sat at "Draw 7/12" and was genuinely short of card
+      // advantage rather than merely mis-displaying it.
+      if (cfg.drawQuality && !candidateRoleTags(cand).roles.has(ROLE_DRAW)) return true
 
       // …and the draw package needs its own curve: only a minority of it may be
       // expensive, and those must draw explosively.
