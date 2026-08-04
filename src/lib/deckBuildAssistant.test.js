@@ -38,6 +38,7 @@ import {
   basicsForAutoFill,
   isBasicLandName,
   rankCutCandidates,
+  CUT_TIER,
   analyzeCut,
   edhrecInclusionPct,
   attachRecommenderUpgrades,
@@ -1519,6 +1520,97 @@ describe('analyzeCut', () => {
     // "Also consider" continues after the recommended rows, not after row #4.
     expect(out.extra[0]?.id).toBe('r3')
   })
+
+  // ── Tiers ───────────────────────────────────────────────────────────────────
+  // A small, readable deck: 8 Ramp (target 10, so NOT over) and 6 Synergy
+  // (target 12, also not over) — nothing is EXCESS unless a test makes it so.
+  const tierPlan = {
+    deckSize: 14,
+    roles: [{ role: ROLE_RAMP, target: 4 }, { role: ROLE_SYNERGY, target: 4 }],
+  }
+  const tierDeck = [
+    { id: 'cmd', name: 'Cmd', is_commander: true },
+    ...Array.from({ length: 6 }, (_, i) => ({ id: `ramp${i}`, name: `Ramp ${i * 10}`, qty: 1 })),
+    ...Array.from({ length: 6 }, (_, i) => ({ id: `syn${i}`, name: `Syn ${i * 10}`, qty: 1 })),
+  ]
+  const tierBase = {
+    plan: tierPlan,
+    deckCards: tierDeck,
+    sfMap: {},
+    lockedIds: new Set(),
+    roleOf: dc => (dc.name.startsWith('Ramp') ? ROLE_RAMP : ROLE_SYNERGY),
+    // "Ramp 30" → 30. Ramp 0 / Syn 0 are the weakest of their category.
+    inclusionOf: name => Number(name.split(' ')[1]) || 0,
+  }
+
+  it('benches a card only when the bench is clearly better, not merely better', () => {
+    // Ramp 50 sits at strength 50. A bench at 55 is inside RANK_BUCKET (6) — a
+    // tie as far as the ranking is concerned — so it must NOT be benched. At 56
+    // the gap is exactly the bucket and it is.
+    const near = analyzeCut({
+      ...tierBase, totalCards: 20,
+      benchFor: role => (role === ROLE_RAMP ? { name: 'Bench', strength: 55 } : null),
+    })
+    const clear = analyzeCut({
+      ...tierBase, totalCards: 20,
+      benchFor: role => (role === ROLE_RAMP ? { name: 'Bench', strength: 56 } : null),
+    })
+    const benchedIn = out => out.recommended.concat(out.extra)
+      .filter(c => c.tier === CUT_TIER.BENCHED).map(c => c.name)
+    expect(benchedIn(near)).not.toContain('Ramp 50')
+    expect(benchedIn(clear)).toContain('Ramp 50')
+  })
+
+  it('puts benched cards ahead of everything else, however strong they are', () => {
+    // Only Synergy has a bench, so every Synergy card is benched and no Ramp
+    // card is. Syn 50 is then the strongest benched card and Ramp 0 the weakest
+    // card in the whole deck — and Syn 50 must still be suggested first. Score
+    // alone would put Ramp 0 top.
+    const out = analyzeCut({
+      ...tierBase, totalCards: 21,
+      benchFor: role => (role === ROLE_SYNERGY ? { name: 'Better Payoff', strength: 90 } : null),
+    })
+    const order = out.recommended.map(c => c.name)
+    expect(order.indexOf('Syn 50')).toBeLessThan(order.indexOf('Ramp 0'))
+    const syn50 = out.recommended.find(c => c.name === 'Syn 50')
+    expect(syn50.reason).toBe('better available')
+    expect(syn50.benched.name).toBe('Better Payoff')
+    // …and within the benched tier it's still weakest-first.
+    expect(order[0]).toBe('Syn 0')
+  })
+
+  it('caps EXCESS at the category overage so a category is never pushed under', () => {
+    // Ramp holds 6 against a target of 4 → exactly 2 cards are "extra Ramp".
+    // The third-weakest Ramp card is not excess, whatever the deck needs to lose.
+    const out = analyzeCut({ ...tierBase, totalCards: 20 })
+    const all = out.recommended.concat(out.extra)
+    const excess = all.filter(c => c.tier === CUT_TIER.EXCESS && c.role === ROLE_RAMP)
+    expect(excess).toHaveLength(2)
+    // …and they are that category's two weakest.
+    expect(excess.map(c => c.name).sort()).toEqual(['Ramp 0', 'Ramp 10'])
+  })
+
+  it('leaves a protected card out of its category EXCESS slots', () => {
+    // Ramp 0 is the weakest Ramp card but is a mana source, so it can't be cut.
+    // Its EXCESS slot must pass to the next-weakest rather than being wasted.
+    const out = analyzeCut({
+      ...tierBase, totalCards: 20,
+      strengthOf: dc => (dc.name === 'Ramp 0' ? 0 : Number(dc.name.split(' ')[1]) || 0),
+      deckCards: tierDeck.map(dc => (dc.id === 'ramp0'
+        ? { ...dc, type_line: 'Artifact', oracle_text: '{T}: Add {G}.' } : dc)),
+    })
+    const all = out.recommended.concat(out.extra)
+    const excess = all.filter(c => c.tier === CUT_TIER.EXCESS && c.role === ROLE_RAMP)
+    expect(excess.map(c => c.name)).not.toContain('Ramp 0')
+    expect(excess).toHaveLength(2)
+  })
+
+  it('falls back to inclusion-only ranking when no strength is injected', () => {
+    // The harness and the unit tests above run this path; it must stay the plain
+    // pre-strength behaviour rather than silently scoring everything 0.
+    const out = analyzeCut({ ...tierBase, totalCards: 15 })
+    expect(out.recommended[0].name).toBe('Ramp 0')
+  })
 })
 
 describe('rankCutCandidates', () => {
@@ -1542,14 +1634,43 @@ describe('rankCutCandidates', () => {
     expect(ranked[0].name).toBe('Unpopular')
   })
 
-  it('uses the overfilled category to separate equally-played cards', () => {
-    // What the deleted Trim-excess mode existed for, surviving as a term in the
-    // single formula rather than as a switch: same inclusion, same cost, and the
-    // one whose category is over target is the one to lose.
-    const staple = { ...overbuilt, id: 'd', name: 'Staple', role: ROLE_SYNERGY, roleOver: 0 }
-    const ranked = rankCutCandidates([staple, overbuilt])
-    expect(ranked[0].name).toBe('Overbuilt')
-    expect(ranked[0].reason).toBe(`extra ${ROLE_RAMP}`)
+  it('sorts by tier before score, and names the tier as the reason', () => {
+    // The requested order, stated as strongly as possible: the BENCHED card is
+    // the most-played of the three (90%) and the TRIM card the least (off-meta),
+    // so score alone would invert this completely. Tier wins.
+    const benched = { ...overbuilt, id: 'x', name: 'Benched', tier: CUT_TIER.BENCHED }
+    const excess = { ...unpopular, id: 'y', name: 'Excess', role: ROLE_RAMP, tier: CUT_TIER.EXCESS }
+    const trim = { ...offMeta, id: 'z', name: 'Trim', tier: CUT_TIER.TRIM }
+    const ranked = rankCutCandidates([trim, excess, benched])
+    expect(ranked.map(c => c.name)).toEqual(['Benched', 'Excess', 'Trim'])
+    expect(ranked[0].reason).toBe('better available')
+    expect(ranked[1].reason).toBe(`extra ${ROLE_RAMP}`)
+  })
+
+  it('ranks by card quality within a tier, ignoring role overage', () => {
+    // Overage decides the TIER, never the order inside one — otherwise a card
+    // could be promoted twice for the same reason.
+    const weak = { ...unpopular, id: 'p', name: 'Weak', tier: CUT_TIER.TRIM }
+    const strongButOver = { ...overbuilt, id: 'q', name: 'StrongButOver', tier: CUT_TIER.TRIM }
+    const ranked = rankCutCandidates([strongButOver, weak])
+    expect(ranked.map(c => c.name)).toEqual(['Weak', 'StrongButOver'])
+  })
+
+  it('sorts protected cards last however weak they are', () => {
+    const junkButProtected = { ...offMeta, id: 'm', name: 'Signet', isManaSource: true }
+    const ranked = rankCutCandidates([junkButProtected, unpopular])
+    expect(ranked[ranked.length - 1].name).toBe('Signet')
+    expect(ranked[ranked.length - 1].protectedAs).toBe('mana source')
+  })
+
+  it('prefers strength over raw inclusion when both are supplied', () => {
+    // A recommander pick: nobody on EDHREC runs it, but the fill chose it and
+    // scored it 45. Before strength existed it read as inclusion 0 — maximum
+    // cuttability — so the assistant recommended cutting its own picks first.
+    const recPick = { ...offMeta, id: 'r', name: 'Rec pick', strength: 45 }
+    const ranked = rankCutCandidates([recPick, unpopular])
+    expect(ranked[0].name).toBe('Unpopular')
+    expect(ranked[1].name).toBe('Rec pick')
   })
 
   it('takes no mode argument — a second argument changes nothing', () => {

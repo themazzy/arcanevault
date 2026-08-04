@@ -558,6 +558,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [maxPrice, setMaxPrice] = useState(null) // budget filter ceiling, null = off
   const [curveTarget, setCurveTarget] = useState(null) // target avg CMC (EDHREC data → archetype fallback)
   const [suggestionSource, setSuggestionSource] = useState('both') // 'both' | 'edhrec' | 'recommander'
+  // Which pool auto-fill builds from. Declared up here with the rest of the
+  // state rather than next to the auto-fill memos, because the cut helper's
+  // bench reads it too and sits above them.
+  const [autoFillSource, setAutoFillSource] = useState('owned') // 'owned' | 'recommended'
   const [lockedCutIds, setLockedCutIds] = useState(() => new Set()) // deck-card ids kept off the cut list
   const [applyingCuts, setApplyingCuts] = useState(false)
   // Large-image card preview shown from the summary lists: hover-follows the
@@ -1113,8 +1117,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return total
   }, [deckCards, sfMap, priceOf])
 
-  // EDHREC inclusion by card name, from the enriched plan (owned + upgrades) —
-  // used to rank cut candidates (least-played first).
+  // EDHREC inclusion by card name, from the enriched plan (owned + upgrades).
+  // Deliberately holds inclusion ONLY: `deckNovelty` below reads a falsy lookup
+  // as "the crowd doesn't play this", so a recommander pick must stay absent
+  // here. Its score lives in recScoreByName instead.
   const inclusionByName = useMemo(() => {
     const m = new Map()
     for (const role of plan?.roles || []) {
@@ -1124,11 +1130,45 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return m
   }, [plan])
 
-  // Cut-to-100 helper. When the deck is over size, rank every (eligible) deck
-  // card by how cuttable it is for the chosen mode and recommend exactly the
-  // overage. Protections: the commander is never a candidate; locked cards are
-  // excluded; lands are only eligible when above the land target, and only the
-  // worst (overage) of them — so trimming never breaks the manabase.
+  // Recommander model score (0-1) by card name. Without this the cut helper put
+  // every recommander pick at the very top of its list: those candidates carry
+  // `edhrecInclusion: 0` by construction, so an inclusion-only lookup scored
+  // them 0 — the maximum cuttability — and the assistant recommended cutting the
+  // off-meta cards it had just deliberately chosen. recRank reads this and
+  // scales it, so they now rank as what they are.
+  const recScoreByName = useMemo(() => {
+    const m = new Map()
+    for (const role of plan?.roles || []) {
+      for (const r of role.recommenderUpgrades || []) {
+        for (const k of cardNameMatchKeys(r.name)) m.set(k, r.score || 0)
+      }
+    }
+    return m
+  }, [plan])
+
+  // A deck row in the shape scoreCandidate reads, so a card in the deck is
+  // judged by exactly the ranking that would have picked it. Cached on the row
+  // object: candidateOracle and candidateRoleTags memoise per candidate
+  // identity, and rebuilding the wrapper each time would miss both caches and
+  // re-run ~20 regexes per card per render.
+  const cutCandCache = useMemo(() => new WeakMap(), [sfMap, inclusionByName, recScoreByName])
+  const asCutCandidate = useCallback(dc => {
+    const hit = cutCandCache.get(dc)
+    if (hit) return hit
+    const keys = cardNameMatchKeys(dc?.name || '')
+    const sf = sfMap?.[dc?.scryfall_id] || null
+    const cand = {
+      name: dc?.name || '',
+      cmc: sf?.cmc ?? dc?.cmc ?? 0,
+      card: dc,
+      sfCard: sf,
+      edhrecInclusion: keys.map(k => inclusionByName.get(k)).find(v => v != null) || 0,
+      score: keys.map(k => recScoreByName.get(k)).find(v => v != null) || 0,
+    }
+    cutCandCache.set(dc, cand)
+    return cand
+  }, [cutCandCache, sfMap, inclusionByName, recScoreByName])
+
   // Names in combos the deck has already completed. Cutting one piece leaves the
   // other as a dead card, so they sort last — the same lock runComboPass applies
   // when it does its own cutting.
@@ -1143,30 +1183,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
     return out.size ? out : null
   }, [combos.fetched, combos.included])
-
-  // Every cut analysis in the assistant runs through this one binding: the
-  // advisory list on the summary step and both post-fill passes, which do their
-  // own cutting to make room. They were three independent `analyzeCut` calls
-  // that each restated how a card is ranked, so a change to one silently left
-  // the others behind — the passes would cut by one rule while the list
-  // recommended by another. Callers supply only what differs (the deck snapshot,
-  // what's locked, which protections apply).
-  const runCutAnalysis = useCallback(args => analyzeCut({
-    plan, sfMap,
-    roleOf: roleOfDeck,
-    inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
-    ...args,
-  }), [plan, sfMap, roleOfDeck, inclusionByName])
-
-  const cutAnalysis = useMemo(() => runCutAnalysis({
-    deckCards, totalCards, lockedIds: lockedCutIds,
-    // Stop the advisory list recommending what the automated passes protect.
-    // The passes don't pass these: each already excludes its own protected cards
-    // from the cuttable pool before calling, so this would be a second, slightly
-    // different statement of the same rule.
-    engineNeeds,
-    comboNames: comboPieceNames,
-  }), [runCutAnalysis, deckCards, totalCards, lockedCutIds, engineNeeds, comboPieceNames])
 
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
@@ -1434,6 +1450,67 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addedNames, deckNames, passesBudget, targetBracket, gameChangers, expExclude])
 
+  // ── Cut to 100 ──────────────────────────────────────────────────────────────
+  // The best card for each role that is available and NOT in the deck — the
+  // bench a deck card is measured against. A card clearly weaker than what's
+  // sitting on its own bench is bad in a way that has nothing to do with
+  // category counts, which is what makes it the first thing to cut.
+  //
+  // Two things keep this honest. The pool follows `autoFillSource`, so on the
+  // binder path the bench is cards you actually own and haven't played — the
+  // same rule that decided what went in decides what comes out. And every
+  // candidate goes through `autoFillExclude`, so the cut list can't tell you to
+  // lose a card in favour of one your budget, bracket or top-end cap already
+  // ruled out.
+  const cutBench = useMemo(() => {
+    const m = new Map()
+    for (const role of plan?.roles || []) {
+      // Lands are exempt: landCandidates is ordered by which colours the deck is
+      // short of, not by card quality, so "a better land is available" would be
+      // comparing on the one axis that doesn't decide a land.
+      if (role.role === ROLE_LANDS) continue
+      const pool = autoFillSource === 'owned'
+        ? (role.ownedCandidates || [])
+        : [...(role.ownedCandidates || []), ...(role.edhrecUpgrades || []), ...(role.recommenderUpgrades || [])]
+      let best = null
+      for (const cand of pool) {
+        if (cand.inDeck) continue
+        if (autoFillExclude(cand, { role: role.role, picks: [] })) continue
+        const strength = rankOf(cand)
+        if (!best || strength > best.strength) best = { name: cand.name, strength }
+      }
+      if (best) m.set(role.role, best)
+    }
+    return m
+  }, [plan, autoFillSource, autoFillExclude, rankOf])
+
+  // Every cut analysis in the assistant runs through this one binding: the
+  // advisory list on the summary step and both post-fill passes, which do their
+  // own cutting to make room. They were three independent `analyzeCut` calls
+  // that each restated how a card is ranked, so a change to one silently left
+  // the others behind — the passes would cut by one rule while the list
+  // recommended by another. Callers supply only what differs (the deck snapshot,
+  // what's locked, which protections apply).
+  const runCutAnalysis = useCallback(args => analyzeCut({
+    plan, sfMap,
+    roleOf: roleOfDeck,
+    inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
+    // Rank the cut by the same score the fill ranked the pick — see asCutCandidate.
+    strengthOf: dc => rankOf(asCutCandidate(dc)),
+    benchFor: role => cutBench.get(role) || null,
+    ...args,
+  }), [plan, sfMap, roleOfDeck, inclusionByName, rankOf, asCutCandidate, cutBench])
+
+  const cutAnalysis = useMemo(() => runCutAnalysis({
+    deckCards, totalCards, lockedIds: lockedCutIds,
+    // Stop the advisory list recommending what the automated passes protect.
+    // The passes don't pass these: each already excludes its own protected cards
+    // from the cuttable pool before calling, so this would be a second, slightly
+    // different statement of the same rule.
+    engineNeeds,
+    comboNames: comboPieceNames,
+  }), [runCutAnalysis, deckCards, totalCards, lockedCutIds, engineNeeds, comboPieceNames])
+
   const autoFillBase = useMemo(() => {
     if (!plan || loading) return null
     return {
@@ -1499,7 +1576,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   }, [autoFillBase, plan, upgradesFor])
 
   const [autoFillOpen, setAutoFillOpen] = useState(false)
-  const [autoFillSource, setAutoFillSource] = useState('owned') // 'owned' | 'recommended'
   const [autoFilling, setAutoFilling] = useState(null) // { total, bulk } | { done, total }
   const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped, basics }
 
@@ -2774,8 +2850,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
                   <div className={styles.cutControls}>
                     <div className={styles.cutModeHint}>
-                      Ranked by play rate, mana cost, and overfilled categories. Keep a
-                      card to take it off the list.
+                      Cards you have something better for come first, then the weakest
+                      of any overfilled category. Keep a card to take it off the list.
                     </div>
                     {cutAnalysis.recommended.length > 0 && (
                       <button
@@ -2810,7 +2886,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             <span className={styles.cutInfo}>
                               <span className={styles.cutName} title={c.name}>{c.name}</span>
                               <span className={styles.cutSub}>
-                                <span className={styles.cutReason}>{c.reason}</span>
+                                {/* A benched card's reason is only useful with the
+                                    card that beats it, so name it here. */}
+                                <span className={styles.cutReason}>
+                                  {c.benched ? `better available: ${c.benched.name}` : c.reason}
+                                </span>
                                 <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
                               </span>
                             </span>

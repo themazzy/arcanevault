@@ -15,7 +15,10 @@
 // (4 — explosive ramp as a separate quota — is scaffolded via the
 // 'explosive-ramp' tag in cardRoles but is not one of the five wired here.)
 
-import { recRank, curveFitKey } from './deckBuildAssistant'
+// RANK_BUCKET is shared with the cut helper: "close enough in rank to be the
+// same card" has to mean the same thing when the assistant picks a card and
+// when it suggests losing one, or the two halves disagree about a tie.
+import { recRank, curveFitKey, RANK_BUCKET } from './deckBuildAssistant'
 import { ROLE_LANDS, ROLE_DRAW } from './buildRoles'
 import {
   cardRoleTagsFromCard,
@@ -340,7 +343,6 @@ export function makeExperimentalComparatorFor({ ctx, cfg = EXPERIMENTAL_DEFAULTS
 }
 
 export function makeExperimentalComparator({ ctx, cfg = EXPERIMENTAL_DEFAULTS, targetCmc = null, curveStatus = 'on' } = {}) {
-  const RANK_BUCKET = 6
   // A comparator is called O(n log n) times; without this every comparison
   // re-ran the full classification. This was the cause of multi-second handlers
   // in the assistant once the experimental ranking became the shipped one.

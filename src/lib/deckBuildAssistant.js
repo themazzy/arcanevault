@@ -558,10 +558,31 @@ export { isBasicLandName }
 // about cutting. The per-card Keep lock is the steering mechanism instead: it's
 // direct, it's visible in the kept strip, and it needs no theory.
 
-// Short human reason a card is suggested for the cut.
+// Cut order is TIERED, not one blended score. The rule the tiers encode:
+// suggest completely bad cards first, and only then the worst cards from
+// categories that are overfilled.
+//
+// Blending those into one number gets the order wrong in both directions. Role
+// overage used to be worth `roleOver × 12`, so three extra copies could push a
+// card the crowd plays 90% of the time above one it plays 10% of the time —
+// recommending you cut a staple to fix a category count while a genuinely weak
+// card sits untouched. Tiers state the priority directly and need no weight to
+// balance against the others.
+export const CUT_TIER = {
+  BENCHED: 0,    // something better for this exact role is sitting unplayed
+  EXCESS: 1,     // its category is over target, and it's among that category's worst
+  TRIM: 2,       // nothing wrong with it; the deck is simply over 100
+  PROTECTED: 3,  // cut only when nothing else is left — see cutProtection
+}
+
+// Short human reason a card is suggested for the cut. The tier IS the reason for
+// the first two, which is the point of tiering: the explanation and the ordering
+// can no longer disagree. Only TRIM has to guess at a description, because by
+// definition nothing specific is wrong with the card.
 function cutReason(c) {
+  if (c.tier === CUT_TIER.BENCHED) return 'better available'
+  if (c.tier === CUT_TIER.EXCESS) return `extra ${c.role}`
   if (c.hasData && c.inclusion < 30) return 'rarely played'
-  if (c.roleOver > 0) return `extra ${c.role}`
   if ((c.cmc || 0) >= 5) return 'high CMC'
   if (!c.hasData) return 'off-meta'
   return 'trim'
@@ -569,13 +590,18 @@ function cutReason(c) {
 
 /**
  * Rank cut candidates most-cuttable first.
- * @param {Array} candidates each { id, name, role, cmc, inclusion, hasData, roleOver }
- *   - inclusion: EDHREC inclusion % (0 when unknown)
+ * @param {Array} candidates each { id, name, role, cmc, inclusion, hasData, strength }
+ *   - strength:  how good the card is FOR THIS DECK, on recRank's 0-100 scale —
+ *     the same number the fill used to pick it, so the two halves of the
+ *     assistant can't disagree about a card. Falls back to `inclusion`.
+ *   - inclusion: EDHREC inclusion % (0 when unknown). Display only once
+ *     `strength` is supplied; it's the "12%" on the card row.
  *   - hasData:   whether EDHREC lists the card for this commander at all. A card
  *     that's off-meta / not on the commander's page is genuinely run by ≈0% of
  *     tracked decks, so it is treated as most-cuttable.
- *   - roleOver:  how many copies the card's role is above its target (0 if within)
- * @returns {Array} new array sorted desc by cuttability, each with `reason`.
+ *   - tier:      CUT_TIER, assigned by analyzeCut (which knows the bench and the
+ *     per-category overage). Absent → TRIM, i.e. rank on the score alone.
+ * @returns {Array} new array sorted most-cuttable first, each with `reason`.
  */
 // Cards the rest of the assistant refuses to cut, so the advisory cut list
 // stops recommending what the automated passes protect:
@@ -600,20 +626,24 @@ export function cutProtection(c) {
 
 export function rankCutCandidates(candidates) {
   const scored = (candidates || []).map(c => {
-    const inclusion = Math.max(0, Math.min(100, c.inclusion || 0))
-    // Popularity → cuttability. An off-meta card (not on the commander's EDHREC
-    // page) is genuinely run by ≈0% of tracked decks, so it reads as most
-    // cuttable (0).
-    const pop = c.hasData ? inclusion : 0
-    const popCut = 100 - pop                 // 0..100, higher = more cuttable
+    // Strength → cuttability. `strength` is recRank-scaled (EDHREC inclusion, or
+    // a recommander pick's scaled score, plus the ranking signals the fill
+    // applies), so a card the fill chose deliberately no longer reads as
+    // worthless here just because the crowd hasn't found it. Without it we fall
+    // back to raw inclusion, which is what the harness and unit tests supply.
+    // An off-meta card (not on the commander's EDHREC page) is genuinely run by
+    // ≈0% of tracked decks, so it reads as most cuttable (0).
+    const raw = c.strength != null ? c.strength : (c.hasData ? (c.inclusion || 0) : 0)
+    const strength = Math.max(0, Math.min(100, raw))
     const cmcCut = Math.min(10, c.cmc || 0) * 4 // 0..40
-    const redun = Math.max(0, c.roleOver || 0) * 12
-    const score = popCut * 0.6 + cmcCut * 0.4 + redun
-    return { ...c, score }
+    // Role overage is NOT in here any more — it's CUT_TIER.EXCESS. What's left
+    // is "how bad is this card", used to order within a tier.
+    const score = (100 - strength) * 0.6 + cmcCut * 0.4
+    const tier = cutProtection(c) ? CUT_TIER.PROTECTED : (c.tier ?? CUT_TIER.TRIM)
+    return { ...c, score, tier }
   })
   scored.sort((a, b) =>
-    // Protected last, whatever their score.
-    ((cutProtection(a) ? 1 : 0) - (cutProtection(b) ? 1 : 0)) ||
+    (a.tier - b.tier) ||
     (b.score - a.score) ||
     ((a.inclusion || 0) - (b.inclusion || 0)) ||
     ((b.cmc || 0) - (a.cmc || 0)) ||
@@ -692,7 +722,12 @@ export function curveFitKey(cmc, curveStatus = 'on', targetCmc = 3) {
 // weaker one. With no curve target it collapses to the plain rank→cmc→name order
 // (behavior unchanged). This is how the deck trends toward its target curve
 // while still recommending the good cards.
-const RANK_BUCKET = 6
+//
+// Exported because three places need "close enough in rank to be the same card"
+// to mean the same thing: this comparator, the experimental one that replaced
+// it, and the cut helper's bench test. If they disagreed, the assistant could
+// call two cards a tie when picking and a clear upgrade when cutting.
+export const RANK_BUCKET = 6
 function bestRankBucket(cand) {
   return Math.round(recRank(cand) / RANK_BUCKET)
 }
@@ -918,9 +953,24 @@ export function tcgplayerMassEntryUrl(items) {
 // component wraps this in a useMemo. `roleOf(dc)` resolves a deck card's coarse
 // role (injected so the component can share its plan-aware classifier);
 // `inclusionOf(name)` returns EDHREC inclusion % (0 when unknown).
+//
+// Everything the ranking needs beyond the deck rows is INJECTED rather than
+// imported: `strengthOf` reaches the fill's own scoring, which lives in
+// buildAssistExperimental — and that module already imports recRank from this
+// one, so importing back would be a cycle. Injection also keeps this function
+// pure and lets the harness and unit tests run the cheap inclusion-only path.
 export function analyzeCut({
   plan, deckCards = [], sfMap = {}, totalCards = 0,
   lockedIds = new Set(), roleOf, inclusionOf,
+  // (dc) => how good this card is for this deck, on recRank's 0-100 scale — the
+  // same number the fill ranked it by. Omitted, cuttability falls back to raw
+  // EDHREC inclusion, exactly as before.
+  strengthOf = null,
+  // (role) => { name, strength } — the best card for `role` that is available
+  // and NOT in the deck. A deck card clearly weaker than its own bench is bad in
+  // a way that has nothing to do with category counts, which is what makes it
+  // tier 0. Omitted, no card is benched.
+  benchFor = null,
   // Optional protection inputs — see cutProtection. Omitted, nothing is
   // protected and the ranking is exactly what it was.
   engineNeeds = [],          // [{ enabler, label }] from commanderNeeds
@@ -956,6 +1006,7 @@ export function analyzeCut({
       scryfall_id: dc.scryfall_id,
       cmc: sf?.cmc ?? dc?.cmc ?? 0,
       inclusion, hasData: inclusion > 0,
+      strength: strengthOf ? strengthOf(dc) : null,
       isManaSource: manaSource,
       neededEnabler: provides || null,
       isComboPiece: comboNames
@@ -970,13 +1021,21 @@ export function analyzeCut({
   const withRoleOver = r => ({ ...r, role: r.isLand ? ROLE_LANDS : r.role,
     roleOver: Math.max(0, (counts.get(r.role) || 0) - (targets.get(r.role) || 0)) })
 
-  const nonland = rows.filter(r => !r.isLand && !lockedIds.has(r.id)).map(withRoleOver)
+  const nonland = assignCutTiers(
+    rows.filter(r => !r.isLand && !lockedIds.has(r.id)).map(withRoleOver),
+    benchFor,
+  )
   // Only nonbasic lands are cuttable (singletons); basics are multi-copy rows
   // managed by the lands step, so cutting one would gut the manabase.
   let landPool = []
   if (landOver > 0) {
     const lands = rows.filter(r => r.isLand && !isBasicLandName(r.name) && !lockedIds.has(r.id)).map(withRoleOver)
+    // Lands reach this list only because the manabase is already over target,
+    // and the pool is pre-trimmed to the overage — so every one of them is by
+    // construction "the worst of an overfilled category". That is EXCESS, and
+    // it's the rule this whole tier generalises: lands had it first.
     landPool = takeRowsByQty(rankCutCandidates(lands), landOver)
+      .map(r => ({ ...r, tier: CUT_TIER.EXCESS }))
   }
   const ranked = rankCutCandidates([...nonland, ...landPool])
   const recommended = takeRowsByQty(ranked, over)
@@ -987,6 +1046,45 @@ export function analyzeCut({
     extra: ranked.slice(recommended.length, recommended.length + 6), // a few more "also consider"
     landOver,
   }
+}
+
+/**
+ * Sort rows into CUT_TIER.BENCHED / EXCESS / TRIM. Protected rows are left
+ * alone — rankCutCandidates overrides them to PROTECTED regardless, and a
+ * protected card must not consume one of a category's EXCESS slots.
+ *
+ * EXCESS is capped at each category's overage on purpose: if Ramp is three
+ * over, only its three worst cards are "extra Ramp". A fourth would leave the
+ * category UNDER target, which is a different (and worse) problem than the deck
+ * being over 100 — so it stays in TRIM and is cut only if the overage demands it.
+ */
+function assignCutTiers(rows, benchFor) {
+  const tiered = rows.map(r => {
+    if (cutProtection(r)) return r
+    const bench = benchFor ? benchFor(r.role) : null
+    const strength = r.strength != null ? r.strength : (r.hasData ? (r.inclusion || 0) : 0)
+    // RANK_BUCKET is the fill comparator's "same card" band: below it, two cards
+    // are a tie as far as the ranking is concerned, so "you have something
+    // better" would be noise dressed up as advice.
+    if (bench && bench.strength - strength >= RANK_BUCKET) {
+      return { ...r, tier: CUT_TIER.BENCHED, benched: bench }
+    }
+    return r
+  })
+  // Weakest first within each over-target category, capped at its overage.
+  const byRole = new Map()
+  for (const r of tiered) {
+    if (r.tier != null || cutProtection(r) || !(r.roleOver > 0)) continue
+    if (!byRole.has(r.role)) byRole.set(r.role, [])
+    byRole.get(r.role).push(r)
+  }
+  const excess = new Set()
+  for (const [, group] of byRole) {
+    const ordered = rankCutCandidates(group)
+    for (const r of takeRowsByQty(ordered, group[0].roleOver)) excess.add(r.id)
+  }
+  return tiered.map(r =>
+    (r.tier == null && excess.has(r.id)) ? { ...r, tier: CUT_TIER.EXCESS } : r)
 }
 
 // Take ranked rows until their COPIES cover `target`. Cutting removes a whole
