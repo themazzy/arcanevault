@@ -842,7 +842,7 @@ async function runCommander(name, metaCache, collection = null) {
           })(c, { role: ROLE_SYNERGY, picks: [] })
         },
         analyzeCutFn: args => analyzeCut({
-          plan: basePlan, sfMap: {}, cutMode: 'balanced',
+          plan: basePlan, sfMap: {},
           roleOf: dc => coarseRole(dc, dc),
           inclusionOf: name => byName.get(String(name).toLowerCase())?.edhrecInclusion ?? 0,
           ...args,
@@ -893,7 +893,6 @@ async function runCommander(name, metaCache, collection = null) {
         // so deriving the overage from its length reads as "31 under" and cuts
         // nothing. State the overage directly instead.
         totalCards: (basePlan.deckSize || COMMANDER_DECK_SIZE) + CUT,
-        cutMode: 'balanced',
         roleOf: dc => roleOfDeckCard(dc, cutSf, null),
         inclusionOf: n => cutIncl.get(String(n).toLowerCase()) || 0,
         engineNeeds: arm.cutTest === 'protected' ? needs : [],

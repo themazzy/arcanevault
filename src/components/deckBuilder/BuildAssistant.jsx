@@ -48,7 +48,6 @@ import {
   isBasicLandName,
   analyzeCut,
   spendableSlotsAfterLands,
-  CUT_MODES,
   attachRecommenderUpgrades,
   selectUpgrades,
   rankOverallRecommendations,
@@ -559,7 +558,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [maxPrice, setMaxPrice] = useState(null) // budget filter ceiling, null = off
   const [curveTarget, setCurveTarget] = useState(null) // target avg CMC (EDHREC data → archetype fallback)
   const [suggestionSource, setSuggestionSource] = useState('both') // 'both' | 'edhrec' | 'recommander'
-  const [cutMode, setCutMode] = useState('balanced') // cut helper ranking mode
   const [lockedCutIds, setLockedCutIds] = useState(() => new Set()) // deck-card ids kept off the cut list
   const [applyingCuts, setApplyingCuts] = useState(false)
   // Large-image card preview shown from the summary lists: hover-follows the
@@ -1146,15 +1144,29 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return out.size ? out : null
   }, [combos.fetched, combos.included])
 
-  const cutAnalysis = useMemo(() => analyzeCut({
-    plan, deckCards, sfMap, totalCards, cutMode, lockedIds: lockedCutIds,
+  // Every cut analysis in the assistant runs through this one binding: the
+  // advisory list on the summary step and both post-fill passes, which do their
+  // own cutting to make room. They were three independent `analyzeCut` calls
+  // that each restated how a card is ranked, so a change to one silently left
+  // the others behind — the passes would cut by one rule while the list
+  // recommended by another. Callers supply only what differs (the deck snapshot,
+  // what's locked, which protections apply).
+  const runCutAnalysis = useCallback(args => analyzeCut({
+    plan, sfMap,
     roleOf: roleOfDeck,
     inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
+    ...args,
+  }), [plan, sfMap, roleOfDeck, inclusionByName])
+
+  const cutAnalysis = useMemo(() => runCutAnalysis({
+    deckCards, totalCards, lockedIds: lockedCutIds,
     // Stop the advisory list recommending what the automated passes protect.
+    // The passes don't pass these: each already excludes its own protected cards
+    // from the cuttable pool before calling, so this would be a second, slightly
+    // different statement of the same rule.
     engineNeeds,
     comboNames: comboPieceNames,
-  }), [plan, deckCards, sfMap, inclusionByName, totalCards, roleOfDeck, cutMode, lockedCutIds,
-       engineNeeds, comboPieceNames])
+  }), [runCutAnalysis, deckCards, totalCards, lockedCutIds, engineNeeds, comboPieceNames])
 
   // Completed combos in the deck → card-name lists for the bracket analyzer.
   const comboCardLists = useMemo(() => {
@@ -1558,12 +1570,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       isLandRow,
       fetchCombos: combos.fetchCombos,
       passesBudget: name => passesBudget(name, null),
-      analyzeCutFn: args => analyzeCut({
-        plan, sfMap, cutMode: 'balanced',
-        roleOf: roleOfDeck,
-        inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
-        ...args,
-      }),
+      analyzeCutFn: runCutAnalysis,
       addCards: onAddCards,
       removeCards: onRemoveCards,
     })
@@ -1643,12 +1650,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         const cand = ranked.find(c => (c.name || '').toLowerCase() === String(name).toLowerCase())
         return !autoFillExclude(cand || { name }, { role: ROLE_SYNERGY, picks: [] })
       },
-      analyzeCutFn: args => analyzeCut({
-        plan, sfMap, cutMode: 'balanced',
-        roleOf: roleOfDeck,
-        inclusionOf: name => cardNameMatchKeys(name).map(k => inclusionByName.get(k)).find(v => v != null),
-        ...args,
-      }),
+      analyzeCutFn: runCutAnalysis,
       addCards: onAddCards,
       removeCards: onRemoveCards,
       maxAdd: activeCfg.engineMaxAdd,
@@ -2771,17 +2773,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                   </div>
 
                   <div className={styles.cutControls}>
-                    <div className={styles.themeChips}>
-                      {CUT_MODES.map(m => (
-                        <button
-                          key={m.id}
-                          className={`${styles.themeChip}${cutMode === m.id ? ' ' + styles.themeActive : ''}`}
-                          onClick={() => setCutMode(m.id)}
-                          title={m.description}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
+                    <div className={styles.cutModeHint}>
+                      Ranked by play rate, mana cost, and overfilled categories. Keep a
+                      card to take it off the list.
                     </div>
                     {cutAnalysis.recommended.length > 0 && (
                       <button
@@ -2792,9 +2786,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                         {applyingCuts ? 'Cutting…' : `Cut all ${cutAnalysis.recommended.length}`}
                       </button>
                     )}
-                  </div>
-                  <div className={styles.cutModeHint}>
-                    {CUT_MODES.find(m => m.id === cutMode)?.description}
                   </div>
 
                   {cutAnalysis.recommended.length === 0 ? (

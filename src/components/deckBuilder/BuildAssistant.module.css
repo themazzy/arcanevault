@@ -269,13 +269,11 @@
 }
 .sectionCaretClosed { transform: rotate(-90deg); }
 
-/* ── Theme / archetype selector ───────────────────────────────────────────── */
-.themeChips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
+/* ── Inline action chip ───────────────────────────────────────────────────── */
+/* The .themeChips row and .themeActive selected state went with the cut-mode
+   switch — it was their only caller. The chip itself lives on as the summary
+   step's inline actions (copy buy list, check combos), which are never
+   "selected", so no active state is needed. */
 .themeChip {
   padding: 4px 11px;
   font-size: 0.76rem;
@@ -289,12 +287,6 @@
 
 .themeChip:hover:not(:disabled) { background: var(--s-medium); color: var(--text); }
 .themeChip:disabled { opacity: 0.5; cursor: default; }
-
-.themeActive {
-  border-color: rgba(201, 168, 76, 0.6);
-  background: rgba(201, 168, 76, 0.15);
-  color: var(--gold);
-}
 
 /* Live bracket estimate badge */
 .bracketNow {
@@ -1558,8 +1550,12 @@
 .cutApplyBtn:disabled { opacity: 0.55; cursor: default; }
 .cutApplyBtn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
+/* Sits inside .cutControls beside the Cut-all button (it replaced the mode
+   chips that used to hold that spot), so it flexes for the leftover width and
+   carries no vertical margin of its own. */
 .cutModeHint {
-  margin: -2px 0 8px;
+  flex: 1 1 220px;
+  min-width: 0;
   font-size: 0.78rem;
   color: var(--text-faint);
 }

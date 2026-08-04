@@ -544,29 +544,22 @@ export { isBasicLandName }
 
 // ── Cut helper ────────────────────────────────────────────────────────────────
 // Rank deck cards by how cuttable they are (most-cuttable first) to help trim an
-// over-100 deck. Three modes; Balanced is the user-facing default.
-
-export const CUT_MODES = [
-  {
-    id: 'balanced',
-    label: 'Balanced',
-    description: 'Weighs play rate, mana cost, and overfilled categories together. A safe all-round pick.',
-  },
-  {
-    id: 'popularity',
-    label: 'Least played',
-    description: 'Cuts the cards the fewest Commander decks run, first.',
-  },
-  {
-    id: 'redundancy',
-    label: 'Trim excess',
-    description: 'Cuts from the categories you have the most extra cards in (e.g. too much ramp), first.',
-  },
-]
+// over-100 deck.
+//
+// There was a mode switch here — Balanced / Least played / Trim excess — and it
+// was deleted rather than defaulted, because the three were never three
+// philosophies. They were one formula at three weight settings: Least-played was
+// Balanced with the redundancy term zeroed, Trim-excess was Balanced with it
+// tripled. Balanced was a strict superset of both, so nothing is expressible now
+// that wasn't before, and the two post-fill passes had already hardcoded
+// 'balanced' — only the advisory list ever saw the other two.
+//
+// Asking the user to pick a weighting was also asking them to have a theory
+// about cutting. The per-card Keep lock is the steering mechanism instead: it's
+// direct, it's visible in the kept strip, and it needs no theory.
 
 // Short human reason a card is suggested for the cut.
-function cutReason(c, mode) {
-  if (mode === 'redundancy' && c.roleOver > 0) return `extra ${c.role}`
+function cutReason(c) {
   if (c.hasData && c.inclusion < 30) return 'rarely played'
   if (c.roleOver > 0) return `extra ${c.role}`
   if ((c.cmc || 0) >= 5) return 'high CMC'
@@ -580,10 +573,8 @@ function cutReason(c, mode) {
  *   - inclusion: EDHREC inclusion % (0 when unknown)
  *   - hasData:   whether EDHREC lists the card for this commander at all. A card
  *     that's off-meta / not on the commander's page is genuinely run by ≈0% of
- *     tracked decks, so Balanced and Least-played both treat it as most-cuttable.
- *     Only Trim-excess keeps it neutral (there the overfilled-role signal rules).
+ *     tracked decks, so it is treated as most-cuttable.
  *   - roleOver:  how many copies the card's role is above its target (0 if within)
- * @param {string} mode  'balanced' | 'popularity' | 'redundancy'
  * @returns {Array} new array sorted desc by cuttability, each with `reason`.
  */
 // Cards the rest of the assistant refuses to cut, so the advisory cut list
@@ -607,21 +598,17 @@ export function cutProtection(c) {
   return null
 }
 
-export function rankCutCandidates(candidates, mode = 'balanced') {
+export function rankCutCandidates(candidates) {
   const scored = (candidates || []).map(c => {
     const inclusion = Math.max(0, Math.min(100, c.inclusion || 0))
     // Popularity → cuttability. An off-meta card (not on the commander's EDHREC
-    // page) is genuinely run by ≈0% of tracked decks, so Balanced and Least-played
-    // both treat it as most-cuttable (0). Only Trim-excess keeps it neutral (50):
-    // there the overfilled-role signal should decide, not raw play rate.
-    const pop = c.hasData ? inclusion : (mode === 'redundancy' ? 50 : 0)
+    // page) is genuinely run by ≈0% of tracked decks, so it reads as most
+    // cuttable (0).
+    const pop = c.hasData ? inclusion : 0
     const popCut = 100 - pop                 // 0..100, higher = more cuttable
     const cmcCut = Math.min(10, c.cmc || 0) * 4 // 0..40
     const redun = Math.max(0, c.roleOver || 0) * 12
-    let score
-    if (mode === 'popularity') score = popCut + cmcCut * 0.25
-    else if (mode === 'redundancy') score = redun * 2 + popCut * 0.4 + cmcCut * 0.2
-    else score = popCut * 0.6 + cmcCut * 0.4 + redun // balanced
+    const score = popCut * 0.6 + cmcCut * 0.4 + redun
     return { ...c, score }
   })
   scored.sort((a, b) =>
@@ -632,7 +619,7 @@ export function rankCutCandidates(candidates, mode = 'balanced') {
     ((b.cmc || 0) - (a.cmc || 0)) ||
     String(a.name || '').localeCompare(String(b.name || '')),
   )
-  return scored.map(c => ({ ...c, reason: cutReason(c, mode), protectedAs: cutProtection(c) }))
+  return scored.map(c => ({ ...c, reason: cutReason(c), protectedAs: cutProtection(c) }))
 }
 
 // ── Auto-fill ─────────────────────────────────────────────────────────────────
@@ -932,7 +919,7 @@ export function tcgplayerMassEntryUrl(items) {
 // role (injected so the component can share its plan-aware classifier);
 // `inclusionOf(name)` returns EDHREC inclusion % (0 when unknown).
 export function analyzeCut({
-  plan, deckCards = [], sfMap = {}, totalCards = 0, cutMode = 'balanced',
+  plan, deckCards = [], sfMap = {}, totalCards = 0,
   lockedIds = new Set(), roleOf, inclusionOf,
   // Optional protection inputs — see cutProtection. Omitted, nothing is
   // protected and the ranking is exactly what it was.
@@ -989,9 +976,9 @@ export function analyzeCut({
   let landPool = []
   if (landOver > 0) {
     const lands = rows.filter(r => r.isLand && !isBasicLandName(r.name) && !lockedIds.has(r.id)).map(withRoleOver)
-    landPool = takeRowsByQty(rankCutCandidates(lands, cutMode), landOver)
+    landPool = takeRowsByQty(rankCutCandidates(lands), landOver)
   }
-  const ranked = rankCutCandidates([...nonland, ...landPool], cutMode)
+  const ranked = rankCutCandidates([...nonland, ...landPool])
   const recommended = takeRowsByQty(ranked, over)
   return {
     over,

@@ -39,7 +39,6 @@ import {
   isBasicLandName,
   rankCutCandidates,
   analyzeCut,
-  CUT_MODES,
   edhrecInclusionPct,
   attachRecommenderUpgrades,
   backfillWinconUpgrades,
@@ -1475,7 +1474,7 @@ describe('analyzeCut', () => {
   for (const dc of deckWithSf) sf[dc.id] = { type_line: dc.name.startsWith('Nonbasic') ? 'Land' : 'Artifact' }
 
   const base = {
-    plan, deckCards: deckWithSf, sfMap: sf, cutMode: 'balanced',
+    plan, deckCards: deckWithSf, sfMap: sf,
     lockedIds: new Set(),
     roleOf: dc => (dc.name.startsWith('Nonbasic') ? ROLE_LANDS : ROLE_RAMP),
     inclusionOf: name => Number(name.split(' ')[1]) || 0,
@@ -1527,38 +1526,42 @@ describe('rankCutCandidates', () => {
   const offMeta   = { id: 'b', name: 'Off-meta',  role: ROLE_SYNERGY, cmc: 2, inclusion: 0,  hasData: false, roleOver: 0 }
   const overbuilt = { id: 'c', name: 'Overbuilt', role: ROLE_RAMP,    cmc: 2, inclusion: 90, hasData: true, roleOver: 3 }
 
-  it('exposes the three modes', () => {
-    expect(CUT_MODES.map(m => m.id)).toEqual(['balanced', 'popularity', 'redundancy'])
-  })
-
-  it('balanced cuts an off-meta unknown card before a tracked low-inclusion one', () => {
+  it('cuts an off-meta unknown card before a tracked low-inclusion one', () => {
     // Off-meta = not on the commander's EDHREC page = ≈0% of tracked decks, so
-    // Balanced treats it as most-cuttable — a tracked staple is protected above it.
-    const ranked = rankCutCandidates([unpopular, offMeta], 'balanced')
+    // it reads as most-cuttable — a tracked staple is protected above it.
+    const ranked = rankCutCandidates([unpopular, offMeta])
     expect(ranked[0].name).toBe('Off-meta')
     expect(ranked[1].name).toBe('Unpopular')
   })
 
-  it('balanced still keeps off-meta neutral only in redundancy mode', () => {
-    // Trim-excess should NOT dump an off-meta card ahead of an over-quota staple
-    // purely for being untracked — the overfilled-role signal rules there.
-    const ranked = rankCutCandidates([offMeta, overbuilt], 'redundancy')
-    expect(ranked[0].name).toBe('Overbuilt')
+  it('cuts a genuinely unpopular card before an over-quota staple', () => {
+    // The intended order: bad cards first, THEN the worst of an overfilled
+    // category. A 90%-inclusion card three over its target is still a card the
+    // crowd plays; a 10%-inclusion card is not, whatever its category.
+    const ranked = rankCutCandidates([overbuilt, unpopular])
+    expect(ranked[0].name).toBe('Unpopular')
   })
 
-  it('popularity mode treats unknown cards as most cuttable', () => {
-    const ranked = rankCutCandidates([unpopular, offMeta], 'popularity')
-    expect(ranked[0].name).toBe('Off-meta')
-  })
-
-  it('redundancy mode pushes over-quota cards to the top despite high inclusion', () => {
-    const ranked = rankCutCandidates([unpopular, overbuilt], 'redundancy')
+  it('uses the overfilled category to separate equally-played cards', () => {
+    // What the deleted Trim-excess mode existed for, surviving as a term in the
+    // single formula rather than as a switch: same inclusion, same cost, and the
+    // one whose category is over target is the one to lose.
+    const staple = { ...overbuilt, id: 'd', name: 'Staple', role: ROLE_SYNERGY, roleOver: 0 }
+    const ranked = rankCutCandidates([staple, overbuilt])
     expect(ranked[0].name).toBe('Overbuilt')
     expect(ranked[0].reason).toBe(`extra ${ROLE_RAMP}`)
   })
 
+  it('takes no mode argument — a second argument changes nothing', () => {
+    // Guards the merge: callers that still pass the old mode string must not
+    // silently get a different ranking than callers that don't.
+    const plain = rankCutCandidates([unpopular, offMeta, overbuilt])
+    const stale = rankCutCandidates([unpopular, offMeta, overbuilt], 'redundancy')
+    expect(stale.map(c => c.name)).toEqual(plain.map(c => c.name))
+  })
+
   it('attaches a reason and preserves length', () => {
-    const ranked = rankCutCandidates([unpopular, offMeta, overbuilt], 'balanced')
+    const ranked = rankCutCandidates([unpopular, offMeta, overbuilt])
     expect(ranked).toHaveLength(3)
     expect(ranked.every(c => typeof c.reason === 'string' && c.reason)).toBe(true)
   })
