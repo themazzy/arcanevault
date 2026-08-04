@@ -581,7 +581,7 @@ export const CUT_TIER = {
 // definition nothing specific is wrong with the card.
 function cutReason(c) {
   if (c.tier === CUT_TIER.BENCHED) return 'better available'
-  if (c.tier === CUT_TIER.EXCESS) return `extra ${c.role}`
+  if (c.tier === CUT_TIER.EXCESS) return c.excessLabel || `extra ${c.role}`
   if (c.hasData && c.inclusion < 30) return 'rarely played'
   if ((c.cmc || 0) >= 5) return 'high CMC'
   if (!c.hasData) return 'off-meta'
@@ -971,6 +971,19 @@ export function analyzeCut({
   // a way that has nothing to do with category counts, which is what makes it
   // tier 0. Omitted, no card is benched.
   benchFor = null,
+  // Extra overfilled categories beyond the roles — [{ label, over, includes }].
+  // Checked BEFORE the role categories, so a card that is one of too many
+  // six-drops is labelled that way rather than as one Ramp card too many.
+  //
+  // Nothing in the app passes this today. It exists for the shape constraints
+  // the fill enforces but no role expresses (top-end cap, draw sub-curve), and
+  // HARNESS_CUT's `cutshape` arm measured those over 51 commanders: auto-fill
+  // already enforces both, so on an assistant-built deck the categories are
+  // empty, and the one commander family where they fired came out worse on
+  // every metric. See the note at runCutAnalysis in BuildAssistant.jsx. The
+  // parameter stays because the harness arm needs it and because roles use the
+  // same mechanism — re-measure before wiring it into the app.
+  excessCategories = [],
   // Optional protection inputs — see cutProtection. Omitted, nothing is
   // protected and the ranking is exactly what it was.
   engineNeeds = [],          // [{ enabler, label }] from commanderNeeds
@@ -1021,9 +1034,20 @@ export function analyzeCut({
   const withRoleOver = r => ({ ...r, role: r.isLand ? ROLE_LANDS : r.role,
     roleOver: Math.max(0, (counts.get(r.role) || 0) - (targets.get(r.role) || 0)) })
 
+  // One category per over-target role, plus whatever shape constraints the
+  // caller measured. Lands are excluded: they're handled by the landOver pool
+  // below, which is this same rule applied to the manabase.
+  const roleCategories = ROLE_ORDER
+    .filter(role => role !== ROLE_LANDS)
+    .map(role => ({
+      label: `extra ${role}`,
+      over: Math.max(0, (counts.get(role) || 0) - (targets.get(role) || 0)),
+      includes: r => r.role === role,
+    }))
   const nonland = assignCutTiers(
     rows.filter(r => !r.isLand && !lockedIds.has(r.id)).map(withRoleOver),
     benchFor,
+    [...excessCategories, ...roleCategories],
   )
   // Only nonbasic lands are cuttable (singletons); basics are multi-copy rows
   // managed by the lands step, so cutting one would gut the manabase.
@@ -1053,12 +1077,24 @@ export function analyzeCut({
  * alone — rankCutCandidates overrides them to PROTECTED regardless, and a
  * protected card must not consume one of a category's EXCESS slots.
  *
- * EXCESS is capped at each category's overage on purpose: if Ramp is three
- * over, only its three worst cards are "extra Ramp". A fourth would leave the
- * category UNDER target, which is a different (and worse) problem than the deck
- * being over 100 — so it stays in TRIM and is cut only if the overage demands it.
+ * A "category" is anything the deck can hold too many of, stated as
+ * `{ label, over, includes(row) }`. Roles are the obvious ones, but they are not
+ * the only ones: the top-end cap and the draw sub-curve are also counts the
+ * build respects, just measured in mana value rather than role. Passing them in
+ * as categories means the cut helper enforces the same shape the fill does,
+ * instead of only the part of it that happens to be a role.
+ *
+ * Each category's EXCESS is capped at its own overage on purpose: if Ramp is
+ * three over, only its three worst cards are "extra Ramp". A fourth would leave
+ * the category UNDER target, which is a different (and worse) problem than the
+ * deck being over 100 — so it stays in TRIM and is cut only if the overage
+ * demands it.
+ *
+ * Categories are consulted in order and a row is claimed once. Callers list the
+ * shape constraints first because they say something sharper: "this card is one
+ * of too many six-drops" is a better reason to lose it than "Ramp is one over".
  */
-function assignCutTiers(rows, benchFor) {
+function assignCutTiers(rows, benchFor, categories = []) {
   const tiered = rows.map(r => {
     if (cutProtection(r)) return r
     const bench = benchFor ? benchFor(r.role) : null
@@ -1071,20 +1107,20 @@ function assignCutTiers(rows, benchFor) {
     }
     return r
   })
-  // Weakest first within each over-target category, capped at its overage.
-  const byRole = new Map()
-  for (const r of tiered) {
-    if (r.tier != null || cutProtection(r) || !(r.roleOver > 0)) continue
-    if (!byRole.has(r.role)) byRole.set(r.role, [])
-    byRole.get(r.role).push(r)
+  const label = new Map()
+  for (const cat of categories) {
+    if (!(cat?.over > 0)) continue
+    const members = tiered.filter(r =>
+      r.tier == null && !label.has(r.id) && !cutProtection(r) && cat.includes(r))
+    if (!members.length) continue
+    // Weakest first within the category, capped at its overage.
+    for (const r of takeRowsByQty(rankCutCandidates(members), cat.over)) {
+      label.set(r.id, cat.label)
+    }
   }
-  const excess = new Set()
-  for (const [, group] of byRole) {
-    const ordered = rankCutCandidates(group)
-    for (const r of takeRowsByQty(ordered, group[0].roleOver)) excess.add(r.id)
-  }
-  return tiered.map(r =>
-    (r.tier == null && excess.has(r.id)) ? { ...r, tier: CUT_TIER.EXCESS } : r)
+  return tiered.map(r => (r.tier == null && label.has(r.id))
+    ? { ...r, tier: CUT_TIER.EXCESS, excessLabel: label.get(r.id) }
+    : r)
 }
 
 // Take ranked rows until their COPIES cover `target`. Cutting removes a whole

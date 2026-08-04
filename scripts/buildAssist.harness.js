@@ -70,6 +70,10 @@ import {
   // path and zeroed every text-derived metric.
   candidateOracle,
   candidateType,
+  // Used by the HARNESS_CUT arms: `tiered` ranks the cut by the same score the
+  // fill picked with, `shape` adds the top-end / weak-draw excess categories.
+  scoreCandidate,
+  isWeakExpensiveDraw,
   SHIPPED_SIGNALS,
 } from '../src/lib/buildAssistExperimental'
 import { cardRoleTags, engineRoleCount, drawQuality } from '../src/lib/cardRoles'
@@ -165,12 +169,24 @@ const KNOB_ARMS = [
 // card, so deriving multiRoleWeight from inclusion would set it negative and
 // invert a signal the sweep shows is positive. They have to be calibrated
 // against outcomes instead, which is what this does.
-// HARNESS_CUT=1: cut-assistant protections on vs off. Same built deck, same
-// number of cards removed — the only difference is which ones the ranking
-// chose to lose, so goldfishing the survivors isolates the cut logic.
+// HARNESS_CUT=1: how the cut assistant chooses. Same built deck, same number of
+// cards removed — the only difference is which ones the ranking chose to lose,
+// so goldfishing the survivors isolates the cut logic.
+//
+// The arms are cumulative, each adding one layer to the one above:
+//   raw        inclusion only, nothing protected — the floor
+//   protected  + mana sources / needed enablers / combo pieces held back
+//   tiered     + strength (the fill's own score) and the bench/excess tiers
+//   shape      + the top-end cap and draw sub-curve as excess categories
+// `tiered` is what ships today; `shape` is the candidate. A layer earns its
+// place by beating the arm directly above it.
+const cutArm = (id, label, cutTest) =>
+  ({ id, label, cfg: { ...SHIPPED }, drawShare: 'derived', enginePass: true, cutTest })
 const CUT_ARMS = [
-  { id: 'cutraw',  label: 'cut, unprotected', cfg: { ...SHIPPED }, drawShare: 'derived', enginePass: true, cutTest: 'raw' },
-  { id: 'cutprot', label: 'cut, protected',   cfg: { ...SHIPPED }, drawShare: 'derived', enginePass: true, cutTest: 'protected' },
+  cutArm('cutraw', 'cut, unprotected', 'raw'),
+  cutArm('cutprot', 'cut, protected', 'protected'),
+  cutArm('cuttier', 'cut, tiered', 'tiered'),
+  cutArm('cutshape', 'cut, + shape caps', 'shape'),
 ]
 
 const SWEEPS = {
@@ -864,12 +880,14 @@ async function runCommander(name, metaCache, collection = null) {
         finalPicks = [...kept, ...addedPicks]
       }
     }
-    // HARNESS_CUT: does protecting mana sources / needed enablers from the cut
-    // list leave a better deck? Cut the SAME number of cards from the SAME built
-    // deck with protections on and off, then goldfish what survives — deck sizes
-    // match, so the only difference is which cards the ranking chose to lose.
+    // HARNESS_CUT: which cut ranking leaves a better deck? Cut the SAME number
+    // of cards from the SAME built deck under each arm's rules, then goldfish
+    // what survives — deck sizes match, so the only difference is which cards
+    // the ranking chose to lose. See CUT_ARMS for what each layer adds.
     if (arm.cutTest) {
       const CUT = 6
+      const protectedArm = arm.cutTest !== 'raw'
+      const tieredArm = arm.cutTest === 'tiered' || arm.cutTest === 'shape'
       // Own inclusion lookup: the engine pass's `byName` is scoped to its block.
       const cutIncl = new Map()
       for (const spec of roles) {
@@ -885,6 +903,73 @@ async function runCommander(name, metaCache, collection = null) {
       }))
       const cutSf = Object.fromEntries(cutRows.map(r => [r.scryfall_id,
         { type_line: r.type_line, oracle_text: r.oracle_text, cmc: r.cmc }]))
+      // Row id → the candidate it was picked from, so the cut can be ranked by
+      // the same scoreCandidate the fill ranked it by (the app does this via
+      // asCutCandidate; here the candidate is already to hand).
+      const candById = new Map(cutRows.map((r, i) => [r.id, finalPicks[i].cand]))
+      const strengthOf = dc => {
+        const cand = candById.get(dc.id)
+        return cand ? scoreCandidate(cand, ctx, cfg || SHIPPED).rank : 0
+      }
+      // Best candidate per role that the fill did NOT take. Mirrors the app's
+      // cutBench, including running each one through the shape gate so the
+      // bench can't be a card auto-fill would have refused.
+      const pickedNames = new Set(finalPicks.map(p => String(p.cand.name).toLowerCase()))
+      const deckTopEnd = finalPicks.filter(
+        p => (p.cand?.cmc ?? 0) >= (cfg?.topEndThreshold ?? 6)).length
+      // MUST mirror the fill's exclude exactly, including the draw gates. With
+      // drawRole/drawTarget/drawExpensiveShare omitted, a card the fill had
+      // rejected as weak expensive draw stayed on the bench at full rank — and
+      // then benched the deck's real card-advantage pieces, costing 2.2 net
+      // card advantage. That was this wiring, not the cut logic.
+      const benchGate = cfg
+        ? makeExperimentalExclude({
+          cfg, deckTopEnd, topEndAllowance,
+          drawRole: ROLE_DRAW,
+          drawTarget: basePlan.roles.find(r => r.role === ROLE_DRAW)?.target || 0,
+          drawExpensiveShare: arm.drawShare === 'off' ? 1
+            : arm.drawShare === 'flat' ? null
+            : drawShare,
+          nonlandBudget: COMMANDER_DECK_SIZE - 1 - landTarget,
+        })
+        : () => false
+      const benchByRole = new Map()
+      for (const spec of roles) {
+        if (spec.role === ROLE_LANDS) continue
+        const pool = collection
+          ? (spec.ownedCandidates || [])
+          : [...(spec.ownedCandidates || []), ...(spec.upgrades || [])]
+        let best = null
+        for (const c of pool) {
+          if (pickedNames.has(String(c.name || '').toLowerCase())) continue
+          if (benchGate(c, { role: spec.role, picks: [] })) continue
+          const strength = scoreCandidate(c, ctx, cfg || SHIPPED).rank
+          if (!best || strength > best.strength) best = { name: c.name, strength }
+        }
+        if (best) benchByRole.set(spec.role, best)
+      }
+      // Shape caps as excess categories — the `shape` arm only.
+      const excessCategories = []
+      if (arm.cutTest === 'shape' && cfg) {
+        const threshold = cfg.topEndThreshold ?? 6
+        const allowance = basePlan.topEndAllowance ?? cfg.topEndMax ?? 4
+        excessCategories.push({
+          label: 'over the top-end cap',
+          over: deckTopEnd - allowance,
+          includes: r => !r.isLand && (r.cmc || 0) >= threshold,
+        })
+        const share = basePlan.drawExpensiveShare ?? cfg.drawExpensiveShare ?? 1 / 3
+        const drawTarget = basePlan.roles.find(r => r.role === ROLE_DRAW)?.target || 0
+        const weakIds = new Set(cutRows
+          .filter(r => roleOfDeckCard(r, cutSf, null) === ROLE_DRAW
+            && isWeakExpensiveDraw(candById.get(r.id), cfg))
+          .map(r => r.id))
+        excessCategories.push({
+          label: 'expensive draw that does not refuel',
+          over: weakIds.size - Math.max(1, Math.floor(drawTarget * share)),
+          includes: r => weakIds.has(r.id),
+        })
+      }
       const cut = analyzeCut({
         plan: basePlan,
         deckCards: cutRows,
@@ -895,7 +980,10 @@ async function runCommander(name, metaCache, collection = null) {
         totalCards: (basePlan.deckSize || COMMANDER_DECK_SIZE) + CUT,
         roleOf: dc => roleOfDeckCard(dc, cutSf, null),
         inclusionOf: n => cutIncl.get(String(n).toLowerCase()) || 0,
-        engineNeeds: arm.cutTest === 'protected' ? needs : [],
+        strengthOf: tieredArm ? strengthOf : null,
+        benchFor: tieredArm ? (role => benchByRole.get(role) || null) : null,
+        excessCategories,
+        engineNeeds: protectedArm ? needs : [],
       })
       const dropped = new Set(cut.recommended.map(r => r.name.toLowerCase()))
       finalPicks = finalPicks.filter(p => !dropped.has(String(p.cand.name).toLowerCase()))

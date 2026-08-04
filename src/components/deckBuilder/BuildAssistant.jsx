@@ -1491,6 +1491,27 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // the others behind — the passes would cut by one rule while the list
   // recommended by another. Callers supply only what differs (the deck snapshot,
   // what's locked, which protections apply).
+  // No shape categories are passed here, and that is a measured decision.
+  //
+  // The obvious next move was to hand analyzeCut the two constraints auto-fill
+  // enforces that no role expresses — the top-end cap and the draw sub-curve —
+  // as excess categories. Both are gates on ADDING a card and nothing else, so
+  // a deck that arrives over the line is never told about it, and the top-end
+  // cap came from a cut rubric in the first place (see the note above
+  // countTopEnd). It is built, tested, and reachable: pass `excessCategories`
+  // to analyzeCut and it works.
+  //
+  // HARNESS_CUT=1 measured it as the `cutshape` arm over 51 commanders and it
+  // does not earn its slot. Auto-fill already enforces both caps, so on a deck
+  // the assistant built the categories are empty — they changed the cut on ONE
+  // commander family (wheels) out of 51, and there every metric moved the wrong
+  // way: engine coverage 81.2 -> 80.8, enablers missing 10.5 -> 11.0, off-plan
+  // 6.5 -> 7.0, net card advantage 15.5 -> 15.0, no-hook 70.5 -> 71.4.
+  //
+  // The population it is actually for — imported and hand-built decks that were
+  // never filtered by the fill gates — is one this harness cannot build, so
+  // there is no evidence for it and a little against. Re-run `cutshape` and beat
+  // `cuttier` before wiring it in.
   const runCutAnalysis = useCallback(args => analyzeCut({
     plan, sfMap,
     roleOf: roleOfDeck,

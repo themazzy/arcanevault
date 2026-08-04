@@ -1605,6 +1605,49 @@ describe('analyzeCut', () => {
     expect(excess).toHaveLength(2)
   })
 
+  it('treats a supplied shape cap as its own overfilled category', () => {
+    // Ramp is 2 over AND three Ramp cards are "expensive" against an allowance
+    // of 1, so 2 of them are over the cap. The cap is checked first, so those
+    // two are labelled by the cap rather than as extra Ramp.
+    const out = analyzeCut({
+      ...tierBase, totalCards: 20,
+      excessCategories: [{
+        label: 'over the top-end cap',
+        over: 2,
+        includes: r => ['Ramp 0', 'Ramp 10', 'Ramp 20'].includes(r.name),
+      }],
+    })
+    const all = out.recommended.concat(out.extra)
+    const capped = all.filter(c => c.excessLabel === 'over the top-end cap')
+    expect(capped).toHaveLength(2)
+    // …and it takes the two weakest of the three, like any other category.
+    expect(capped.map(c => c.name).sort()).toEqual(['Ramp 0', 'Ramp 10'])
+    expect(capped[0].reason).toBe('over the top-end cap')
+  })
+
+  it('does not let one card fill two categories at once', () => {
+    // Ramp 0 is over the cap AND the weakest of an over-target Ramp. It should
+    // be claimed once, by the cap, leaving Ramp's own two slots to other cards.
+    const out = analyzeCut({
+      ...tierBase, totalCards: 20,
+      excessCategories: [{ label: 'over the top-end cap', over: 1, includes: r => r.name === 'Ramp 0' }],
+    })
+    const all = out.recommended.concat(out.extra)
+    const ramp0 = all.find(c => c.name === 'Ramp 0')
+    expect(ramp0.excessLabel).toBe('over the top-end cap')
+    const extraRamp = all.filter(c => c.excessLabel === `extra ${ROLE_RAMP}`)
+    expect(extraRamp.map(c => c.name)).toEqual(['Ramp 10', 'Ramp 20'])
+  })
+
+  it('ignores a shape category that is not actually over', () => {
+    const out = analyzeCut({
+      ...tierBase, totalCards: 20,
+      excessCategories: [{ label: 'over the top-end cap', over: 0, includes: () => true }],
+    })
+    const all = out.recommended.concat(out.extra)
+    expect(all.every(c => c.excessLabel !== 'over the top-end cap')).toBe(true)
+  })
+
   it('falls back to inclusion-only ranking when no strength is injected', () => {
     // The harness and the unit tests above run this path; it must stay the plain
     // pre-strength behaviour rather than silently scoring everything 0.
