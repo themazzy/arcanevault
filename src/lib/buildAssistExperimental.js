@@ -307,6 +307,31 @@ export function scoreCandidate(cand, ctx, cfg = EXPERIMENTAL_DEFAULTS) {
 }
 
 /**
+ * The most `scoreCandidate` can ever add to `recRank` under this config.
+ *
+ * Exists so a caller can skip scoring candidates that cannot possibly win:
+ * `recRank` is cheap (two numbers) while a full score runs ~20 regexes, so
+ * anything ordered by recRank can stop once `recRank + ceiling` falls below the
+ * best real score already found. The cut helper's bench does exactly that, which
+ * takes it from "score the user's entire binder on every deck change" to
+ * "score a handful".
+ *
+ * It lives here, next to the function it bounds, because the two must not drift
+ * — a new bonus term added above without updating this would silently make the
+ * bound wrong and the early exit would start returning the wrong card. The
+ * bound is over-generous by design: it ignores ctx, so a deck with no keyword
+ * profile still reserves the keyword headroom. Only the drawPenalty is left
+ * out, and only because it is never positive.
+ */
+export function scoreBonusCeiling(cfg = EXPERIMENTAL_DEFAULTS) {
+  const multi = cfg?.multiRole ? (MULTI_ROLE_CAP - 1) * (cfg.multiRoleWeight || 0) : 0
+  const keyword = cfg?.commanderKw ? (cfg.commanderKwMax || 0) : 0
+  // deckAffinity is 0..1 and only applies inside the keyword branch.
+  const affinity = (cfg?.commanderKw && cfg?.deckAffinity) ? (cfg.affinityWeight || 0) : 0
+  return multi + keyword + affinity
+}
+
+/**
  * Drop-in replacement for deckBuildAssistant's private `rankComparator`, kept
  * structurally identical (bucketed rank first, then curve fit) so the only
  * variable under test is the rank itself.

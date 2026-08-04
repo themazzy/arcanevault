@@ -66,16 +66,19 @@ import {
   ROLE_WINCON,
   ROLE_SYNERGY,
   ROLE_LANDS,
+  recRank,
 } from '../../lib/deckBuildAssistant'
 import { cardNameMatchKeys, countDeckCards } from '../../lib/deckBuilderHelpers'
 import { toAutomaticDeckPrintingRequest, toAutomaticDeckPrintingRequests } from '../../lib/deckPrintingResolution'
 import { isOfflineError } from '../../lib/networkUtils'
 import { runComboPass as comboPassCore, runGameChangerPass as gcPassCore, runEnginePass as enginePassCore } from '../../lib/buildAssistantPasses'
+import { buildCutBench, deckCardToCutCandidate } from '../../lib/cutBench'
 import {
   EXPERIMENTAL_DEFAULTS,
   SHIPPED_SIGNALS,
   buildScoringContext,
   scoreCandidate,
+  scoreBonusCeiling,
   makeExperimentalComparator,
   makeExperimentalComparatorFor,
   makeExperimentalExclude,
@@ -1156,15 +1159,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     const hit = cutCandCache.get(dc)
     if (hit) return hit
     const keys = cardNameMatchKeys(dc?.name || '')
-    const sf = sfMap?.[dc?.scryfall_id] || null
-    const cand = {
-      name: dc?.name || '',
-      cmc: sf?.cmc ?? dc?.cmc ?? 0,
-      card: dc,
-      sfCard: sf,
-      edhrecInclusion: keys.map(k => inclusionByName.get(k)).find(v => v != null) || 0,
-      score: keys.map(k => recScoreByName.get(k)).find(v => v != null) || 0,
-    }
+    const cand = deckCardToCutCandidate({
+      dc,
+      sfCard: sfMap?.[dc?.scryfall_id] || null,
+      inclusion: keys.map(k => inclusionByName.get(k)).find(v => v != null),
+      score: keys.map(k => recScoreByName.get(k)).find(v => v != null),
+    })
     cutCandCache.set(dc, cand)
     return cand
   }, [cutCandCache, sfMap, inclusionByName, recScoreByName])
@@ -1462,27 +1462,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // candidate goes through `autoFillExclude`, so the cut list can't tell you to
   // lose a card in favour of one your budget, bracket or top-end cap already
   // ruled out.
-  const cutBench = useMemo(() => {
-    const m = new Map()
-    for (const role of plan?.roles || []) {
-      // Lands are exempt: landCandidates is ordered by which colours the deck is
-      // short of, not by card quality, so "a better land is available" would be
-      // comparing on the one axis that doesn't decide a land.
-      if (role.role === ROLE_LANDS) continue
-      const pool = autoFillSource === 'owned'
-        ? (role.ownedCandidates || [])
-        : [...(role.ownedCandidates || []), ...(role.edhrecUpgrades || []), ...(role.recommenderUpgrades || [])]
-      let best = null
-      for (const cand of pool) {
-        if (cand.inDeck) continue
-        if (autoFillExclude(cand, { role: role.role, picks: [] })) continue
-        const strength = rankOf(cand)
-        if (!best || strength > best.strength) best = { name: cand.name, strength }
-      }
-      if (best) m.set(role.role, best)
-    }
-    return m
-  }, [plan, autoFillSource, autoFillExclude, rankOf])
+  // Recomputed on every deck change, and on the binder path the pool is the
+  // user's whole collection bucketed by role — uncapped, unlike the upgrade
+  // pools. Measured at ~10ms per 1,000 candidates to score, that was ~80ms per
+  // keystroke-equivalent for a large binder, so buildCutBench orders by the
+  // cheap recRank and stops as soon as the remaining candidates cannot beat the
+  // best found. Same answer, a fraction of the work — see cutBench.js.
+  const cutBench = useMemo(() => buildCutBench({
+    roles: plan?.roles || [],
+    source: autoFillSource,
+    rankOf,
+    baseOf: recRank,
+    ceiling: scoreBonusCeiling(activeCfg),
+    isExcluded: (cand, role) => autoFillExclude(cand, { role, picks: [] }),
+  }), [plan, autoFillSource, autoFillExclude, rankOf, activeCfg])
 
   // Every cut analysis in the assistant runs through this one binding: the
   // advisory list on the summary step and both post-fill passes, which do their
