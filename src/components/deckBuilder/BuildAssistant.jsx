@@ -2132,9 +2132,27 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     }
   }
 
+  // The one way this component removes deck rows. Prefers the parent's batch
+  // handler: cutting per card re-renders the assistant and reruns the plan after
+  // every single one.
+  //
+  // It is one function because it used to be three, and they did not agree —
+  // the batch paths fell back to onRemoveCard when onRemoveCards was absent, but
+  // the single-card path required onRemoveCard and silently returned without it.
+  // A parent supplying only the batch handler would have had a working "Cut all"
+  // and a dead per-card Cut button.
+  async function removeDeckRows(ids) {
+    const list = (ids || []).filter(Boolean)
+    if (!list.length) return
+    if (typeof onRemoveCards === 'function') {
+      try { await onRemoveCards(list) } catch { /* parent surfaces errors */ }
+    } else if (typeof onRemoveCard === 'function') {
+      for (const id of list) { try { await onRemoveCard(id) } catch { /* parent surfaces errors */ } }
+    }
+  }
+
   async function handleRemove(deckCardId) {
-    if (typeof onRemoveCard !== 'function' || !deckCardId) return
-    try { await onRemoveCard(deckCardId) } catch { /* parent surfaces errors */ }
+    await removeDeckRows([deckCardId])
   }
 
   // Pointer devices get a hover preview; touch devices tap to toggle a centered
@@ -2179,16 +2197,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   }
 
   // Trash action for a summary card: remove every deck row of that name (a card
-  // can hold several printings). Batched when the parent supports it.
+  // can hold several printings).
   async function removeCardByName(name) {
     const ids = deckRowsForName(name).map(c => c.id).filter(Boolean)
     if (!ids.length) return
     if (preview?.name?.toLowerCase() === name.toLowerCase()) setPreview(null)
-    if (typeof onRemoveCards === 'function') {
-      try { await onRemoveCards(ids) } catch { /* parent surfaces errors */ }
-    } else if (typeof onRemoveCard === 'function') {
-      for (const id of ids) { try { await onRemoveCard(id) } catch { /* parent surfaces errors */ } }
-    }
+    await removeDeckRows(ids)
   }
 
   // Cut helper actions: lock a card off the suggestion list, or apply a batch.
@@ -2202,15 +2216,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   async function applyCuts(ids) {
     if (!ids?.length) return
     setApplyingCuts(true)
-    try {
-      if (typeof onRemoveCards === 'function') {
-        // One state update + one DB delete for the whole batch — cutting per
-        // card re-renders the assistant and reruns the plan after every cut.
-        try { await onRemoveCards(ids) } catch { /* parent surfaces */ }
-      } else if (typeof onRemoveCard === 'function') {
-        for (const id of ids) { try { await onRemoveCard(id) } catch { /* parent surfaces */ } }
-      }
-    } finally { setApplyingCuts(false) }
+    try { await removeDeckRows(ids) } finally { setApplyingCuts(false) }
   }
 
   // Finish: optionally top the manabase up with pip-weighted basics (the last
@@ -2885,8 +2891,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     )}
                   </div>
 
+                  {/* Only locking can empty this list. Protection sorts a card
+                      last, it never removes it — so the old "locked or protected"
+                      wording described a state that can't happen. */}
                   {cutAnalysis.recommended.length === 0 ? (
-                    <div className={styles.emptySmall}>Everything else is locked or protected — unlock a card below to get suggestions.</div>
+                    <div className={styles.emptySmall}>Every card is kept — unlock one below to get suggestions.</div>
                   ) : (
                     <div className={styles.cutList}>
                       {cutAnalysis.recommended.map(c => {
@@ -2907,10 +2916,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                             <span className={styles.cutInfo}>
                               <span className={styles.cutName} title={c.name}>{c.name}</span>
                               <span className={styles.cutSub}>
-                                {/* A benched card's reason is only useful with the
-                                    card that beats it, so name it here. */}
-                                <span className={styles.cutReason}>
-                                  {c.benched ? `better available: ${c.benched.name}` : c.reason}
+                                {/* Protection outranks the reason: a protected card
+                                    only reaches this list when the deck is so far
+                                    over that nothing unprotected is left, and the
+                                    user needs to know the assistant flinched. A
+                                    benched card's reason is only useful with the
+                                    card that beats it, so name that. */}
+                                <span className={`${styles.cutReason}${c.protectedAs ? ' ' + styles.cutReasonProtected : ''}`}>
+                                  {c.protectedAs
+                                    ? `${c.protectedAs} — cut only if you must`
+                                    : c.benched ? `better available: ${c.benched.name}` : c.reason}
                                 </span>
                                 <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
                               </span>
@@ -2938,7 +2953,12 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
                   {cutAnalysis.extra.length > 0 && (
                     <div className={styles.cutExtraNote}>
-                      Also consider: {cutAnalysis.extra.map(c => c.name).join(', ')}
+                      {/* Protected cards can surface here once the unprotected
+                          ones are used up, and suggesting a mana rock with no
+                          hint of why it was held back is worse than not
+                          suggesting it. */}
+                      Also consider: {cutAnalysis.extra.map(c =>
+                        c.protectedAs ? `${c.name} (${c.protectedAs})` : c.name).join(', ')}
                     </div>
                   )}
 

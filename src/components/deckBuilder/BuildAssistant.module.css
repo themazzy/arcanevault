@@ -1651,6 +1651,15 @@
   text-transform: lowercase;
 }
 
+/* A protected card only reaches the cut list when nothing unprotected is left,
+   so its reason is a warning rather than a label. Colour-only modifier — it
+   needs .cutReason for the shape. */
+.cutReasonProtected {
+  background: rgba(201, 168, 76, 0.15);
+  border: 1px solid rgba(201, 168, 76, 0.45);
+  color: var(--gold);
+}
+
 .cutMeta {
   flex-shrink: 0;
   font-size: 0.72rem;

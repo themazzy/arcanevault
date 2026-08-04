@@ -575,6 +575,23 @@ export const CUT_TIER = {
   PROTECTED: 3,  // cut only when nothing else is left — see cutProtection
 }
 
+// The 0-100 quality figure the cut ranks on: `strength` when a caller supplied
+// one (the fill's own score for this card), else raw EDHREC inclusion — with an
+// unlisted card reading as 0, since the crowd genuinely never plays it.
+//
+// One function because two places need it, and when they each spelled it out
+// they didn't agree: the bench test compared RAW strength while the score
+// compared a 0-100 clamped one, so a card scoring 118 was "18 better than
+// anything" to the bench and "the same as 100" to the ranking. Everything is
+// clamped now, including the bench's own side of the comparison.
+const CUT_STRENGTH_MAX = 100
+function clampStrength(v) {
+  return Math.max(0, Math.min(CUT_STRENGTH_MAX, v || 0))
+}
+function cutStrength(c) {
+  return clampStrength(c?.strength != null ? c.strength : (c?.hasData ? c.inclusion : 0))
+}
+
 // Short human reason a card is suggested for the cut. The tier IS the reason for
 // the first two, which is the point of tiering: the explanation and the ordering
 // can no longer disagree. Only TRIM has to guess at a description, because by
@@ -631,10 +648,7 @@ export function rankCutCandidates(candidates) {
     // applies), so a card the fill chose deliberately no longer reads as
     // worthless here just because the crowd hasn't found it. Without it we fall
     // back to raw inclusion, which is what the harness and unit tests supply.
-    // An off-meta card (not on the commander's EDHREC page) is genuinely run by
-    // ≈0% of tracked decks, so it reads as most cuttable (0).
-    const raw = c.strength != null ? c.strength : (c.hasData ? (c.inclusion || 0) : 0)
-    const strength = Math.max(0, Math.min(100, raw))
+    const strength = cutStrength(c)
     const cmcCut = Math.min(10, c.cmc || 0) * 4 // 0..40
     // Role overage is NOT in here any more — it's CUT_TIER.EXCESS. What's left
     // is "how bad is this card", used to order within a tier.
@@ -991,6 +1005,13 @@ export function analyzeCut({
 }) {
   if (!plan) return null
   const over = totalCards - plan.deckSize
+  // Bail BEFORE classifying anything. A deck at or under size is the normal
+  // state and this memo reruns on every deckCards change, so the row loop below
+  // was classifying ~100 cards — isManaSource, cardEnablers and (since the cut
+  // started ranking on the fill's score) a full scoreCandidate each — to build a
+  // list that was then thrown away unused.
+  if (over <= 0) return { over, cutTarget: 0, recommended: [], extra: [], landOver: 0 }
+
   const targets = new Map(plan.roles.map(r => [r.role, r.target]))
   const counts = new Map(ROLE_ORDER.map(r => [r, 0]))
   const neededEnablers = new Set((engineNeeds || []).map(n => n?.enabler).filter(Boolean))
@@ -1027,12 +1048,11 @@ export function analyzeCut({
         : false,
     })
   }
-  if (over <= 0) return { over, cutTarget: 0, recommended: [], extra: [], landOver: 0 }
-
   const landTarget = targets.get(ROLE_LANDS) || 37
   const landOver = Math.max(0, totalLands - landTarget)
-  const withRoleOver = r => ({ ...r, role: r.isLand ? ROLE_LANDS : r.role,
-    roleOver: Math.max(0, (counts.get(r.role) || 0) - (targets.get(r.role) || 0)) })
+  // A land answers to the manabase target, not to whatever role the classifier
+  // gave it, so its overage label reads "extra Lands".
+  const asLandRole = r => (r.isLand ? { ...r, role: ROLE_LANDS } : r)
 
   // One category per over-target role, plus whatever shape constraints the
   // caller measured. Lands are excluded: they're handled by the landOver pool
@@ -1045,7 +1065,7 @@ export function analyzeCut({
       includes: r => r.role === role,
     }))
   const nonland = assignCutTiers(
-    rows.filter(r => !r.isLand && !lockedIds.has(r.id)).map(withRoleOver),
+    rows.filter(r => !r.isLand && !lockedIds.has(r.id)),
     benchFor,
     [...excessCategories, ...roleCategories],
   )
@@ -1053,7 +1073,7 @@ export function analyzeCut({
   // managed by the lands step, so cutting one would gut the manabase.
   let landPool = []
   if (landOver > 0) {
-    const lands = rows.filter(r => r.isLand && !isBasicLandName(r.name) && !lockedIds.has(r.id)).map(withRoleOver)
+    const lands = rows.filter(r => r.isLand && !isBasicLandName(r.name) && !lockedIds.has(r.id)).map(asLandRole)
     // Lands reach this list only because the manabase is already over target,
     // and the pool is pre-trimmed to the overage — so every one of them is by
     // construction "the worst of an overfilled category". That is EXCESS, and
@@ -1098,11 +1118,10 @@ function assignCutTiers(rows, benchFor, categories = []) {
   const tiered = rows.map(r => {
     if (cutProtection(r)) return r
     const bench = benchFor ? benchFor(r.role) : null
-    const strength = r.strength != null ? r.strength : (r.hasData ? (r.inclusion || 0) : 0)
     // RANK_BUCKET is the fill comparator's "same card" band: below it, two cards
     // are a tie as far as the ranking is concerned, so "you have something
     // better" would be noise dressed up as advice.
-    if (bench && bench.strength - strength >= RANK_BUCKET) {
+    if (bench && clampStrength(bench.strength) - cutStrength(r) >= RANK_BUCKET) {
       return { ...r, tier: CUT_TIER.BENCHED, benched: bench }
     }
     return r

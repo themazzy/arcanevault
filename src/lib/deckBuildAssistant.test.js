@@ -1462,8 +1462,8 @@ describe('analyzeCut', () => {
       { role: ROLE_SYNERGY, target: 12 },
     ],
   }
-  // 103-card deck: 3 over. All ramp so roleOver drives cuttability; give
-  // distinct inclusion so the ranking is deterministic.
+  // 103-card deck: 3 over. All ramp, with distinct inclusion so the ranking is
+  // deterministic.
   const deck = [
     { id: 'cmd', name: 'Cmd', is_commander: true },
     ...Array.from({ length: 66 }, (_, i) => ({ id: `r${i}`, name: `Rock ${i}`, qty: 1 })),
@@ -1492,6 +1492,22 @@ describe('analyzeCut', () => {
     const out = analyzeCut({ ...base, totalCards: 100 })
     expect(out.over).toBe(0)
     expect(out.recommended).toEqual([])
+  })
+
+  it('classifies nothing at all when the deck is not over size', () => {
+    // This memo reruns on every deck change and the deck is normally AT size,
+    // so the expensive per-card work (roleOf, and the injected strengthOf, which
+    // is a full scoreCandidate) must not run just to be thrown away.
+    let roleCalls = 0
+    let strengthCalls = 0
+    analyzeCut({
+      ...base,
+      totalCards: 100,
+      roleOf: dc => { roleCalls++; return base.roleOf(dc) },
+      strengthOf: () => { strengthCalls++; return 0 },
+    })
+    expect(roleCalls).toBe(0)
+    expect(strengthCalls).toBe(0)
   })
 
   it('excludes locked ids from recommendations', () => {
@@ -1648,6 +1664,19 @@ describe('analyzeCut', () => {
     expect(all.every(c => c.excessLabel !== 'over the top-end cap')).toBe(true)
   })
 
+  it('compares the bench on the same clamped scale as the score', () => {
+    // scoreCandidate can return above 100 (inclusion plus the multi-role and
+    // keyword bonuses). The bench test used to compare RAW strength while the
+    // ranking compared a clamped one, so a 130-strength bench looked 30 better
+    // than a maxed-out deck card that the ranking called its equal.
+    const out = analyzeCut({
+      ...tierBase, totalCards: 15,
+      strengthOf: () => 100,
+      benchFor: () => ({ name: 'Overrated', strength: 130 }),
+    })
+    expect(out.recommended.every(c => c.tier !== CUT_TIER.BENCHED)).toBe(true)
+  })
+
   it('falls back to inclusion-only ranking when no strength is injected', () => {
     // The harness and the unit tests above run this path; it must stay the plain
     // pre-strength behaviour rather than silently scoring everything 0.
@@ -1657,9 +1686,9 @@ describe('analyzeCut', () => {
 })
 
 describe('rankCutCandidates', () => {
-  const unpopular = { id: 'a', name: 'Unpopular', role: ROLE_SYNERGY, cmc: 2, inclusion: 10, hasData: true, roleOver: 0 }
-  const offMeta   = { id: 'b', name: 'Off-meta',  role: ROLE_SYNERGY, cmc: 2, inclusion: 0,  hasData: false, roleOver: 0 }
-  const overbuilt = { id: 'c', name: 'Overbuilt', role: ROLE_RAMP,    cmc: 2, inclusion: 90, hasData: true, roleOver: 3 }
+  const unpopular = { id: 'a', name: 'Unpopular', role: ROLE_SYNERGY, cmc: 2, inclusion: 10, hasData: true }
+  const offMeta   = { id: 'b', name: 'Off-meta',  role: ROLE_SYNERGY, cmc: 2, inclusion: 0,  hasData: false }
+  const overbuilt = { id: 'c', name: 'Overbuilt', role: ROLE_RAMP,    cmc: 2, inclusion: 90, hasData: true }
 
   it('cuts an off-meta unknown card before a tracked low-inclusion one', () => {
     // Off-meta = not on the commander's EDHREC page = ≈0% of tracked decks, so
@@ -2279,7 +2308,7 @@ describe('RECOMMANDER_RANK_SCALE', () => {
 // commander-by-T5) and runComboPass locks combo pieces.
 describe('cut protections', () => {
   const row = (id, name, extra = {}) => ({
-    id, name, qty: 1, role: ROLE_RAMP, cmc: 3, inclusion: 10, hasData: true, roleOver: 2, ...extra,
+    id, name, qty: 1, role: ROLE_RAMP, cmc: 3, inclusion: 10, hasData: true, ...extra,
   })
 
   it('names why a card is protected', () => {
@@ -2294,8 +2323,8 @@ describe('cut protections', () => {
   it('sorts protected cards last however cuttable they score', () => {
     const ranked = rankCutCandidates([
       // Deliberately the most cuttable card on every axis except protection.
-      row('rock', 'Mana Rock', { isManaSource: true, inclusion: 0, hasData: false, cmc: 9, roleOver: 9 }),
-      row('keep', 'Popular Card', { inclusion: 95, cmc: 1, roleOver: 0 }),
+      row('rock', 'Mana Rock', { isManaSource: true, inclusion: 0, hasData: false, cmc: 9 }),
+      row('keep', 'Popular Card', { inclusion: 95, cmc: 1 }),
     ], 'balanced')
     expect(ranked.map(r => r.name)).toEqual(['Popular Card', 'Mana Rock'])
     expect(ranked[1].protectedAs).toBe('mana source')
