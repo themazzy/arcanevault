@@ -5,6 +5,7 @@ import {
   buyListText,
   tcgplayerMassEntryUrl,
   planAutoFill,
+  passesPriceCap,
   recRank,
   deriveRoleTemplate,
   karstenSourcesNeeded,
@@ -142,6 +143,66 @@ describe('binderPlacedCardIds', () => {
 })
 
 // ── Auto-fill planning ────────────────────────────────────────────────────────
+describe('passesPriceCap', () => {
+  it('lets everything through when no cap is set', () => {
+    expect(passesPriceCap(null, 63.15)).toBe(true)
+    expect(passesPriceCap(null, undefined)).toBe(true)
+    expect(passesPriceCap(null, null)).toBe(true)
+  })
+
+  it('admits at or under the cap, rejects over it', () => {
+    expect(passesPriceCap(1, 0.42)).toBe(true)
+    expect(passesPriceCap(1, 1)).toBe(true)
+    expect(passesPriceCap(1, 1.01)).toBe(false)
+    expect(passesPriceCap(1, 63.15)).toBe(false)
+  })
+
+  // The regression this whole gate exists for: unpriced candidates used to pass,
+  // and since auto-fill priced almost nothing it considered — unowned EDHREC
+  // suggestions carry no card data at all — a €1 build filled up with €20-60
+  // cards. Unknown price must fail closed.
+  it('rejects a card whose price has not been looked up yet', () => {
+    expect(passesPriceCap(1, undefined)).toBe(false)
+  })
+
+  it('rejects a card with no price data at all', () => {
+    expect(passesPriceCap(1, null)).toBe(false)
+  })
+
+  it('falls back to the local printing only while the lookup is outstanding', () => {
+    expect(passesPriceCap(1, undefined, 0.5)).toBe(true)
+    expect(passesPriceCap(1, undefined, 9)).toBe(false)
+    // A resolved "no price" is an answer, not a gap — the fallback must not
+    // override it, or an owned cheap printing would smuggle in a card whose
+    // cheapest English print we could not price.
+    expect(passesPriceCap(1, null, 0.5)).toBe(false)
+    // And a resolved price always wins over the local copy's price.
+    expect(passesPriceCap(1, 0.4, 80)).toBe(true)
+    expect(passesPriceCap(1, 80, 0.4)).toBe(false)
+  })
+
+  it('keeps auto-fill from picking over-cap cards in any pass', () => {
+    const priced = { 'Sol Ring': 0.9, 'Deflecting Swat': 57.07, 'Arcane Signet': 0.6, 'Arid Mesa': 26.79 }
+    const cand = name => ({ name, sfCard: null, edhrecInclusion: 0 })
+    const picks = planAutoFill({
+      roles: [
+        { role: ROLE_RAMP, target: 2, ownedCandidates: [cand('Sol Ring'), cand('Deflecting Swat'), cand('Arcane Signet')] },
+        { role: ROLE_LANDS, target: 37, ownedCandidates: [] },
+      ],
+      liveCounts: new Map([[ROLE_RAMP, 0]]),
+      totalCards: 1, deckSize: 100,
+      landsTarget: 1, currentLands: 0,
+      nonbasicTarget: 1, currentNonbasicLands: 0,
+      landCandidates: [cand('Arid Mesa')],
+      // Exactly how the assistant wires the gate: name → cheapest price → cap.
+      exclude: c => !passesPriceCap(1, priced[c.name]),
+    })
+    // Quota, spillover and the land pass all refuse the over-cap cards, and the
+    // build comes up short rather than going over.
+    expect(picks.map(p => p.cand.name)).toEqual(['Sol Ring', 'Arcane Signet'])
+  })
+})
+
 describe('planAutoFill', () => {
   const cand = (name, inclusion = 0) => ({ name, sfCard: null, edhrecInclusion: inclusion })
   const roles = [

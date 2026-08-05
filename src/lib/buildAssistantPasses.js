@@ -177,7 +177,16 @@ export async function runComboPass({
  * recommended pool (owned candidates first, then suggestion upgrades) — so the
  * picks stay on-theme and in color — capped to `maxAdd` slots the caller has
  * already reserved away from the basics top-up. Source-aware: 'owned' only
- * pulls owned Game Changers; 'recommended' upgrades are budget-gated.
+ * pulls owned Game Changers; 'recommended' reaches for suggestions too.
+ *
+ * The budget cap gates BOTH pools. Owned Game Changers used to be exempt ("you
+ * already have it, it costs you nothing"), and that made this the one pass that
+ * could put a card over the user's per-card limit into the deck — the worst
+ * possible place for the exemption to live, since a Game Changer is by
+ * definition one of the most expensive cards in the format. It also disagreed
+ * with every other surface in the assistant: the tile grids, planAutoFill and
+ * planComboCompletion all apply the cap to owned cards, because the cap is a
+ * statement about what a card is worth, not about which shelf it sits on.
  *
  * @returns {Promise<{gcRows: Array}>} best-effort — empty on any failure.
  */
@@ -214,7 +223,7 @@ export async function runGameChangerPass({
       const name = c?.name
       if (!name || !isGC(name)) continue
       const key = name.toLowerCase()
-      if (seen.has(key) || deckKeys.has(key)) continue // owned copies aren't gated by budget
+      if (seen.has(key) || deckKeys.has(key) || !passesBudget(name)) continue
       seen.add(key)
       owned.push({ name, inclusion: c.edhrecInclusion || 0 })
     }

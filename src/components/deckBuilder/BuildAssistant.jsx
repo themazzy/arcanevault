@@ -25,6 +25,7 @@ import {
   buyListText,
   tcgplayerMassEntryUrl,
   planAutoFill,
+  passesPriceCap,
   enrichPlanWithEdhrec,
   archetypeAdjustments,
   bracketAdjustments,
@@ -149,6 +150,9 @@ function overlayNonNull(base, next) {
 
 const SUMMARY_STEP = '__summary__'
 const MAX_TILES = 60 // cap owned tiles per step to keep the DOM light
+// Names per display-printing request while pre-pricing the budget pool. Matches
+// the RPC's own chunk size, so one slice is one round trip.
+const BUDGET_PRICE_SLICE = 100
 
 // Module-scope caches so reopening the assistant is instant — both hold
 // intrinsic data that doesn't change within a page session:
@@ -550,6 +554,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // Cache keys whose display-printing lookup failed. Only drives the art
   // skeleton — see artResolved.
   const [artLookupFailed, setArtLookupFailed] = useState(() => new Set())
+  // Cache keys with a display-printing request already in flight. Two effects
+  // fill `cheapestByName` — the per-step tile lookup and the budget gate's
+  // whole-pool sweep — and their name sets overlap heavily. Neither can see the
+  // other's pending request in state (it lands a tick later), so without this
+  // they both fetch the same names on the first pass.
+  const priceInFlightRef = useRef(null)
+  if (priceInFlightRef.current === null) priceInFlightRef.current = new Set()
   const stepperRef = useRef(null)   // scroll container for the node stepper
   const activeStepRef = useRef(null) // current node, auto-centered on mobile
   const afCardRef = useRef(null)     // auto-fill dialog card, focused on open
@@ -1055,8 +1066,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // Target deck size (100 for Commander) — drives the auto-fill "→ 100" framing.
   const afTarget = plan?.deckSize || 100
 
-  // Pricing helpers (budget guidance). Cards with no price data pass the budget
-  // filter (we can't judge them) and aren't counted in deck value.
+  // Pricing helpers. The budget cap is enforced, not advisory: cards with no
+  // price data are excluded by it (see passesBudget). They still aren't counted
+  // in deck value — an unknown price is 0 there, not a guess.
   const priceOf = useCallback(
     (sfCard, foil = false) => getPrice(sfCard, foil, { price_source }),
     [price_source],
@@ -1103,13 +1115,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // Budget is "per card": judge by the cheapest available printing so an
   // expensive owned printing doesn't hide a card you could buy cheaply. Falls
   // back to the owned printing's price until the cheapest lookup resolves.
+  //
+  // The cap is a HARD ceiling: a card we cannot price is REJECTED, not admitted.
+  // This used to be the other way round ("can't judge it → let it through"),
+  // which quietly voided the whole filter during auto-fill. Auto-fill draws from
+  // every role's full pool, but prices were only ever fetched for the ~60 tiles
+  // of the step you happened to be looking at — and unowned EDHREC/recommander
+  // suggestions carry no `sfCard` at all, so the fallback was null for them by
+  // construction. Nearly every candidate hit the null branch and passed: a €1
+  // build came out full of €20-60 cards.
+  //
+  // Fail-closed only works because price coverage is now guaranteed before the
+  // gate matters — see budgetPoolNames / the pre-pricing effect below.
   const passesBudget = useCallback(
-    (name, sfCard) => {
-      if (maxPrice == null) return true
-      const cheap = cheapestOf(name)
-      const v = cheap !== undefined ? cheap : priceOf(sfCard)
-      return v == null || v <= maxPrice
-    },
+    (name, sfCard) => passesPriceCap(maxPrice, cheapestOf(name), priceOf(sfCard)),
     [maxPrice, cheapestOf, priceOf],
   )
   const deckValue = useMemo(() => {
@@ -1592,6 +1611,129 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     [hasRecommender, suggestionSource],
   )
 
+  // ── Budget gate: price coverage ─────────────────────────────────────────────
+  // Every name the budget cap has an opinion about — both auto-fill pools (all
+  // roles' owned candidates + their full upgrade lists) and the nonbasic lands.
+  // Empty when no cap is set, so a capless build fetches nothing extra.
+  //
+  // This exists because passesBudget fails closed. The gate can only be a hard
+  // stop if the price behind it is known, so "which names must be priced" is the
+  // same question as "which names could auto-fill pick" — and it is deliberately
+  // the DEEP pool (upgradesFor is Infinity-depth), not the display cap, for the
+  // same reason planAutoFill draws from the deep pool.
+  const budgetPoolNames = useMemo(() => {
+    const names = new Set()
+    if (maxPrice == null || !plan) return names
+    for (const role of plan.roles || []) {
+      for (const c of role.ownedCandidates || []) if (c?.name) names.add(c.name)
+      for (const u of upgradesFor(role)) if (u?.name) names.add(u.name)
+    }
+    for (const l of landCandidates) if (l?.cand?.name) names.add(l.cand.name)
+    // Missing combo pieces too. The post-fill combo pass adds cards from outside
+    // the role pools, and under a hard cap an unpriced piece is refused — so
+    // without these a budgeted build would silently stop completing combos.
+    // Best-effort by nature: the pass re-fetches combos against the populated
+    // deck, so it can still reach for a piece nobody priced. That one is refused,
+    // which is the right way to be wrong about a limit the user set.
+    for (const c of almostCombos) for (const m of c.missing || []) if (m?.name) names.add(m.name)
+    return names
+  }, [maxPrice, plan, upgradesFor, landCandidates, almostCombos])
+
+  // Names in that pool with no price resolved yet (and no failed lookup to stop
+  // retrying on). Non-zero = the gate would currently reject cards purely for
+  // lack of data, so the build waits.
+  const budgetUnpricedCount = useMemo(() => {
+    if (!budgetPoolNames.size) return 0
+    let n = 0
+    for (const name of budgetPoolNames) {
+      const k = `${price_source}:${name.toLowerCase()}`
+      if (!cheapestByName.has(k) && !artLookupFailed.has(k)) n++
+    }
+    return n
+  }, [budgetPoolNames, cheapestByName, artLookupFailed, price_source])
+  const budgetPricing = budgetUnpricedCount > 0
+
+  // What the cap actually removed from the pool. Reported on the result screen,
+  // because "the deck is 12 cards short" is not an explanation on its own. Kept
+  // as two numbers: over-cap is a budget decision the user can revisit, unpriced
+  // is missing data they can't do anything about — conflating them would read as
+  // "your budget is stricter than it is".
+  const budgetExcluded = useMemo(() => {
+    let overCap = 0
+    let unpriced = 0
+    if (maxPrice == null) return { overCap, unpriced }
+    for (const name of budgetPoolNames) {
+      const v = cheapestOf(name)
+      if (v == null) unpriced++
+      else if (v > maxPrice) overCap++
+    }
+    return { overCap, unpriced }
+  }, [maxPrice, budgetPoolNames, cheapestOf])
+
+  // Next chip up from the current cap for the one-click relax on the result
+  // screen. `null` = "Any (no limit)"; undefined = nothing left to offer.
+  const nextBudgetTier = useMemo(() => {
+    if (maxPrice == null) return undefined
+    const higher = BUDGET_CHIPS.filter(b => b != null && b > maxPrice)
+    return higher.length ? Math.min(...higher) : null
+  }, [maxPrice])
+
+  // Resolve the pool a slice at a time. Each completed slice writes the cache,
+  // which re-runs this effect on the next slice — self-throttling, and it moves
+  // the progress readout without a second piece of state. Names are
+  // cached for the session, so switching steps, re-opening the auto-fill dialog
+  // or changing the cap costs nothing after the first sweep.
+  useEffect(() => {
+    if (!budgetPoolNames.size) return
+    const cacheKey = name => `${price_source}:${name.toLowerCase()}`
+    const missing = []
+    for (const name of budgetPoolNames) {
+      const k = cacheKey(name)
+      if (cheapestByName.has(k) || artLookupFailed.has(k) || priceInFlightRef.current.has(k)) continue
+      missing.push(name)
+      if (missing.length >= BUDGET_PRICE_SLICE) break
+    }
+    if (!missing.length) return
+    const keys = missing.map(cacheKey)
+    for (const k of keys) priceInFlightRef.current.add(k)
+    // No cancellation guard on the write: the cache is name-keyed and
+    // idempotent, so a slice that lands after its effect was superseded is still
+    // correct — and dropping it would strand those names as permanently
+    // "unpriced" (the in-flight keys are freed, but nothing would re-trigger the
+    // sweep), leaving the build blocked on a wait that never ends.
+    ;(async () => {
+      try {
+        const displayPrints = await fetchDeckBuilderDisplayPrintings(missing, { priceSource: price_source })
+        const displayByName = new Map(displayPrints.map(card => [card.requested_name.toLowerCase(), card]))
+        setCheapestByName(prev => {
+          const next = new Map(prev)
+          for (const n of missing) {
+            const display = displayByName.get(n.toLowerCase())
+            next.set(cacheKey(n), display
+              ? {
+                  price: display.display_price,
+                  image: getCardImageUri(display, 'small'),
+                  finish: display.display_finish,
+                }
+              : { price: null, image: null, finish: null })
+          }
+          return next
+        })
+      } catch {
+        // Mark the slice failed rather than retrying forever. Under a hard cap
+        // an unpriced card is excluded, so a failed sweep costs slots — the
+        // shortfall note on the result screen says so.
+        setArtLookupFailed(prev => {
+          const next = new Set(prev)
+          for (const k of keys) next.add(k)
+          return next
+        })
+      } finally {
+        for (const k of keys) priceInFlightRef.current.delete(k)
+      }
+    })()
+  }, [budgetPoolNames, cheapestByName, artLookupFailed, price_source])
+
   // Two dry runs drive the modal's option labels: binders only, and the
   // ownership-blind "top recommendations" build.
   const autoFillPicksOwned = useMemo(
@@ -2063,8 +2205,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // by). Until then they show skeleton tiles. Cards used to appear, shuffle and
   // vanish across those three waves.
   const gridSettled = useMemo(
-    () => !loading && !recsPending && [...pricedNames].every(artResolved),
-    [loading, recsPending, pricedNames, artResolved],
+    () => !loading && !recsPending && !budgetPricing && [...pricedNames].every(artResolved),
+    [loading, recsPending, budgetPricing, pricedNames, artResolved],
   )
 
   // Resolve the lowest-priced English printing across foil and non-foil. The
@@ -2073,35 +2215,46 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   useEffect(() => {
     const names = pricedNames
     const cacheKey = name => `${price_source}:${name.toLowerCase()}`
-    const missing = [...names].filter(n => !cheapestByName.has(cacheKey(n)))
+    // Skip anything the budget sweep already has in flight — the two effects'
+    // name sets overlap, and state can't tell us about a request made this tick.
+    const missing = [...names].filter(n =>
+      !cheapestByName.has(cacheKey(n)) && !priceInFlightRef.current.has(cacheKey(n)))
     if (!missing.length) return
     let cancelled = false
+    const keys = missing.map(cacheKey)
+    for (const k of keys) priceInFlightRef.current.add(k)
     ;(async () => {
       try {
         const displayPrints = await fetchDeckBuilderDisplayPrintings(missing, { priceSource: price_source })
         const displayByName = new Map(displayPrints.map(card => [card.requested_name.toLowerCase(), card]))
-        const next = new Map(cheapestByName)
-        for (const n of missing) {
-          const display = displayByName.get(n.toLowerCase())
-          next.set(cacheKey(n), display
-            ? {
-                price: display.display_price,
-                image: getCardImageUri(display, 'small'),
-                finish: display.display_finish,
-              }
-            : { price: null, image: null, finish: null })
-        }
-        if (!cancelled) setCheapestByName(next)
+        // Functional update: the budget sweep writes this same map, and a
+        // snapshot taken before the await would clobber whatever it landed.
+        if (!cancelled) setCheapestByName(prev => {
+          const next = new Map(prev)
+          for (const n of missing) {
+            const display = displayByName.get(n.toLowerCase())
+            next.set(cacheKey(n), display
+              ? {
+                  price: display.display_price,
+                  image: getCardImageUri(display, 'small'),
+                  finish: display.display_finish,
+                }
+              : { price: null, image: null, finish: null })
+          }
+          return next
+        })
       } catch {
         // Cache stays untouched so a later run retries, but the tiles must stop
         // waiting on art that isn't coming — they fall back to what they have.
         if (!cancelled) {
           setArtLookupFailed(prev => {
             const next = new Set(prev)
-            for (const n of missing) next.add(cacheKey(n))
+            for (const k of keys) next.add(k)
             return next
           })
         }
+      } finally {
+        for (const k of keys) priceInFlightRef.current.delete(k)
       }
     })()
     return () => { cancelled = true }
@@ -2383,7 +2536,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     <ControlMenu
       label="Budget"
       title="Max price per card"
-      hint="Hide owned cards and suggestions whose cheapest English printing costs more than this"
+      hint="A hard limit on the cheapest English printing. Nothing above it is shown or auto-filled — a build will come up short before it goes over"
       valueLabel={maxPrice == null ? 'Any' : `≤ ${formatPrice(maxPrice, price_source)}`}
     >
       {close => (
@@ -2755,7 +2908,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 </span>
               </button>
               {!collapsed.owned && (!gridSettled ? <TileSkeletonGrid /> : (() => {
-                // Budget filter (cards with unknown price always pass).
+                // Budget filter. Hard: an unpriced card is hidden, not shown —
+                // the tiles must offer exactly what auto-fill would pick.
                 const shown = onLands
                   ? landCandidates.filter(({ cand }) => passesBudget(cand.name, cand.sfCard))
                   : roleData.ownedCandidates.filter(c => passesBudget(c.name, c.sfCard))
@@ -3459,12 +3613,25 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     </div>
                   )}
                   <div className={styles.afNote}>
-                    Your budget and bracket filters apply. Basic lands will top up the rest of the deck, then you will be able to review your new deck.
+                    {maxPrice != null
+                      ? `Your ≤ ${formatPrice(maxPrice, price_source)} per-card budget is a hard limit — nothing above it is added, and a card whose price can’t be resolved is left out rather than slipped in. Your bracket filter applies too. `
+                      : 'Your budget and bracket filters apply. '}
+                    Basic lands will top up the rest of the deck, then you will be able to review your new deck.
                   </div>
+                  {budgetPricing && (
+                    <div className={styles.afNote}>
+                      Checking prices for {budgetUnpricedCount} more card{budgetUnpricedCount === 1 ? '' : 's'} so the
+                      budget can be applied to every candidate, not just the ones on screen…
+                    </div>
+                  )}
                   <div className={styles.afActions}>
                     <Button variant="ghost" onClick={() => setAutoFillOpen(false)}>Cancel</Button>
-                    <Button variant="primary" disabled={autoFillSelected.length === 0} onClick={startAutoFill}>
-                      Auto build deck
+                    <Button
+                      variant="primary"
+                      disabled={budgetPricing || autoFillSelected.length === 0}
+                      onClick={startAutoFill}
+                    >
+                      {budgetPricing ? 'Checking prices…' : 'Auto build deck'}
                     </Button>
                   </div>
                 </>
@@ -3517,6 +3684,37 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       {autoFillSource === 'owned'
                         ? ' your binders ran out of fitting cards. Re-run with “Top recommendations”, or add from the suggestion tiles.'
                         : ' not enough fitting recommendations were found. Add the rest from the role steps.'}
+                    </div>
+                  )}
+                  {/* The cap is never violated to reach 100, so when it costs
+                      slots the run has to say so — and say how much it cost.
+                      Shown whenever the cap removed anything, not only on a
+                      shortfall: a build that landed at 100 anyway still passed
+                      over cards, and that's the thing the user wants to know. */}
+                  {maxPrice != null && (budgetExcluded.overCap > 0 || budgetExcluded.unpriced > 0) && (
+                    <div className={styles.afShortfall}>
+                      <WarningIcon size={12} />
+                      {/* One flex child, so the relax button flows inline with
+                          the sentence instead of becoming its own column. */}
+                      <span>
+                        Your ≤ {formatPrice(maxPrice, price_source)} per-card budget held back{' '}
+                        {budgetExcluded.overCap} card{budgetExcluded.overCap === 1 ? '' : 's'} that cost more
+                        {budgetExcluded.unpriced > 0 && `, plus ${budgetExcluded.unpriced} with no price data (excluded rather than risk going over)`}.
+                        {nextBudgetTier !== undefined && (
+                          <>
+                            {' '}
+                            <button
+                              type="button"
+                              className={styles.miniBtn}
+                              onClick={() => { setMaxPrice(nextBudgetTier); setAutoFillResult(null) }}
+                            >
+                              {nextBudgetTier == null
+                                ? 'Remove the limit and fill again'
+                                : `Raise to ≤ ${formatPrice(nextBudgetTier, price_source)} and fill again`}
+                            </button>
+                          </>
+                        )}
+                      </span>
                     </div>
                   )}
                   <div className={styles.afActions}>

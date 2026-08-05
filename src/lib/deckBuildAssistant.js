@@ -259,6 +259,31 @@ export function bracketFlagFor(name, sfCard, gameChangerNames) {
   return null
 }
 
+// ── Budget cap ────────────────────────────────────────────────────────────────
+// Does a card clear the user's max-price-per-card setting? The whole rule, in
+// one place, because it is applied from four directions — the tile grids, the
+// auto-fill exclude gate, the cut bench, and the three post-fill passes — and a
+// disagreement between any two of them shows up as a deck that violates a limit
+// the user set.
+//
+// `cheapest` is the cheapest English printing's price: a number, `null` for
+// "looked it up, no price data", or `undefined` for "not looked up yet".
+// `fallback` is the price of the printing we happen to hold locally, used only
+// while the lookup is outstanding.
+//
+// Unknown price REJECTS. The cap is a limit the user set, not a preference to
+// weigh, so the only safe answer to "I can't tell what this costs" is to leave
+// it out — admitting it is how a €1 build ends up holding a €63 card. The cost
+// of failing closed is slots, and the caller is expected to have resolved prices
+// for its whole candidate pool first (and to report the shortfall when it
+// hasn't). Returns true unconditionally when no cap is set.
+export function passesPriceCap(cap, cheapest, fallback = null) {
+  if (cap == null) return true
+  const value = cheapest !== undefined ? cheapest : fallback
+  if (value == null) return false
+  return value <= cap
+}
+
 // ── Mana base analysis ────────────────────────────────────────────────────────
 // Parse the colors a card can produce, and whether it's a (repeatable) mana
 // source — used to count colored sources in the manabase step.

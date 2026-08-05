@@ -161,6 +161,42 @@ describe('runGameChangerPass', () => {
     expect(out.gcRows.map(r => r.name)).toEqual(['The One Ring']) // capped to 1, highest inclusion
   })
 
+  // This pass used to exempt owned Game Changers from the budget ("you already
+  // have it"), which made it the one auto-fill pass that could put a card over
+  // the user's per-card cap into the deck — and a Game Changer is the most
+  // expensive kind of card there is, so the exemption was worth tens of euros a
+  // slot. The cap is a hard limit on every pool now.
+  it('budget-gates OWNED GCs too, and comes up short rather than going over', async () => {
+    const addCards = vi.fn(async items => ({ rows: items.map((it, i) => ({ id: `g${i}`, name: it.name })) }))
+    const out = await runGameChangerPass({
+      populated: deckWith([]), // no GCs → need 4
+      maxAdd: 4,
+      targetBracket: 4,
+      source: 'owned',
+      gameChangerNames: gcNames,
+      roles,
+      passesBudget: name => name !== 'The One Ring',
+      addCards,
+    })
+    expect(out.gcRows.map(r => r.name)).toEqual(['Smothering Tithe'])
+  })
+
+  it('adds no owned GC at all when every one is over the cap', async () => {
+    const addCards = vi.fn()
+    const out = await runGameChangerPass({
+      populated: deckWith([]),
+      maxAdd: 4,
+      targetBracket: 4,
+      source: 'owned',
+      gameChangerNames: gcNames,
+      roles,
+      passesBudget: () => false,
+      addCards,
+    })
+    expect(out.gcRows).toEqual([])
+    expect(addCards).not.toHaveBeenCalled()
+  })
+
   it('budget-gates suggestion GCs on the recommended source', async () => {
     const addCards = vi.fn(async items => ({ rows: items.map((it, i) => ({ id: `g${i}`, name: it.name })) }))
     const out = await runGameChangerPass({
