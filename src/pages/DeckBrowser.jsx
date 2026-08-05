@@ -18,6 +18,7 @@ import CardImg from '../components/CardImg'
 import styles from './DeckBrowser.module.css'
 import uiStyles from '../components/UI.module.css'
 import { parseDeckMeta, serializeDeckMeta } from '../lib/deckBuilderApi'
+import { TYPE_GROUPS, classifyCardType } from '../lib/cardTypeGroup'
 import { buildPairSnapshot, buildSyncDiff, getSyncState, isUniqueNameConflict, linkDeckPair, markLinkedPairUnsynced, reconcileCleanPair, renameFolder, resolveBuilderNameConflict, summarizeSyncDiff, withLinkedPair, writeSyncState } from '../lib/deckSync'
 import { useFilterWorker } from '../hooks/useFilterWorker'
 import { useVisibleOrder, useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
@@ -43,23 +44,11 @@ function isGroupFolder(folder) {
 
 // ── Constants (kept for grouping/categorization used in views below) ──────────
 
-const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Instants',
-  'Sorceries', 'Artifacts', 'Enchantments', 'Lands', 'Other']
+const TYPE_ORDER = TYPE_GROUPS
 
 // ── Helpers (kept for view grouping logic) ────────────────────────────────────
 
-function getCardType(typeLine = '') {
-  const tl = typeLine.toLowerCase()
-  if (tl.includes('battle'))       return 'Battles'
-  if (tl.includes('creature'))     return 'Creatures'
-  if (tl.includes('planeswalker')) return 'Planeswalkers'
-  if (tl.includes('instant'))      return 'Instants'
-  if (tl.includes('sorcery'))      return 'Sorceries'
-  if (tl.includes('artifact'))     return 'Artifacts'
-  if (tl.includes('enchantment'))  return 'Enchantments'
-  if (tl.includes('land'))         return 'Lands'
-  return 'Other'
-}
+const getCardType = classifyCardType
 
 async function addPlacementRows(targetFolder, userId, rows) {
   if (!targetFolder?.id || !rows?.length) return []

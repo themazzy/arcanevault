@@ -18,6 +18,7 @@ import {
   rowToCard,
 } from './cardSearch'
 import { selectPreferredDeckPrinting } from './deckPrintingResolution'
+import { TYPE_GROUPS, classifyCardType } from './cardTypeGroup'
 
 const SF = 'https://api.scryfall.com'
 const EDHREC = 'https://json.edhrec.com'
@@ -76,23 +77,9 @@ export const FORMATS = [
 
 // ── Card type grouping ────────────────────────────────────────────────────────
 
-export const TYPE_GROUPS = [
-  'Commander', 'Creatures', 'Planeswalkers', 'Battles',
-  'Instants', 'Sorceries', 'Artifacts', 'Enchantments', 'Lands', 'Other',
-]
-
-export function classifyCardType(typeLine = '') {
-  const t = (typeLine || '').toLowerCase()
-  if (t.includes('creature'))     return 'Creatures'
-  if (t.includes('planeswalker')) return 'Planeswalkers'
-  if (t.includes('battle'))       return 'Battles'
-  if (t.includes('instant'))      return 'Instants'
-  if (t.includes('sorcery'))      return 'Sorceries'
-  if (t.includes('artifact'))     return 'Artifacts'
-  if (t.includes('enchantment'))  return 'Enchantments'
-  if (t.includes('land'))         return 'Lands'
-  return 'Other'
-}
+// Lives in cardTypeGroup.js so the collection-side browsers can share the exact
+// same ladder without importing this module. Re-exported for existing callers.
+export { TYPE_GROUPS, classifyCardType }
 
 export function groupDeckCards(deckCards) {
   const groups = new Map(TYPE_GROUPS.map(g => [g, []]))

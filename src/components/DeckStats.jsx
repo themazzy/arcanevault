@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { getPrice, formatPrice } from '../lib/scryfall'
 import { CAT_ORDER, CAT_COLORS, getCardCategory } from '../lib/cardCategory'
+import { TYPE_GROUPS, classifyCardType } from '../lib/cardTypeGroup'
 import BracketBadge from './BracketBadge'
 import { analyzeBracket, fetchGameChangerNames } from '../lib/commanderBracket'
 import { CloseIcon } from '../icons'
@@ -14,8 +15,7 @@ export { CAT_ORDER, CAT_COLORS, getCardCategory }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Instants',
-  'Sorceries', 'Artifacts', 'Enchantments', 'Lands', 'Other']
+const TYPE_ORDER = TYPE_GROUPS
 
 const COLOR_ORDER = ['W', 'U', 'B', 'R', 'G']
 const COLOR_BG = { W: '#c0a850', U: '#2a5890', B: '#382050', R: '#7a2c28', G: '#1c5830', C: '#505068' }
@@ -103,18 +103,7 @@ export function getCreatureTypeCounts(cards) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getCardType(typeLine = '') {
-  const tl = typeLine.toLowerCase()
-  if (tl.includes('battle'))       return 'Battles'
-  if (tl.includes('creature'))     return 'Creatures'
-  if (tl.includes('planeswalker')) return 'Planeswalkers'
-  if (tl.includes('instant'))      return 'Instants'
-  if (tl.includes('sorcery'))      return 'Sorceries'
-  if (tl.includes('artifact'))     return 'Artifacts'
-  if (tl.includes('enchantment'))  return 'Enchantments'
-  if (tl.includes('land'))         return 'Lands'
-  return 'Other'
-}
+const getCardType = classifyCardType
 
 // card is a normalized card object: { type_line, color_identity, oracle_text? }
 function getProducedColors(card) {

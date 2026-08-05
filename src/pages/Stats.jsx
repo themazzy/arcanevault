@@ -1443,14 +1443,17 @@ export default function StatsPage() {
 
       // Type
       const tl   = (sf?.type_line || '').toLowerCase()
+      // Land is tested before Artifact/Enchantment so artifact lands (Seat of
+      // the Synod) and enchantment lands (Urza's Saga) count as lands — same
+      // ladder as classifyCardType, just with singular labels for this chart.
       const type = tl.includes('creature')     ? 'Creature'
                  : tl.includes('instant')      ? 'Instant'
                  : tl.includes('sorcery')      ? 'Sorcery'
+                 : tl.includes('planeswalker') ? 'Planeswalker'
+                 : tl.includes('battle')       ? 'Battle'
+                 : tl.includes('land')         ? 'Land'
                  : tl.includes('enchantment')  ? 'Enchantment'
                  : tl.includes('artifact')     ? 'Artifact'
-                 : tl.includes('planeswalker') ? 'Planeswalker'
-                 : tl.includes('land')         ? 'Land'
-                 : tl.includes('battle')       ? 'Battle'
                  : 'Other'
       byType[type] = (byType[type] || 0) + c.qty
 

@@ -151,6 +151,13 @@ describe('colorGroupKey', () => {
     expect(colorGroupKey(card({ color_identity: ['G'], type_line: 'Land Creature — Forest Dryad' }))).toBe('Green')
   })
 
+  it('an artifact land groups with lands, matching the type grouping', () => {
+    // Seat of the Synod is a land first — it must not land in Colorless with
+    // the mana rocks.
+    expect(colorGroupKey(card({ color_identity: ['U'], type_line: 'Artifact Land' }))).toBe('Lands')
+    expect(manaValueGroupKey(card({ cmc: 0, type_line: 'Artifact Land' }))).toBe('Lands')
+  })
+
   it('every key it produces is in the declared order list', () => {
     for (const ci of [['W'], ['U'], ['B'], ['R'], ['G'], ['W', 'U'], []]) {
       expect(COLOR_GROUP_ORDER).toContain(colorGroupKey(card({ color_identity: ci, type_line: 'Sorcery' })))

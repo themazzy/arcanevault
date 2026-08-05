@@ -10,6 +10,7 @@ import uiStyles from './UI.module.css'
 import styles from '../pages/DeckBrowser.module.css'
 import { AddIcon, CheckIcon, DeleteIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, SettingsIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
+import { TYPE_GROUPS, classifyCardType } from '../lib/cardTypeGroup'
 import {
   CARD_GRID_DENSITY,
   MOBILE_CARD_GRID_BREAKPOINT,
@@ -32,8 +33,7 @@ const NON_DRAGGABLE_IMG_PROPS = {
   },
 }
 
-const TYPE_ORDER = ['Commander', 'Creatures', 'Planeswalkers', 'Battles', 'Instants',
-  'Sorceries', 'Artifacts', 'Enchantments', 'Lands', 'Other']
+const TYPE_ORDER = TYPE_GROUPS
 
 // Browser-friendly labels for the floating mobile sort sheet — kept short for icon-pill layout.
 // Keep value list in sync with the FilterBar sortOptions in CardComponents.jsx.
@@ -94,18 +94,7 @@ function getOrderedBrowserViewModes() {
     .filter(Boolean)
 }
 
-function getCardType(typeLine = '') {
-  const tl = typeLine.toLowerCase()
-  if (tl.includes('battle')) return 'Battles'
-  if (tl.includes('creature')) return 'Creatures'
-  if (tl.includes('planeswalker')) return 'Planeswalkers'
-  if (tl.includes('instant')) return 'Instants'
-  if (tl.includes('sorcery')) return 'Sorceries'
-  if (tl.includes('artifact')) return 'Artifacts'
-  if (tl.includes('enchantment')) return 'Enchantments'
-  if (tl.includes('land')) return 'Lands'
-  return 'Other'
-}
+const getCardType = classifyCardType
 
 // Flattens rendered groups back into the order they appear on screen, so the
 // card detail modal's Prev/Next can walk exactly what the user is looking at.
