@@ -1560,39 +1560,77 @@ describe('analyzeCut', () => {
   }
 
   it('benches a card only when the bench is clearly better, not merely better', () => {
-    // Ramp 50 sits at strength 50. A bench at 55 is inside RANK_BUCKET (6) — a
-    // tie as far as the ranking is concerned — so it must NOT be benched. At 56
-    // the gap is exactly the bucket and it is.
-    const near = analyzeCut({
+    // The weakest Ramp card sits at strength 0. A replacement at 5 is inside
+    // RANK_BUCKET (6) — a tie as far as the ranking is concerned — so it must
+    // NOT be benched. At 6 the gap is exactly the bucket and it is.
+    const benchedIn = strength => analyzeCut({
       ...tierBase, totalCards: 20,
-      benchFor: role => (role === ROLE_RAMP ? { name: 'Bench', strength: 55 } : null),
-    })
-    const clear = analyzeCut({
-      ...tierBase, totalCards: 20,
-      benchFor: role => (role === ROLE_RAMP ? { name: 'Bench', strength: 56 } : null),
-    })
-    const benchedIn = out => out.recommended.concat(out.extra)
-      .filter(c => c.tier === CUT_TIER.BENCHED).map(c => c.name)
-    expect(benchedIn(near)).not.toContain('Ramp 50')
-    expect(benchedIn(clear)).toContain('Ramp 50')
+      benchFor: role => (role === ROLE_RAMP ? [{ name: 'Bench', strength }] : null),
+    }).recommended.concat().filter(c => c.tier === CUT_TIER.BENCHED).map(c => c.name)
+    expect(benchedIn(5)).not.toContain('Ramp 0')
+    expect(benchedIn(6)).toContain('Ramp 0')
   })
 
   it('puts benched cards ahead of everything else, however strong they are', () => {
-    // Only Synergy has a bench, so every Synergy card is benched and no Ramp
-    // card is. Syn 50 is then the strongest benched card and Ramp 0 the weakest
-    // card in the whole deck — and Syn 50 must still be suggested first. Score
-    // alone would put Ramp 0 top.
+    // Six replacements for Synergy, so all six Synergy cards can be benched and
+    // no Ramp card is. Syn 50 is then the strongest benched card and Ramp 0 the
+    // weakest card in the whole deck — and Syn 50 must still be suggested first.
+    // Score alone would put Ramp 0 top.
+    const payoffs = Array.from({ length: 6 }, (_, i) => ({ name: `Payoff ${i}`, strength: 90 - i }))
     const out = analyzeCut({
       ...tierBase, totalCards: 21,
-      benchFor: role => (role === ROLE_SYNERGY ? { name: 'Better Payoff', strength: 90 } : null),
+      benchFor: role => (role === ROLE_SYNERGY ? payoffs : null),
     })
     const order = out.recommended.map(c => c.name)
     expect(order.indexOf('Syn 50')).toBeLessThan(order.indexOf('Ramp 0'))
     const syn50 = out.recommended.find(c => c.name === 'Syn 50')
     expect(syn50.reason).toBe('better available')
-    expect(syn50.benched.name).toBe('Better Payoff')
     // …and within the benched tier it's still weakest-first.
     expect(order[0]).toBe('Syn 0')
+  })
+
+  it('spends each replacement once instead of on the whole role', () => {
+    // The bug the deck view showed: ONE unplayed Hardened Scales benched eight
+    // cards at once, each claiming "better available: Hardened Scales". It can
+    // replace one card, so exactly one card may be benched — and it must be the
+    // weakest, not whichever happened to be compared first.
+    const out = analyzeCut({
+      ...tierBase, totalCards: 25,
+      benchFor: role => (role === ROLE_SYNERGY ? [{ name: 'Hardened Scales', strength: 90 }] : null),
+    })
+    const benched = out.recommended.concat(out.extra).filter(c => c.tier === CUT_TIER.BENCHED)
+    expect(benched).toHaveLength(1)
+    expect(benched[0].name).toBe('Syn 0')
+    expect(benched[0].benched.name).toBe('Hardened Scales')
+  })
+
+  it('pairs each deck card with its own replacement, strongest against weakest', () => {
+    const out = analyzeCut({
+      ...tierBase, totalCards: 25,
+      benchFor: role => (role === ROLE_SYNERGY
+        ? [{ name: 'Best', strength: 95 }, { name: 'Second', strength: 90 }]
+        : null),
+    })
+    const benched = out.recommended.concat(out.extra).filter(c => c.tier === CUT_TIER.BENCHED)
+    expect(benched).toHaveLength(2)
+    expect(benched.map(c => [c.name, c.benched.name])).toEqual([
+      ['Syn 0', 'Best'],
+      ['Syn 10', 'Second'],
+    ])
+  })
+
+  it('stops pairing at the first replacement that is not clearly better', () => {
+    // Syn cards run 0,10,20,30,40,50. Two replacements at 95 and 30: the first
+    // clears RANK_BUCKET against Syn 0, the second does not against Syn 10
+    // (30 - 10 = 20 clears)… so use a bench that genuinely fails on the second.
+    const out = analyzeCut({
+      ...tierBase, totalCards: 25,
+      benchFor: role => (role === ROLE_SYNERGY
+        ? [{ name: 'Best', strength: 95 }, { name: 'Marginal', strength: 12 }]
+        : null),
+    })
+    const benched = out.recommended.concat(out.extra).filter(c => c.tier === CUT_TIER.BENCHED)
+    expect(benched.map(c => c.name)).toEqual(['Syn 0'])
   })
 
   it('caps EXCESS at the category overage so a category is never pushed under', () => {
@@ -1672,7 +1710,7 @@ describe('analyzeCut', () => {
     const out = analyzeCut({
       ...tierBase, totalCards: 15,
       strengthOf: () => 100,
-      benchFor: () => ({ name: 'Overrated', strength: 130 }),
+      benchFor: () => ([{ name: 'Overrated', strength: 130 }]),
     })
     expect(out.recommended.every(c => c.tier !== CUT_TIER.BENCHED)).toBe(true)
   })

@@ -1474,8 +1474,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     rankOf,
     baseOf: recRank,
     ceiling: scoreBonusCeiling(activeCfg),
+    // A role can never need more replacements than it has cards to replace, and
+    // the tighter bound also lets the top-K walk stop sooner.
+    limitFor: role => liveCounts.get(role) || 0,
     isExcluded: (cand, role) => autoFillExclude(cand, { role, picks: [] }),
-  }), [plan, autoFillSource, autoFillExclude, rankOf, activeCfg])
+  }), [plan, autoFillSource, autoFillExclude, rankOf, activeCfg, liveCounts])
 
   // Every cut analysis in the assistant runs through this one binding: the
   // advisory list on the summary step and both post-fill passes, which do their
@@ -2918,7 +2921,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                                 <span className={`${styles.cutReason}${c.protectedAs ? ' ' + styles.cutReasonProtected : ''}`}>
                                   {c.protectedAs
                                     ? `${c.protectedAs} — cut only if you must`
-                                    : c.benched ? `better available: ${c.benched.name}` : c.reason}
+                                    : c.benched
+                                      ? <>better available: <span className={styles.cutReasonCard}>{c.benched.name}</span></>
+                                      : c.reason}
                                 </span>
                                 <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
                               </span>

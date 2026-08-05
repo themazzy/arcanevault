@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deckCardToCutCandidate, bestBenchCandidate, buildCutBench } from './cutBench'
+import { deckCardToCutCandidate, bestBenchCandidates, buildCutBench } from './cutBench'
 import { ROLE_LANDS, ROLE_RAMP, ROLE_DRAW } from './buildRoles'
 import { scoreCandidate, scoreBonusCeiling, SHIPPED_SIGNALS, buildScoringContext } from './buildAssistExperimental'
 import { recRank } from './deckBuildAssistant'
@@ -20,7 +20,7 @@ describe('deckCardToCutCandidate', () => {
   })
 })
 
-describe('bestBenchCandidate', () => {
+describe('bestBenchCandidates', () => {
   // base = the cheap term; rank = base + a bonus bounded by `ceiling`.
   const pool = [
     { name: 'Weak', base: 10, bonus: 0 },
@@ -31,15 +31,29 @@ describe('bestBenchCandidate', () => {
   const baseOf = c => c.base
   const rankOf = c => c.base + c.bonus
 
-  it('returns the strongest candidate that is not in the deck', () => {
-    const best = bestBenchCandidate({ pool, rankOf, baseOf, ceiling: 10 })
-    expect(best).toEqual({ name: 'Strong', strength: 72 })
+  it('returns the strongest candidates that are not in the deck, strongest first', () => {
+    expect(bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit: 2 })).toEqual([
+      { name: 'Strong', strength: 72 },
+      { name: 'Mid', strength: 45 },
+    ])
+  })
+
+  it('honours the limit — the supply is what caps how many cuts it can justify', () => {
+    const one = bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit: 1 })
+    expect(one).toHaveLength(1)
+    expect(one[0].name).toBe('Strong')
+  })
+
+  it('never returns more than the pool holds', () => {
+    expect(bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit: 99 })).toHaveLength(3)
   })
 
   it('gives the same answer with and without the early exit', () => {
-    const withExit = bestBenchCandidate({ pool, rankOf, baseOf, ceiling: 10 })
-    const exhaustive = bestBenchCandidate({ pool, rankOf, baseOf, ceiling: Infinity })
-    expect(withExit).toEqual(exhaustive)
+    for (const limit of [1, 2, 3]) {
+      const withExit = bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit })
+      const exhaustive = bestBenchCandidates({ pool, rankOf, baseOf, ceiling: Infinity, limit })
+      expect(withExit).toEqual(exhaustive)
+    }
   })
 
   it('actually stops early instead of scoring the whole pool', () => {
@@ -49,30 +63,42 @@ describe('bestBenchCandidate', () => {
       Array.from({ length: 5000 }, (_, i) => ({ name: `C${i}`, base: 50 - (i % 40), bonus: 0 })),
     )
     let scored = 0
-    bestBenchCandidate({ pool: big, rankOf: c => { scored++; return c.base }, baseOf, ceiling: 10 })
+    bestBenchCandidates({ pool: big, rankOf: c => { scored++; return c.base }, baseOf, ceiling: 10, limit: 1 })
     expect(scored).toBe(1)
+  })
+
+  it('still stops early for a larger limit, and is still exact', () => {
+    const big = Array.from({ length: 5000 }, (_, i) => ({ name: `C${i}`, base: 5000 - i }))
+    let scored = 0
+    const out = bestBenchCandidates({
+      pool: big, baseOf, ceiling: 10, limit: 5,
+      rankOf: c => { scored++; return c.base },
+    })
+    expect(out.map(c => c.name)).toEqual(['C0', 'C1', 'C2', 'C3', 'C4'])
+    expect(scored).toBeLessThan(50)
   })
 
   it('skips excluded candidates before scoring them', () => {
     const scoredNames = []
-    const best = bestBenchCandidate({
-      pool, baseOf, ceiling: 10,
+    const best = bestBenchCandidates({
+      pool, baseOf, ceiling: 10, limit: 1,
       rankOf: c => { scoredNames.push(c.name); return c.base + c.bonus },
       isExcluded: c => c.name === 'Strong',
     })
-    expect(best.name).toBe('Mid')
+    expect(best[0].name).toBe('Mid')
     expect(scoredNames).not.toContain('Strong')
   })
 
   it('does not reorder the caller pool', () => {
     const original = [...pool]
-    bestBenchCandidate({ pool, rankOf, baseOf, ceiling: 10 })
+    bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit: 3 })
     expect(pool).toEqual(original)
   })
 
-  it('returns null for an empty or fully excluded pool', () => {
-    expect(bestBenchCandidate({ pool: [], rankOf, baseOf })).toBeNull()
-    expect(bestBenchCandidate({ pool, rankOf, baseOf, ceiling: 10, isExcluded: () => true })).toBeNull()
+  it('returns an empty list for an empty, fully excluded, or zero-limit pool', () => {
+    expect(bestBenchCandidates({ pool: [], rankOf, baseOf, limit: 1 })).toEqual([])
+    expect(bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit: 1, isExcluded: () => true })).toEqual([])
+    expect(bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit: 0 })).toEqual([])
   })
 })
 
@@ -90,25 +116,33 @@ describe('buildCutBench', () => {
   const baseOf = c => c.base
   const rankOf = c => c.base
 
+  const limitFor = () => 5
+
   it('draws only on owned cards for the binder path', () => {
-    const bench = buildCutBench({ roles, source: 'owned', rankOf, baseOf, ceiling: 0 })
-    expect(bench.get(ROLE_RAMP).name).toBe('Owned rock')
+    const bench = buildCutBench({ roles, source: 'owned', rankOf, baseOf, ceiling: 0, limitFor })
+    expect(bench.get(ROLE_RAMP).map(c => c.name)).toEqual(['Owned rock'])
   })
 
   it('merges upgrades and recommender picks for the ownership-blind path', () => {
-    const bench = buildCutBench({ roles, source: 'recommended', rankOf, baseOf, ceiling: 0 })
-    expect(bench.get(ROLE_RAMP).name).toBe('Better rock')
+    const bench = buildCutBench({ roles, source: 'recommended', rankOf, baseOf, ceiling: 0, limitFor })
+    expect(bench.get(ROLE_RAMP).map(c => c.name)).toEqual(['Better rock', 'Odd rock', 'Owned rock'])
   })
 
   it('never benches lands', () => {
-    const bench = buildCutBench({ roles, source: 'recommended', rankOf, baseOf, ceiling: 0 })
+    const bench = buildCutBench({ roles, source: 'recommended', rankOf, baseOf, ceiling: 0, limitFor })
     expect(bench.has(ROLE_LANDS)).toBe(false)
+  })
+
+  it('skips a role the deck holds no cards in', () => {
+    // limitFor is the deck's count for that role; nothing to replace, no bench.
+    const bench = buildCutBench({ roles, source: 'recommended', rankOf, baseOf, ceiling: 0, limitFor: () => 0 })
+    expect(bench.size).toBe(0)
   })
 
   it('passes the role to the exclude gate', () => {
     const seen = []
     buildCutBench({
-      roles, source: 'owned', rankOf, baseOf, ceiling: 0,
+      roles, source: 'owned', rankOf, baseOf, ceiling: 0, limitFor,
       isExcluded: (cand, role) => { seen.push(role); return false },
     })
     expect(seen).toContain(ROLE_RAMP)

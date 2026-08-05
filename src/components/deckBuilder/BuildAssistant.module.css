@@ -1651,6 +1651,12 @@
   text-transform: lowercase;
 }
 
+/* The pill lowercases its label, which is right for "extra lands" and wrong for
+   a card name — the bench reason names a real card. */
+.cutReasonCard {
+  text-transform: none;
+}
+
 /* A protected card only reaches the cut list when nothing unprotected is left,
    so its reason is a warning rather than a label. Colour-only modifier — it
    needs .cutReason for the shape. */

@@ -933,20 +933,23 @@ async function runCommander(name, metaCache, collection = null) {
           nonlandBudget: COMMANDER_DECK_SIZE - 1 - landTarget,
         })
         : () => false
+      // An ordered LIST per role, not a single card: each replacement is spent
+      // on one deck card, so a role with one good unplayed card can justify one
+      // cut, not one per card it happens to beat.
       const benchByRole = new Map()
       for (const spec of roles) {
         if (spec.role === ROLE_LANDS) continue
         const pool = collection
           ? (spec.ownedCandidates || [])
           : [...(spec.ownedCandidates || []), ...(spec.upgrades || [])]
-        let best = null
+        const ranked = []
         for (const c of pool) {
           if (pickedNames.has(String(c.name || '').toLowerCase())) continue
           if (benchGate(c, { role: spec.role, picks: [] })) continue
-          const strength = scoreCandidate(c, ctx, cfg || SHIPPED).rank
-          if (!best || strength > best.strength) best = { name: c.name, strength }
+          ranked.push({ name: c.name, strength: scoreCandidate(c, ctx, cfg || SHIPPED).rank })
         }
-        if (best) benchByRole.set(spec.role, best)
+        ranked.sort((a, b) => b.strength - a.strength)
+        if (ranked.length) benchByRole.set(spec.role, ranked)
       }
       // Shape caps as excess categories — the `shape` arm only.
       const excessCategories = []

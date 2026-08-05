@@ -31,7 +31,13 @@ export function deckCardToCutCandidate({ dc, sfCard = null, inclusion = 0, score
 }
 
 /**
- * Best available candidate in `pool` that is not already in the deck.
+ * The `limit` strongest available candidates in `pool` that are not in the deck,
+ * strongest first.
+ *
+ * A LIST, not a single card, because the caller spends each one on a different
+ * deck card: an unplayed Hardened Scales can replace one card, not every card in
+ * its role. `limit` is therefore the most benchings that role could ever
+ * justify — the caller passes its deck count for that role.
  *
  * The pool is the user's whole collection bucketed by role on the binder path —
  * uncapped, and measured at ~10ms per 1,000 candidates to score. Scoring all of
@@ -40,9 +46,9 @@ export function deckCardToCutCandidate({ dc, sfCard = null, inclusion = 0, score
  *
  *   `rank(c) = baseOf(c) + bonuses`, and `ceiling` is the largest those bonuses
  *   can be (scoreBonusCeiling). Walking the pool in descending `baseOf` order,
- *   once `baseOf(next) + ceiling <= best`, no remaining candidate can beat the
- *   best already found — every one of them has a smaller base, and the ceiling
- *   is the most any base can gain.
+ *   once `baseOf(next) + ceiling <= weakest kept`, no remaining candidate can
+ *   displace anything already held — every one of them has a smaller base, and
+ *   the ceiling is the most any base can gain.
  *
  * So the answer is identical to scoring the whole pool; only the work differs.
  * Pass `ceiling = Infinity` to disable the early exit (a caller whose `rankOf`
@@ -53,54 +59,69 @@ export function deckCardToCutCandidate({ dc, sfCard = null, inclusion = 0, score
  * @param {Function} args.rankOf      (cand) => full score. Expensive.
  * @param {Function} args.baseOf      (cand) => cheap lower-bound term of rankOf
  * @param {number}   args.ceiling     max of `rankOf - baseOf`
+ * @param {number}   args.limit       how many to return
  * @param {Function} [args.isExcluded] (cand) => true to skip (budget, bracket,
  *   shape caps, already added). Applied before scoring, so the bench can never
  *   suggest a card the fill itself would have refused.
- * @returns {{ name: string, strength: number } | null}
+ * @returns {Array<{ name: string, strength: number }>}
  */
-export function bestBenchCandidate({ pool = [], rankOf, baseOf, ceiling = Infinity, isExcluded = null } = {}) {
-  if (!pool.length || typeof rankOf !== 'function' || typeof baseOf !== 'function') return null
+export function bestBenchCandidates({ pool = [], rankOf, baseOf, ceiling = Infinity, limit = 1, isExcluded = null } = {}) {
+  if (!pool.length || limit <= 0 || typeof rankOf !== 'function' || typeof baseOf !== 'function') return []
   // Sort a copy: the pool belongs to the plan and other readers depend on its
   // order (auto-fill's own ordering, most visibly).
   const ordered = pool
     .map(cand => ({ cand, base: baseOf(cand) }))
     .sort((a, b) => b.base - a.base)
 
-  let best = null
+  const kept = [] // strongest first, length <= limit
   for (const { cand, base } of ordered) {
-    if (best && base + ceiling <= best.strength) break
+    if (kept.length >= limit && base + ceiling <= kept[kept.length - 1].strength) break
     if (cand?.inDeck) continue
     if (isExcluded && isExcluded(cand)) continue
     const strength = rankOf(cand)
-    if (!best || strength > best.strength) best = { name: cand.name, strength }
+    if (kept.length >= limit && strength <= kept[kept.length - 1].strength) continue
+    const at = kept.findIndex(k => strength > k.strength)
+    kept.splice(at === -1 ? kept.length : at, 0, { name: cand.name, strength })
+    if (kept.length > limit) kept.pop()
   }
-  return best
+  return kept
 }
 
 /**
- * Bench for every role, as a Map keyed by role.
+ * Bench for every role, as a Map of role → ordered replacement list.
  *
  * `source` mirrors auto-fill's: on the binder path the bench is cards you own
  * and are not playing, so the same rule that decided what went in decides what
  * comes out. Lands are exempt — land candidates are ordered by which colours the
  * deck is short of, not by card quality, so "a better land is available" would
  * compare them on the one axis that doesn't decide a land.
+ *
+ * `limitFor(role)` bounds each list. The caller passes how many cards the deck
+ * holds in that role, since a role can never need more replacements than it has
+ * cards — and a tighter limit is also less work, because it lets the top-K walk
+ * stop sooner.
  */
-export function buildCutBench({ roles = [], source = 'owned', rankOf, baseOf, ceiling = Infinity, isExcluded = null } = {}) {
+export function buildCutBench({
+  roles = [], source = 'owned', rankOf, baseOf, ceiling = Infinity,
+  limitFor = null, isExcluded = null,
+} = {}) {
   const bench = new Map()
   for (const role of roles) {
     if (!role || role.role === ROLE_LANDS) continue
+    const limit = limitFor ? limitFor(role.role) : 1
+    if (limit <= 0) continue
     const pool = source === 'owned'
       ? (role.ownedCandidates || [])
       : [...(role.ownedCandidates || []), ...(role.edhrecUpgrades || []), ...(role.recommenderUpgrades || [])]
-    const best = bestBenchCandidate({
+    const best = bestBenchCandidates({
       pool,
       rankOf,
       baseOf,
       ceiling,
+      limit,
       isExcluded: isExcluded ? cand => isExcluded(cand, role.role) : null,
     })
-    if (best) bench.set(role.role, best)
+    if (best.length) bench.set(role.role, best)
   }
   return bench
 }

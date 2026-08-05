@@ -980,10 +980,11 @@ export function analyzeCut({
   // same number the fill ranked it by. Omitted, cuttability falls back to raw
   // EDHREC inclusion, exactly as before.
   strengthOf = null,
-  // (role) => { name, strength } — the best card for `role` that is available
-  // and NOT in the deck. A deck card clearly weaker than its own bench is bad in
-  // a way that has nothing to do with category counts, which is what makes it
-  // tier 0. Omitted, no card is benched.
+  // (role) => [{ name, strength }] strongest first — the cards for `role` that
+  // are available and NOT in the deck. A deck card clearly weaker than an
+  // available replacement is bad in a way that has nothing to do with category
+  // counts, which is what makes it tier 0. It is a LIST because each replacement
+  // can be spent only once; see assignCutTiers. Omitted, no card is benched.
   benchFor = null,
   // Extra overfilled categories beyond the roles — [{ label, over, includes }].
   // Checked BEFORE the role categories, so a card that is one of too many
@@ -1115,17 +1116,42 @@ export function analyzeCut({
  * of too many six-drops" is a better reason to lose it than "Ramp is one over".
  */
 function assignCutTiers(rows, benchFor, categories = []) {
-  const tiered = rows.map(r => {
-    if (cutProtection(r)) return r
-    const bench = benchFor ? benchFor(r.role) : null
-    // RANK_BUCKET is the fill comparator's "same card" band: below it, two cards
-    // are a tie as far as the ranking is concerned, so "you have something
-    // better" would be noise dressed up as advice.
-    if (bench && clampStrength(bench.strength) - cutStrength(r) >= RANK_BUCKET) {
-      return { ...r, tier: CUT_TIER.BENCHED, benched: bench }
+  // The bench is a SUPPLY, not a rule. One unplayed card can replace exactly one
+  // deck card, so `benchFor` returns an ordered list and each entry is spent
+  // once — the role's strongest replacement against the role's weakest card,
+  // then the next, and so on.
+  //
+  // Getting this wrong was very visible: with a single bench card compared
+  // independently against every card in its role, one unplayed Hardened Scales
+  // benched eight cards at once, each claiming "better available: Hardened
+  // Scales". It can't replace eight. Worse, BENCHED outranks EXCESS, so those
+  // eight false claims pushed 26 genuinely surplus lands down the list.
+  const byRole = new Map()
+  for (const r of rows) {
+    if (cutProtection(r)) continue
+    if (!byRole.has(r.role)) byRole.set(r.role, [])
+    byRole.get(r.role).push(r)
+  }
+  const benched = new Map()
+  for (const [role, group] of byRole) {
+    const bench = (benchFor ? benchFor(role) : null) || []
+    if (!bench.length) continue
+    // Weakest deck card against the strongest replacement. Both sides are
+    // monotonic, so the margin only shrinks — the first pair that fails to clear
+    // the bar means no later pair can either.
+    const weakest = [...group].sort((a, b) =>
+      (cutStrength(a) - cutStrength(b)) || String(a.name || '').localeCompare(String(b.name || '')))
+    for (let i = 0; i < bench.length && i < weakest.length; i++) {
+      // RANK_BUCKET is the fill comparator's "same card" band: below it, two
+      // cards are a tie as far as the ranking is concerned, so "you have
+      // something better" would be noise dressed up as advice.
+      if (clampStrength(bench[i].strength) - cutStrength(weakest[i]) < RANK_BUCKET) break
+      benched.set(weakest[i].id, bench[i])
     }
-    return r
-  })
+  }
+  const tiered = rows.map(r => (benched.has(r.id)
+    ? { ...r, tier: CUT_TIER.BENCHED, benched: benched.get(r.id) }
+    : r))
   const label = new Map()
   for (const cat of categories) {
     if (!(cat?.over > 0)) continue
