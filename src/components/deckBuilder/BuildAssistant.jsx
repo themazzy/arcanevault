@@ -283,6 +283,7 @@ const CURVE_BAR_MAX_PX = 96
 // actually needs. Keep in sync with cardPreviewStyle (hover) and
 // `.previewLightboxImg`'s max-width in the stylesheet (touch).
 const HOVER_PREVIEW_W = 340
+const COMPARE_GAP = 10 // between the two cards of a side-by-side preview
 const LIGHTBOX_PREVIEW_W = 460
 
 // Keep in sync with `.grid`'s minmax in BuildAssistant.module.css. Phones use a
@@ -2241,8 +2242,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         <button
           type="button"
           className={styles.cutPeek}
-          title={`View ${c.name}`}
-          {...previewHandlers({ name: c.name, scryfall_id: c.scryfall_id })}
+          title={c.benched ? `Compare ${c.name} with ${c.benched.name}` : `View ${c.name}`}
+          {...previewHandlers({ name: c.name, scryfall_id: c.scryfall_id, compare: c.benched || null })}
         >
           <span className={styles.cutThumb} aria-hidden="true">
             {img
@@ -3554,9 +3555,34 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           || preview.fallbackImg
           || null
         if (!img) return null
+        // A benched cut is a claim about two cards, so show both — reading
+        // "better available: Kodama's Reach" and having to trust it is worse
+        // than seeing them next to each other. Falls back to the single card
+        // whenever the replacement has no art resolved.
+        const cmp = preview.compare || null
+        const cmpSf = cmp ? (sfMap?.[cmp.scryfall_id] || null) : null
+        const cmpImg = cmp
+          ? (getCardImageUri(cmpSf, 'normal') || cardImageUrl(cmpSf) || cmp.image || null)
+          : null
         const node = hoverCapable ? (
-          <div className={styles.hoverPreview} style={cardPreviewStyle(preview.x, preview.y)}>
-            <CardImg url={img} width={HOVER_PREVIEW_W} alt={preview.name} className={styles.hoverPreviewImg} />
+          <div
+            className={`${styles.hoverPreview}${cmpImg ? ' ' + styles.hoverPreviewPair : ''}`}
+            style={cardPreviewStyle(preview.x, preview.y, cmpImg ? 2 : 1)}
+          >
+            {cmpImg ? (
+              <>
+                <div className={styles.comparePane}>
+                  <span className={styles.compareLabel}>In deck</span>
+                  <CardImg url={img} width={HOVER_PREVIEW_W} alt={preview.name} className={styles.hoverPreviewImg} />
+                </div>
+                <div className={styles.comparePane}>
+                  <span className={styles.compareLabel}>Better available</span>
+                  <CardImg url={cmpImg} width={HOVER_PREVIEW_W} alt={cmp.name} className={styles.hoverPreviewImg} />
+                </div>
+              </>
+            ) : (
+              <CardImg url={img} width={HOVER_PREVIEW_W} alt={preview.name} className={styles.hoverPreviewImg} />
+            )}
           </div>
         ) : (
           <div className={styles.previewLightbox} onClick={() => setPreview(null)} role="dialog" aria-modal="true" aria-label={`${preview.name} enlarged`}>
@@ -3594,8 +3620,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
 // Fixed-position style for the hover preview: sits beside the cursor, flips to
 // the other side / clamps so a 240×336 card image never spills off-screen.
-function cardPreviewStyle(x, y) {
-  const W = HOVER_PREVIEW_W, H = 476, pad = 12, off = 22
+// `cards` is how many are shown side by side — a benched cut shows the deck card
+// next to the replacement, and the clamp has to know it is twice as wide or the
+// pair runs off the edge instead of flipping.
+function cardPreviewStyle(x, y, cards = 1) {
+  const W = HOVER_PREVIEW_W * cards + (cards - 1) * COMPARE_GAP, H = 476, pad = 12, off = 22
   const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
   const vh = typeof window !== 'undefined' ? window.innerHeight : 800
   let left = x + off

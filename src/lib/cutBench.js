@@ -8,7 +8,28 @@
 // cost lives and where the cost has to be tested. And it was previously inline
 // in a 3,400-line component, which meant none of it could be tested at all.
 
-import { ROLE_LANDS } from './buildRoles'
+import { ROLE_LANDS, ROLE_SYNERGY } from './buildRoles'
+
+// Roles the bench refuses to reason about, because "you have a better card for
+// this slot" needs the slot to mean something.
+//
+//   • Lands — land candidates are ordered by which colours the deck is short of,
+//     not by card quality, so a "better land" compares them on the one axis that
+//     doesn't decide a land.
+//   • Synergy — the REMAINDER bucket (COMMANDER_TEMPLATE has it as 'remainder').
+//     It holds everything that isn't ramp, draw, removal, a wipe, protection or
+//     a wincon, so two cards sharing it have nothing in common by construction.
+//     Measured against a real deck, every unfair pairing the bench produced was
+//     here and only here: Rise of the Witch-king (sacrifice/reanimate) "replaced
+//     by" Hardened Scales (+1/+1 counter multiplier), Crippling Fear (tribal
+//     wipe) by Bloodline Pretender (changeling lord), Wilderland Scrounger
+//     (counters on attack) by Graveshifter (recursion). Every pairing in a real
+//     role held up: Removal for Removal, Ramp for Ramp, Draw for Draw.
+//
+// Cards here are not exempt from the cut — an overfilled Synergy count still
+// puts its weakest in CUT_TIER.EXCESS, which is an honest reason. They just
+// stop being offered a replacement that was never comparable.
+const UNBENCHABLE_ROLES = new Set([ROLE_LANDS, ROLE_SYNERGY])
 
 /**
  * A deck row in the shape `scoreCandidate` reads, so a card already in the deck
@@ -27,6 +48,19 @@ export function deckCardToCutCandidate({ dc, sfCard = null, inclusion = 0, score
     sfCard,
     edhrecInclusion: inclusion || 0,
     score: score || 0,
+  }
+}
+
+// What the UI needs to name a replacement and show its card. Candidates arrive
+// in two shapes — an owned one carries the collection row and its Scryfall entry
+// (`card` / `sfCard`), an unowned suggestion carries a resolved `image` — so
+// both are passed through and the caller uses whichever it gets.
+function benchEntry(cand, strength) {
+  return {
+    name: cand?.name || '',
+    strength,
+    scryfall_id: cand?.sfCard?.id || cand?.card?.scryfall_id || null,
+    image: cand?.image || null,
   }
 }
 
@@ -81,7 +115,7 @@ export function bestBenchCandidates({ pool = [], rankOf, baseOf, ceiling = Infin
     const strength = rankOf(cand)
     if (kept.length >= limit && strength <= kept[kept.length - 1].strength) continue
     const at = kept.findIndex(k => strength > k.strength)
-    kept.splice(at === -1 ? kept.length : at, 0, { name: cand.name, strength })
+    kept.splice(at === -1 ? kept.length : at, 0, benchEntry(cand, strength))
     if (kept.length > limit) kept.pop()
   }
   return kept
@@ -92,9 +126,7 @@ export function bestBenchCandidates({ pool = [], rankOf, baseOf, ceiling = Infin
  *
  * `source` mirrors auto-fill's: on the binder path the bench is cards you own
  * and are not playing, so the same rule that decided what went in decides what
- * comes out. Lands are exempt — land candidates are ordered by which colours the
- * deck is short of, not by card quality, so "a better land is available" would
- * compare them on the one axis that doesn't decide a land.
+ * comes out. UNBENCHABLE_ROLES are skipped entirely — see there.
  *
  * `limitFor(role)` bounds each list. The caller passes how many cards the deck
  * holds in that role, since a role can never need more replacements than it has
@@ -107,7 +139,7 @@ export function buildCutBench({
 } = {}) {
   const bench = new Map()
   for (const role of roles) {
-    if (!role || role.role === ROLE_LANDS) continue
+    if (!role || UNBENCHABLE_ROLES.has(role.role)) continue
     const limit = limitFor ? limitFor(role.role) : 1
     if (limit <= 0) continue
     const pool = source === 'owned'

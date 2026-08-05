@@ -1057,6 +1057,33 @@
 
 .hoverPreviewImg { display: block; width: 100%; height: auto; border-radius: 12px; }
 
+/* Two cards side by side: the deck card and the replacement the cut suggests.
+   The shell drops its own rounding and shadow so each pane keeps its own. */
+.hoverPreviewPair {
+  display: flex;
+  gap: 10px;
+  overflow: visible;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.comparePane {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.75);
+}
+
+.compareLabel {
+  composes: label from '../../styles/typography.module.css';
+  display: block;
+  padding: 3px 8px;
+  background: var(--s2);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--s-border);
+}
+
 @keyframes hoverPreviewIn {
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: none; }

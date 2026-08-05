@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { deckCardToCutCandidate, bestBenchCandidates, buildCutBench } from './cutBench'
-import { ROLE_LANDS, ROLE_RAMP, ROLE_DRAW } from './buildRoles'
+import { ROLE_LANDS, ROLE_RAMP, ROLE_DRAW, ROLE_SYNERGY } from './buildRoles'
 import { scoreCandidate, scoreBonusCeiling, SHIPPED_SIGNALS, buildScoringContext } from './buildAssistExperimental'
 import { recRank } from './deckBuildAssistant'
 
@@ -32,10 +32,25 @@ describe('bestBenchCandidates', () => {
   const rankOf = c => c.base + c.bonus
 
   it('returns the strongest candidates that are not in the deck, strongest first', () => {
-    expect(bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit: 2 })).toEqual([
-      { name: 'Strong', strength: 72 },
-      { name: 'Mid', strength: 45 },
-    ])
+    expect(bestBenchCandidates({ pool, rankOf, baseOf, ceiling: 10, limit: 2 })
+      .map(c => [c.name, c.strength])).toEqual([['Strong', 72], ['Mid', 45]])
+  })
+
+  it('carries what the UI needs to show the replacement card', () => {
+    // Candidates arrive in two shapes and the preview has to work for both: an
+    // owned one has the Scryfall entry, an unowned suggestion has a resolved
+    // image URL.
+    const owned = bestBenchCandidates({
+      pool: [{ name: 'Owned', base: 50, sfCard: { id: 'sf-1' } }],
+      rankOf: () => 50, baseOf, ceiling: 0, limit: 1,
+    })
+    expect(owned[0]).toMatchObject({ name: 'Owned', scryfall_id: 'sf-1', image: null })
+
+    const upgrade = bestBenchCandidates({
+      pool: [{ name: 'Upgrade', base: 50, image: 'https://img/x.jpg' }],
+      rankOf: () => 50, baseOf, ceiling: 0, limit: 1,
+    })
+    expect(upgrade[0]).toMatchObject({ name: 'Upgrade', scryfall_id: null, image: 'https://img/x.jpg' })
   })
 
   it('honours the limit — the supply is what caps how many cuts it can justify', () => {
@@ -131,6 +146,22 @@ describe('buildCutBench', () => {
   it('never benches lands', () => {
     const bench = buildCutBench({ roles, source: 'recommended', rankOf, baseOf, ceiling: 0, limitFor })
     expect(bench.has(ROLE_LANDS)).toBe(false)
+  })
+
+  it('never benches the Synergy remainder', () => {
+    // Synergy holds everything that isn't a real role, so two cards sharing it
+    // have nothing in common. Measured against a real deck, every unfair pairing
+    // the bench produced was here: a sacrifice/reanimate sorcery "replaced by" a
+    // +1/+1 counter multiplier, a tribal wipe by a changeling lord.
+    const withSynergy = [...roles, {
+      role: ROLE_SYNERGY,
+      ownedCandidates: [{ name: 'Hardened Scales', base: 90 }],
+      edhrecUpgrades: [],
+    }]
+    const bench = buildCutBench({ roles: withSynergy, source: 'recommended', rankOf, baseOf, ceiling: 0, limitFor })
+    expect(bench.has(ROLE_SYNERGY)).toBe(false)
+    // …and the real roles still get one.
+    expect(bench.has(ROLE_RAMP)).toBe(true)
   })
 
   it('skips a role the deck holds no cards in', () => {
