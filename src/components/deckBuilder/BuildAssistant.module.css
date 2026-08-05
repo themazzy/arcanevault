@@ -1560,6 +1560,63 @@
   color: var(--text-faint);
 }
 
+/* Spells and lands sit side by side. `align-items: start` so a short lands
+   column doesn't stretch its rows to match a long spells column. */
+.cutColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 8px 14px;
+}
+
+/* One column left (no lands over target, or no spells to lose) — it takes the
+   full width rather than leaving a gap where the other would have been. */
+.cutColumnsSingle {
+  grid-template-columns: 1fr;
+}
+
+.cutColumn {
+  min-width: 0;
+}
+
+.cutColumnHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.cutColumnTitle {
+  composes: sectionLabel from '../../styles/typography.module.css';
+  margin: 0;
+}
+
+.cutColumnCount {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.cutColumnApply {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(204, 85, 85, 0.4);
+  background: transparent;
+  color: #e08a8a;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.cutColumnApply:hover:not(:disabled) { background: rgba(204, 85, 85, 0.14); color: #f0b0b0; }
+.cutColumnApply:disabled { opacity: 0.55; cursor: default; }
+.cutColumnApply:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* Two lists of card rows don't fit side by side on a phone. */
+@media (max-width: 900px) {
+  .cutColumns { grid-template-columns: 1fr; }
+}
+
 .cutList {
   display: flex;
   flex-direction: column;
@@ -1724,7 +1781,7 @@
 
 /* Touch: enlarge the cut helper's tap targets to the 40px floor. */
 @media (max-width: 900px) {
-  .cutKeep, .cutApplyBtn, .cutLockedChip { min-height: 40px; }
+  .cutKeep, .cutApplyBtn, .cutLockedChip, .cutColumnApply { min-height: 40px; }
 }
 
 /* ── Footer ───────────────────────────────────────────────────────────────── */

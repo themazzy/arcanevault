@@ -1528,6 +1528,21 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     comboNames: comboPieceNames,
   }), [runCutAnalysis, deckCards, totalCards, lockedCutIds, engineNeeds, comboPieceNames])
 
+  // Spells and lands are shown as two independent lists rather than one ranked
+  // column. The two claims aren't comparable: "this land is one of 26 more than
+  // the manabase wants" and "this creature is beaten by something on your bench"
+  // answer different questions, and ordering them against each other by score
+  // buried a badly bloated manabase under a run of marginal spell swaps.
+  //
+  // Purely presentational. The recommendation is still one ranking over the
+  // whole deck, so the two columns together are exactly the overage — splitting
+  // the budget per column would let one side recommend cuts the deck doesn't
+  // need while the other came up short.
+  const cutColumns = useMemo(() => {
+    const rows = cutAnalysis?.recommended || []
+    return { spells: rows.filter(c => !c.isLand), lands: rows.filter(c => c.isLand) }
+  }, [cutAnalysis])
+
   const autoFillBase = useMemo(() => {
     if (!plan || loading) return null
     return {
@@ -2215,6 +2230,62 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     try { await removeDeckRows(ids) } finally { setApplyingCuts(false) }
   }
 
+  // One suggested cut. A plain function, not a component: it closes over the
+  // handlers rather than plumbing six props, and calling it directly means React
+  // sees the rows inline — a component declared in a render body would get a new
+  // identity every render and remount the whole list.
+  const renderCutRow = c => {
+    const img = cardImageUrl(sfMap?.[c.scryfall_id] || null)
+    return (
+      <div key={c.id} className={styles.cutRow}>
+        <button
+          type="button"
+          className={styles.cutPeek}
+          title={`View ${c.name}`}
+          {...previewHandlers({ name: c.name, scryfall_id: c.scryfall_id })}
+        >
+          <span className={styles.cutThumb} aria-hidden="true">
+            {img
+              ? <img src={img} alt="" loading="lazy" className={styles.cutThumbImg} />
+              : <span className={styles.cutThumbFallback} />}
+          </span>
+          <span className={styles.cutInfo}>
+            <span className={styles.cutName} title={c.name}>{c.name}</span>
+            <span className={styles.cutSub}>
+              {/* Protection outranks the reason: a protected card only reaches
+                  this list when the deck is so far over that nothing unprotected
+                  is left, and the user needs to know the assistant flinched. A
+                  benched card's reason is only useful with the card that beats
+                  it, so name that. */}
+              <span className={`${styles.cutReason}${c.protectedAs ? ' ' + styles.cutReasonProtected : ''}`}>
+                {c.protectedAs
+                  ? `${c.protectedAs} — cut only if you must`
+                  : c.benched
+                    ? <>better available: <span className={styles.cutReasonCard}>{c.benched.name}</span></>
+                    : c.reason}
+              </span>
+              <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
+            </span>
+          </span>
+        </button>
+        <button
+          className={styles.cutKeep}
+          onClick={() => toggleCutLock(c.id)}
+          title="Keep this card (lock it out of cut suggestions)"
+        >
+          Keep
+        </button>
+        <button
+          className={`${styles.miniBtn} ${styles.cutBtn}`}
+          onClick={() => handleRemove(c.id)}
+          title={`Remove ${c.name}`}
+        >
+          <DeleteIcon size={11} /> Cut
+        </button>
+      </div>
+    )
+  }
+
   // Finish: optionally top the manabase up with pip-weighted basics (the last
   // build step), then close. Additive + idempotent, so finishing twice is safe.
   // The basics top-up is opt-out: it fills to the land target, which would push
@@ -2892,62 +2963,40 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                       wording described a state that can't happen. */}
                   {cutAnalysis.recommended.length === 0 ? (
                     <div className={styles.emptySmall}>Every card is kept — unlock one below to get suggestions.</div>
-                  ) : (
-                    <div className={styles.cutList}>
-                      {cutAnalysis.recommended.map(c => {
-                        const img = cardImageUrl(sfMap?.[c.scryfall_id] || null)
-                        return (
-                        <div key={c.id} className={styles.cutRow}>
-                          <button
-                            type="button"
-                            className={styles.cutPeek}
-                            title={`View ${c.name}`}
-                            {...previewHandlers({ name: c.name, scryfall_id: c.scryfall_id })}
-                          >
-                            <span className={styles.cutThumb} aria-hidden="true">
-                              {img
-                                ? <img src={img} alt="" loading="lazy" className={styles.cutThumbImg} />
-                                : <span className={styles.cutThumbFallback} />}
-                            </span>
-                            <span className={styles.cutInfo}>
-                              <span className={styles.cutName} title={c.name}>{c.name}</span>
-                              <span className={styles.cutSub}>
-                                {/* Protection outranks the reason: a protected card
-                                    only reaches this list when the deck is so far
-                                    over that nothing unprotected is left, and the
-                                    user needs to know the assistant flinched. A
-                                    benched card's reason is only useful with the
-                                    card that beats it, so name that. */}
-                                <span className={`${styles.cutReason}${c.protectedAs ? ' ' + styles.cutReasonProtected : ''}`}>
-                                  {c.protectedAs
-                                    ? `${c.protectedAs} — cut only if you must`
-                                    : c.benched
-                                      ? <>better available: <span className={styles.cutReasonCard}>{c.benched.name}</span></>
-                                      : c.reason}
-                                </span>
-                                <span className={styles.cutMeta}>{c.hasData ? `${c.inclusion}%` : '—'} · {c.cmc} CMC</span>
-                              </span>
-                            </span>
-                          </button>
-                          <button
-                            className={styles.cutKeep}
-                            onClick={() => toggleCutLock(c.id)}
-                            title="Keep this card (lock it out of cut suggestions)"
-                          >
-                            Keep
-                          </button>
-                          <button
-                            className={`${styles.miniBtn} ${styles.cutBtn}`}
-                            onClick={() => handleRemove(c.id)}
-                            title={`Remove ${c.name}`}
-                          >
-                            <DeleteIcon size={11} /> Cut
-                          </button>
-                        </div>
-                        )
-                      })}
-                    </div>
-                  )}
+                  ) : (() => {
+                    // The lands column only exists when the manabase is actually
+                    // over — a deck at its land target should not be shown an
+                    // empty box implying it has lands to lose.
+                    const cols = [
+                      { key: 'spells', title: 'Spells', rows: cutColumns.spells },
+                      { key: 'lands', title: 'Lands', rows: cutColumns.lands },
+                    ].filter(col => col.rows.length > 0)
+                    return (
+                      <div className={`${styles.cutColumns}${cols.length < 2 ? ' ' + styles.cutColumnsSingle : ''}`}>
+                        {cols.map(col => (
+                          <div key={col.key} className={styles.cutColumn}>
+                            <div className={styles.cutColumnHead}>
+                              <span className={styles.cutColumnTitle}>{col.title}</span>
+                              <span className={styles.cutColumnCount}>{col.rows.length}</span>
+                              {/* Per-column apply only earns its space when there
+                                  are two columns to choose between; with one it
+                                  just restates the Cut all above. */}
+                              {cols.length > 1 && (
+                                <button
+                                  className={styles.cutColumnApply}
+                                  onClick={() => applyCuts(col.rows.map(c => c.id))}
+                                  disabled={applyingCuts}
+                                >
+                                  Cut these
+                                </button>
+                              )}
+                            </div>
+                            <div className={styles.cutList}>{col.rows.map(renderCutRow)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
 
                   {cutAnalysis.extra.length > 0 && (
                     <div className={styles.cutExtraNote}>
