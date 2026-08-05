@@ -2242,7 +2242,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         <button
           type="button"
           className={styles.cutPeek}
-          title={c.benched ? `Compare ${c.name} with ${c.benched.name}` : `View ${c.name}`}
+          // aria-label, not title: a native tooltip fires on the same hover that
+          // opens the card preview, so both appeared at once and the tooltip
+          // covered part of the image it was describing. The screen-reader name
+          // is still worth having.
+          aria-label={c.benched ? `Compare ${c.name} with ${c.benched.name}` : `View ${c.name}`}
           {...previewHandlers({ name: c.name, scryfall_id: c.scryfall_id, compare: c.benched || null })}
         >
           <span className={styles.cutThumb} aria-hidden="true">
@@ -2251,7 +2255,10 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
               : <span className={styles.cutThumbFallback} />}
           </span>
           <span className={styles.cutInfo}>
-            <span className={styles.cutName} title={c.name}>{c.name}</span>
+            {/* No title here either — it sits inside the preview button, so a
+                truncated name would have popped its own tooltip on top of the
+                image. The preview shows the full card anyway. */}
+            <span className={styles.cutName}>{c.name}</span>
             <span className={styles.cutSub}>
               {/* Protection outranks the reason: a protected card only reaches
                   this list when the deck is so far over that nothing unprotected
@@ -3112,7 +3119,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                           <span className={styles.gapQty}>{m.qty}×</span>
                           <span
                             className={styles.gapName}
-                            title={m.name}
+                            // Same reason as the cut rows: this element opens the
+                            // card preview on hover, so a tooltip on it fires at
+                            // the same moment and lands on top of the image.
                             {...previewHandlers({
                               name: m.name,
                               scryfall_id: sid,
