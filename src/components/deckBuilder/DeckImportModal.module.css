@@ -211,6 +211,13 @@
   display: inline-flex;
 }
 
+/* Matched, but the name was resolved by fuzzy lookup (flavor name / near-miss) —
+   the row imports, the marker just makes the substitution noticeable. */
+.statusNote {
+  color: var(--orange);
+  display: inline-flex;
+}
+
 .rowName {
   min-width: 0;
   overflow: hidden;
@@ -230,6 +237,14 @@
 
 .rowMatchExact {
   color: var(--green);
+}
+
+.rowTypedName {
+  color: var(--text-faint);
+}
+
+.rowMatchNote {
+  color: var(--orange);
 }
 
 /* ── Footer ────────────────────────────────────────────────────────────── */

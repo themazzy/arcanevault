@@ -1,6 +1,6 @@
 import { parseTextDecklist } from './deckBuilderApi'
 import { parseManaboxCSV } from './csvParser'
-import { fetchScryfallBatch } from './scryfall'
+import { fetchScryfallBatch, fetchScryfallNamed } from './scryfall'
 
 export { fetchPaperPrintings } from './deckBuilderApi'
 
@@ -128,6 +128,51 @@ function cardNameKeys(sfCard) {
   return keys
 }
 
+// Case/punctuation-insensitive comparison, so "Jace, Vryn's Prodigy" and
+// "jace vryns prodigy" count as the same name. Punctuation is dropped rather
+// than turned into a space — otherwise a stripped apostrophe would split
+// "Vryn's" into two words and stop it matching "Vryns".
+function loosenName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Flavor names live at the top level for single-faced cards and per-face for
+// double-faced ones ("Prime Mirelurk Queen" / "Hullbreaker Horror").
+function flavorNames(sfCard) {
+  return [sfCard?.flavor_name, ...(sfCard?.card_faces || []).map(face => face?.flavor_name)]
+    .filter(Boolean)
+}
+
+// A fuzzy hit resolved a name the collection endpoint could not. Report which
+// kind it was so the preview can show it, rather than silently swapping the
+// name the user typed for a different one.
+export const MATCH_NOTE = { FLAVOR_NAME: 'flavor_name', APPROXIMATE: 'approximate' }
+
+export const MATCH_NOTE_LABELS = {
+  [MATCH_NOTE.FLAVOR_NAME]: 'matched via flavor name',
+  [MATCH_NOTE.APPROXIMATE]: 'approximate name match',
+}
+
+export const MATCH_NOTE_SHORT_LABELS = {
+  [MATCH_NOTE.FLAVOR_NAME]: 'Flavor name',
+  [MATCH_NOTE.APPROXIMATE]: 'Approx. name',
+}
+
+function fuzzyMatchNote(typedName, sfCard) {
+  const typed = loosenName(typedName)
+  if (!typed || loosenName(sfCard?.name) === typed) return null
+  if (flavorNames(sfCard).some(flavor => loosenName(flavor) === typed)) return MATCH_NOTE.FLAVOR_NAME
+  return MATCH_NOTE.APPROXIMATE
+}
+
+// A pasted junk list must not turn into hundreds of serialized single-card
+// requests, so only the first N unmatched names get the fuzzy retry.
+const FUZZY_LOOKUP_LIMIT = 60
+
 export async function resolveImportEntries(entries, onProgress) {
   const normalized = mergeEntries(entries || [])
   const identifiers = normalized.map(entry =>
@@ -162,12 +207,43 @@ export async function resolveImportEntries(entries, onProgress) {
   }
 
   const hadBatchError = batchErrors.length > 0
-  return normalized.map(entry => {
+
+  const matchFromBatches = entry => {
     const printKey = entry.setCode && entry.collectorNumber
       ? `${entry.setCode}-${entry.collectorNumber}`
       : null
     const exactSfCard = printKey ? byPrint.get(printKey) : null
-    const sfCard = exactSfCard || byName.get(entry.name.toLowerCase()) || null
+    return { exactSfCard, sfCard: exactSfCard || byName.get(entry.name.toLowerCase()) || null }
+  }
+
+  // Second pass: anything the collection endpoint couldn't place gets one
+  // fuzzy `named` lookup, which is the only Scryfall route that knows flavor
+  // names. Distinct names only — a playset of the same unmatched card is one
+  // request.
+  const unmatchedNames = []
+  const seenUnmatched = new Set()
+  for (const entry of normalized) {
+    if (matchFromBatches(entry).sfCard) continue
+    const key = entry.name.toLowerCase()
+    if (!key || seenUnmatched.has(key)) continue
+    seenUnmatched.add(key)
+    unmatchedNames.push(entry.name)
+  }
+
+  const byFuzzyName = new Map()
+  const fuzzyNames = unmatchedNames.slice(0, FUZZY_LOOKUP_LIMIT)
+  const totalSteps = totalBatches + fuzzyNames.length
+  for (let i = 0; i < fuzzyNames.length; i++) {
+    const name = fuzzyNames[i]
+    const sfCard = await fetchScryfallNamed(name)
+    if (sfCard) byFuzzyName.set(name.toLowerCase(), sfCard)
+    onProgress?.(totalBatches + i + 1, totalSteps)
+  }
+
+  return normalized.map(entry => {
+    const { exactSfCard, sfCard: batchSfCard } = matchFromBatches(entry)
+    const fuzzySfCard = batchSfCard ? null : byFuzzyName.get(entry.name.toLowerCase()) || null
+    const sfCard = batchSfCard || fuzzySfCard
     return {
       ...entry,
       sfCard,
@@ -177,6 +253,7 @@ export async function resolveImportEntries(entries, onProgress) {
       exactPrinting: !!exactSfCard,
       status: sfCard ? 'matched' : 'missing',
       reason: sfCard ? null : (hadBatchError ? 'Scryfall lookup failed' : 'No Scryfall match'),
+      matchNote: fuzzySfCard ? fuzzyMatchNote(entry.name, fuzzySfCard) : null,
     }
   })
 }

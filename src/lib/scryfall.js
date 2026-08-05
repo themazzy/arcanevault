@@ -309,6 +309,31 @@ export async function fetchScryfallBatch(identifiers) {
   }
 }
 
+// Resolve ONE card name through Scryfall's fuzzy `named` endpoint.
+//
+// `/cards/collection` (fetchScryfallBatch) matches printed card names only, so
+// it 404s on a *flavor* name — Universes Beyond prints "Prime Mirelurk Queen"
+// on the face of "Hullbreaker Horror", and a decklist typed off the card
+// carries that flavor name. `named?fuzzy` resolves those, plus near-misses.
+// Returns null when nothing matched or the name was too ambiguous to pick a
+// card (Scryfall answers 404 in both cases).
+export async function fetchScryfallNamed(name) {
+  const query = String(name || '').trim()
+  if (!query) return null
+  try {
+    const res = await runScryfallRequest(() => fetch(
+      sfUrl(`${SF_API_ORIGIN}/cards/named?fuzzy=${encodeURIComponent(query)}`),
+      { headers: SF_HEADERS }
+    ))
+    if (!res?.ok) return null
+    const json = await res.json()
+    return json?.object === 'card' ? json : null
+  } catch (err) {
+    console.warn('[SF] named lookup threw', err?.message || err)
+    return null
+  }
+}
+
 // Merge a new entry into an existing one, preferring non-empty new values
 // but falling back to the existing value when the new field is null/empty.
 // Critical for the "Clear Local Metadata" flow: clearScryfallCache() strips

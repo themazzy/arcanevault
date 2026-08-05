@@ -240,6 +240,14 @@
 .previewStatusIconMissing {
   color: var(--red, #e07070);
 }
+/* Matched, but the name came from a fuzzy lookup (flavor name / near-miss). */
+.previewStatusIconNote {
+  color: var(--orange);
+}
+.previewTypedName {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
 .previewName {
   display: inline-flex;
   align-items: center;
@@ -276,6 +284,7 @@
   padding: 1px 5px;
 }
 .previewFoil,
+.previewNote,
 .previewMissing {
   flex-shrink: 0;
   border-radius: 3px;
@@ -292,6 +301,11 @@
   color: var(--red, #e07070);
   background: rgba(196,96,96,0.08);
   border: 1px solid rgba(196,96,96,0.32);
+}
+.previewNote {
+  color: var(--orange);
+  background: rgba(224,150,80,0.08);
+  border: 1px solid rgba(224,150,80,0.32);
 }
 .previewEditBtn {
   flex-shrink: 0;

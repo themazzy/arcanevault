@@ -1,6 +1,13 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { sb } from '../../lib/supabase'
-import { normalizeImportedDeckCards, parseImportText, resolveImportEntries, summarizeImportRows } from '../../lib/importFlow'
+import {
+  MATCH_NOTE_LABELS,
+  MATCH_NOTE_SHORT_LABELS,
+  normalizeImportedDeckCards,
+  parseImportText,
+  resolveImportEntries,
+  summarizeImportRows,
+} from '../../lib/importFlow'
 import { getDeckBuilderCardMeta, importDeckFromUrl } from '../../lib/deckBuilderApi'
 import { BOARD_ORDER, BOARD_LABELS } from '../../lib/deckBuilderConstants'
 import { normalizeBoard } from '../../lib/deckBuilderHelpers'
@@ -356,18 +363,29 @@ export default function DeckImportModal({
                   key={`${row.name}-${index}`}
                   className={`${styles.reviewRow}${row.status !== 'matched' ? ' ' + styles.reviewRowMiss : ''}`}
                 >
-                  <span className={row.status === 'matched' ? styles.statusOk : styles.statusMiss} aria-label={row.status === 'matched' ? 'Matched' : 'Unresolved'}>
-                    {row.status === 'matched' ? <CheckIcon size={14} /> : <WarningIcon size={14} />}
+                  <span
+                    className={row.status !== 'matched' ? styles.statusMiss : row.matchNote ? styles.statusNote : styles.statusOk}
+                    aria-label={row.status === 'matched' ? (row.matchNote ? MATCH_NOTE_LABELS[row.matchNote] : 'Matched') : 'Unresolved'}
+                  >
+                    {row.status === 'matched' && !row.matchNote ? <CheckIcon size={14} /> : <WarningIcon size={14} />}
                   </span>
                   <span className={styles.rowName}>
-                    {row.qty}x {row.resolvedName || row.name}
+                    {row.qty}x {row.matchNote && <><span className={styles.rowTypedName}>{row.name}</span> → </>}
+                    {row.resolvedName || row.name}
                     {row.foil && <span className={styles.rowTag}>Foil</span>}
                     {row.isCommander && <span className={styles.rowTag}>Commander</span>}
                   </span>
                   <span className={styles.rowDim}>{row.board ? BOARD_LABELS[normalizeBoard(row.board)] : 'Mainboard'}</span>
                   <span className={styles.rowDim}>{row.resolvedSetCode ? `${String(row.resolvedSetCode).toUpperCase()} #${row.resolvedCollectorNumber || '–'}` : '–'}</span>
-                  <span className={row.exactPrinting ? styles.rowMatchExact : styles.rowDim}>
-                    {row.status === 'matched' ? (row.exactPrinting ? 'Exact print' : 'Name match') : row.reason || 'Missing'}
+                  <span
+                    className={row.matchNote ? styles.rowMatchNote : row.exactPrinting ? styles.rowMatchExact : styles.rowDim}
+                    title={row.matchNote ? MATCH_NOTE_LABELS[row.matchNote] : undefined}
+                  >
+                    {row.status !== 'matched'
+                      ? row.reason || 'Missing'
+                      : row.matchNote
+                        ? MATCH_NOTE_SHORT_LABELS[row.matchNote]
+                        : row.exactPrinting ? 'Exact print' : 'Name match'}
                   </span>
                 </div>
               ))}

@@ -3,6 +3,7 @@ import { sb } from '../lib/supabase'
 import { Modal, ResponsiveMenu } from './UI'
 import { fetchPaperPrintings } from '../lib/deckBuilderApi'
 import {
+  MATCH_NOTE_LABELS,
   aggregateResolvedRows,
   parseImportText,
   resolveImportEntries,
@@ -12,7 +13,7 @@ import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints
 import { toOwnedCardRow, toListItemRow, toDeckCardRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import { removeAcquiredFromWishlists, findOwnedCardNames } from '../lib/wishlistSync'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon } from '../icons'
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, WarningIcon } from '../icons'
 import styles from './ImportModal.module.css'
 import uiStyles from './UI.module.css'
 
@@ -412,6 +413,7 @@ export default function ImportModal({
       resolvedSetCode: undefined,
       resolvedCollectorNumber: undefined,
       exactPrinting: undefined,
+      matchNote: undefined,
     }
 
     setResolving(true)
@@ -426,6 +428,7 @@ export default function ImportModal({
         exactPrinting: true,
         status: 'matched',
         reason: null,
+        matchNote: null,
       }
       setParsed(prev => prev.map((row, rowIndex) => rowIndex === index ? nextEntry : row))
       setResolvedRows(prev => {
@@ -1019,12 +1022,15 @@ export default function ImportModal({
                       {row.status === 'missing'
                         ? <CloseIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconMissing}`} />
                         : row.status === 'matched'
-                          ? <CheckIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconMatched}`} />
+                          ? row.matchNote
+                            ? <WarningIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconNote}`} />
+                            : <CheckIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconMatched}`} />
                           : null
                       }
                       <span>x{row.qty}</span>
                     </span>
                     <span className={styles.previewName}>
+                      {row.matchNote && <span className={styles.previewTypedName}>{row.name} →</span>}
                       <span className={styles.previewNameText}>{row.resolvedName || row.name}</span>
                       {row.foil && <span className={styles.previewFoil}>Foil</span>}
                     </span>
@@ -1036,6 +1042,7 @@ export default function ImportModal({
                       </span>
                     )}
                     {row.status === 'missing' && <span className={styles.previewMissing}>missing</span>}
+                    {row.matchNote && <span className={styles.previewNote}>{MATCH_NOTE_LABELS[row.matchNote]}</span>}
                     <button type="button" className={styles.previewEditBtn} onClick={() => handleStartEdit(row, index)}>
                       Edit
                     </button>
