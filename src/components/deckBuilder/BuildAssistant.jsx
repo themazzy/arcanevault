@@ -10,6 +10,7 @@ import CardImg from '../CardImg'
 import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
+import { PHASE, createAutoFillProgress, planAutoFillPhases } from '../../lib/autoFillProgress'
 import { fetchDeckBuilderDisplayPrintings } from '../../lib/cardSearch'
 import { cardImageUrl, tileArt } from './buildAssistantTiles'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
@@ -245,7 +246,15 @@ const AUTOFILL_MANA = ['W', 'U', 'B', 'R', 'G']
 // flavor phrase. `progress` (optional { done, total }) shows a live count on the
 // sequential add path; the bulk path just cycles phrases. Honors reduce_motion —
 // with motion off the pips sit still and the phrase doesn't rotate.
-function AutoFillLoader({ progress, reduceMotion }) {
+// `work` is the real percentage + phase from the progress tracker; `progress`
+// is the legacy per-card counter the sequential fallback still reports.
+//
+// The flavour phrases stay: they are the thing that makes a wait feel short,
+// and they rotate independently of the bar on purpose. What they cannot do is
+// answer "how much longer", so the bar underneath them says what is actually
+// happening and how far in it is — a real fraction of the run's network work,
+// never a timer pretending to be one.
+function AutoFillLoader({ progress, work, reduceMotion }) {
   const [phrase, setPhrase] = useState(() => AUTOFILL_PHRASES[0])
   useEffect(() => {
     if (reduceMotion) return
@@ -270,7 +279,25 @@ function AutoFillLoader({ progress, reduceMotion }) {
       <div key={phrase} className={styles.afPhrase}>{phrase}</div>
       {progress
         ? <div className={styles.afCount}>{progress.done} / {progress.total} cards</div>
-        : <div className={styles.afCount}>Building your deck</div>}
+        : <div className={styles.afCount}>{work?.label || 'Building your deck'}</div>}
+      {work && (
+        <div
+          className={styles.afProgress}
+          role="progressbar"
+          aria-valuenow={work.percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Auto-fill progress"
+        >
+          <div className={styles.afProgressTrack}>
+            <div
+              className={`${styles.afProgressFill}${reduceMotion ? ' ' + styles.afProgressFillStill : ''}`}
+              style={{ width: `${work.percent}%` }}
+            />
+          </div>
+          <div className={styles.afProgressPct}>{work.percent}%</div>
+        </div>
+      )}
     </div>
   )
 }
@@ -290,8 +317,11 @@ const HOVER_PREVIEW_W = 340
 const COMPARE_GAP = 10 // between the two cards of a side-by-side preview
 const LIGHTBOX_PREVIEW_W = 460
 
-// Keep in sync with `.grid`'s minmax in BuildAssistant.module.css. Phones use a
-// 104px column, which lands on the same tier at the pixel ratios phones have.
+// NOTE: this is `.grid`'s minmax MINIMUM, not the painted width — an auto-fill
+// 1fr track stretches, and it was measured at 224px on a wide panel. Every tier
+// this and 224 resolve to is the same one at DPR 1, so it is left alone; if a
+// future change makes the gap matter, measure the painted width rather than
+// raising this constant to another guess.
 const TILE_IMAGE_W = 132
 
 // Blank stand-in for an optional tile line the tile itself doesn't have. Keeps
@@ -1763,6 +1793,14 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
 
   const [autoFillOpen, setAutoFillOpen] = useState(false)
   const [autoFilling, setAutoFilling] = useState(null) // { total, bulk } | { done, total }
+  // Live percentage + phase label for the loader. Held in a ref as well as
+  // state because finishAutoFill reads and advances it across awaits, and a
+  // stale closure over the state value would rewind the bar.
+  const [autoFillProgress, setAutoFillProgress] = useState(null)
+  const progressRef = useRef(null)
+  const emitProgress = useCallback(snapshot => {
+    if (snapshot) setAutoFillProgress(snapshot)
+  }, [])
   const [autoFillResult, setAutoFillResult] = useState(null) // { added, skipped, basics }
 
   // How many combos the post-fill pass will aim for at the current target
@@ -1957,7 +1995,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // Engine pass runs FIRST (lab mode only): a deck that can't do what its
     // commander requires is broken in a way no combo fixes.
     if (activeCfg.enginePass && typeof onAddCards === 'function' && (addedCardIds?.length)) {
+      emitProgress(progressRef.current?.beginPhase(PHASE.engine))
       const pass = await runEnginePass([...deckCards, ...rows], addedCardIds)
+      emitProgress(progressRef.current?.completePhase())
       if (pass.added) {
         engineAdded = pass.engineRows.length
         const cutSet = new Set(pass.cutIds)
@@ -1988,7 +2028,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       const populated = [...deckCards, ...rows]
       // Engine additions are withheld from the combo pass's cuttable pool (see
       // engineRowIds above) — anything not in fillIds is locked by runComboPass.
+      emitProgress(progressRef.current?.beginPhase(PHASE.combo))
       const pass = await runComboPass(populated, addedCardIds.filter(id => !engineRowIds.has(id)))
+      emitProgress(progressRef.current?.completePhase())
       combosCompleted = pass.combosCompleted
       comboAdded = pass.comboRows.length
       cutCount = pass.cutIds.length
@@ -2014,7 +2056,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         currentLands: countDeckCards(postFill.filter(d => !d?.is_commander && isLandRow(d))),
         landTarget: landsTarget,
       })
+      emitProgress(progressRef.current?.beginPhase(PHASE.gc))
       const gcPass = await runGameChangerPass(postFill, openForGC)
+      emitProgress(progressRef.current?.completePhase())
       if (gcPass.gcRows.length) {
         gcAdded = gcPass.gcRows.length
         effectiveRows = [...effectiveRows, ...gcPass.gcRows]
@@ -2037,6 +2081,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     })
     if (planned.total > 0 && typeof onAddBasics === 'function') {
       try {
+        emitProgress(progressRef.current?.beginPhase(PHASE.basics))
         await onAddBasics(planned.counts)
         basics = planned.total
         basicCounts = planned.counts
@@ -2052,6 +2097,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // summary's combo panel shows the completed combos as still-incomplete until
     // the assistant is reopened. Basics don't form combos, so they're omitted.
     combos.fetchCombos([...deckCards, ...effectiveRows]).catch(() => {})
+    emitProgress(progressRef.current?.finish())
     setAutoFillResult({
       added: effectiveAdded, basics, left,
       addedCardIds: effectiveAddedIds, basicCounts,
@@ -2067,10 +2113,23 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     // Fast path: one batched parent call instead of a network round-trip per
     // card. Falls back to sequential adds when the parent doesn't provide it.
     if (typeof onAddCards === 'function') {
+      // Built before the first request so the denominator can't move mid-run:
+      // which passes will happen is already decided by the mode and bracket.
+      progressRef.current = createAutoFillProgress(planAutoFillPhases({
+        enginePass: !!activeCfg.enginePass,
+        comboPassTarget,
+        targetBracket,
+        hasGameChangers: !!gameChangers,
+        basicsExpected: (plan?.deckSize || 100) > totalCards + picks.length,
+      }))
       setAutoFilling({ total: picks.length, bulk: true })
+      emitProgress(progressRef.current.beginPhase(PHASE.fill))
       try {
         const items = toAutomaticDeckPrintingRequests(picks.map(p => p.cand))
-        const res = await onAddCards(items)
+        const res = await onAddCards(items, {
+          onProgress: (step, steps) => emitProgress(progressRef.current?.phaseStep(step, steps)),
+        })
+        emitProgress(progressRef.current?.completePhase())
         const rows = res?.rows || []
         // Mark exactly what landed (skipped names must not read as Added).
         setAddedNames(prev => {
@@ -2088,6 +2147,8 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         setAutoFillResult({ added: 0, basics: 0, left: 0, addedCardIds: [], basicCounts: null })
       } finally {
         setAutoFilling(null)
+        setAutoFillProgress(null)
+        progressRef.current = null
       }
       return
     }
@@ -2415,7 +2476,15 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         >
           <span className={styles.cutThumb} aria-hidden="true">
             {img
-              ? <img src={img} alt="" loading="lazy" className={styles.cutThumbImg} />
+              // Through CardImg, not a raw <img>: this box is 32px, and the
+              // URLs reaching it carry whatever tier their source happened to
+              // store — measured in the wild as a 488px render crushed into 34
+              // device px, a 14:1 reduction. `small` is pinned rather than
+              // derived because 146 is the smallest render Scryfall publishes,
+              // so it is the right answer at any thumbnail size, and this is
+              // exactly the icon-sized case pickImageTier's comment says should
+              // ask for it explicitly.
+              ? <CardImg url={img} forceTier="small" alt="" loading="lazy" className={styles.cutThumbImg} />
               : <span className={styles.cutThumbFallback} />}
           </span>
           <span className={styles.cutInfo}>
@@ -3652,6 +3721,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                 <AutoFillLoader
                   reduceMotion={reduce_motion}
                   progress={autoFilling.bulk ? null : autoFilling}
+                  work={autoFillProgress}
                 />
               )}
               {!autoFilling && autoFillResult && (

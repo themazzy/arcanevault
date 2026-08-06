@@ -1024,6 +1024,44 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Determinate auto-fill progress. Sits under the phase label so the pair reads
+   as one statement: what is happening, and how far through it is. */
+.afProgress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(280px, 70vw);
+  margin-top: 10px;
+}
+
+.afProgressTrack {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--s-medium);
+  overflow: hidden;
+}
+
+.afProgressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--gold);
+  /* Eased because the underlying value moves in jumps — one network stage
+     completing is a real step, and animating between steps reads as continuous
+     work rather than as a stalled bar that lurches. */
+  transition: width 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.afProgressFillStill { transition: none; }
+
+.afProgressPct {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  text-align: right;
+}
+
 /* Initial "Analyzing your collection…" state — centered in the main area with
    the same pulsing mana-pip ring as the auto-fill loader. */
 .analyzing {

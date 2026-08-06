@@ -15,11 +15,12 @@ import {
 import {
   fetchDeckBuilderDisplayPrintings,
   fetchPrintingsByName,
+  fetchPrintingsByScryfallIds,
   fetchPrintingsForNames,
   mergeDisplayPrinting,
 } from '../lib/cardSearch'
 import {
-  getLocalCards, putDeckCards, deleteDeckCardLocal, deleteDeckCardsLocal, getMeta, setMeta,
+  getLocalCards, getLocalFolders, getDeckCards, putDeckCards, replaceDeckCards, deleteDeckCardLocal, deleteDeckCardsLocal, getMeta, setMeta,
   deleteDeckAllocationsByIds, replaceDeckAllocations, putDeckAllocations, putCards,
   replaceLocalFolderCards,
 } from '../lib/db'
@@ -41,7 +42,8 @@ import { addMissingToWishlist } from '../lib/setCompletion'
 import { isOathbreaker, isSignatureSpell, getOathbreakerPairIssue, validateCompanion, companionDeckSizeBonus } from '../lib/commandZone'
 import { logDeckChange, fetchDeckHistory } from '../lib/deckHistory'
 import { beginActivity } from '../lib/activity'
-import ExportModal from '../components/ExportModal'
+import { lazyModal } from '../components/lazyModal'
+import { ADD_UNITS } from '../lib/autoFillProgress'
 import { fetchDeckAllocations, fetchDeckAllocationsForCardIdentities, fetchDeckCards, mergeAllocationRows, upsertDeckAllocations } from '../lib/deckData'
 import {
   createDeckCategory,
@@ -622,20 +624,27 @@ function RecRow({ rec, imageUri, displayPrinting, priceSource, ownedQty, onAdd, 
 // Decision/format helpers (buildChosenAllocations, getDecisionCategory, etc.)
 // extracted to src/lib/deckSyncDecisions.js
 
-import MakeDeckModal from '../components/deckBuilder/MakeDeckModal'
-
-// ── Make Deck modal ────────────────────────────────────────────────────────────
-import SyncModal from '../components/deckBuilder/SyncModal'
-
-import VersionPickerModal from '../components/deckBuilder/VersionPickerModal'
 import DeckWinrateMini from '../components/deckBuilder/DeckWinrateMini'
-import MoveOwnedCardsModal from '../components/deckBuilder/MoveOwnedCardsModal'
 import DeckImportModal from '../components/deckBuilder/DeckImportModal'
 import CombosTab from '../components/deckBuilder/CombosTab'
 import ShareDeckModal from '../components/deckBuilder/ShareDeckModal'
-import DeckMetaModal from '../components/deckBuilder/DeckMetaModal'
-import { BuildAssistant } from '../components/deckBuilder/BuildAssistant'
 import GuidedBuildOverlay from '../components/deckBuilder/GuidedBuildOverlay'
+
+// Split out of the route chunk. Each of these mounts only behind a click, and
+// together they were most of the deck builder's download — the Build Assistant
+// alone is ~37% of the route's JS and a third of its CSS. lazyModal keeps every
+// call site below unchanged; see its comment for why the fallback is null.
+//
+// ShareDeckModal and DeckImportModal are deliberately NOT here: both render
+// unconditionally and self-gate on an `open` prop, so splitting them would
+// request the chunk on mount and buy nothing.
+const MakeDeckModal       = lazyModal(() => import('../components/deckBuilder/MakeDeckModal'))
+const SyncModal           = lazyModal(() => import('../components/deckBuilder/SyncModal'))
+const VersionPickerModal  = lazyModal(() => import('../components/deckBuilder/VersionPickerModal'))
+const MoveOwnedCardsModal = lazyModal(() => import('../components/deckBuilder/MoveOwnedCardsModal'))
+const DeckMetaModal       = lazyModal(() => import('../components/deckBuilder/DeckMetaModal'))
+const BuildAssistant      = lazyModal(() => import('../components/deckBuilder/BuildAssistant'), 'BuildAssistant')
+const ExportModal         = lazyModal(() => import('../components/ExportModal'))
 import { useCommanderSearch } from '../hooks/useCommanderSearch'
 import { useCardSearch } from '../hooks/useCardSearch'
 import { useCombosFetch } from '../hooks/useCombosFetch'
@@ -762,6 +771,16 @@ export default function DeckBuilderPage() {
   // loaded at least once — the ownership badge must not render "Owned" from
   // the default empty sets before we know whether the card is really free.
   const [ownershipReady,  setOwnershipReady]  = useState(false)
+  // False until the authoritative deck_cards read lands. The IDB seed paints
+  // (and makes the page interactive) before that, which is fine for reading and
+  // for edits — an edit targets one row and the server rejects a row that no
+  // longer exists. It is NOT fine for the actions that materialize the whole
+  // current card list into something persistent: Copy Deck, Make Collection
+  // Deck, Sync and Optimize Printings all read the list and write a new deck,
+  // a set of allocations, or a bulk printing rewrite from it. Run against a
+  // cached list that another device has since changed, they don't glitch and
+  // self-correct — they mint a permanently wrong artifact.
+  const [deckHydrated,    setDeckHydrated]    = useState(false)
   // Version picker
   const [versionPickCard, setVersionPickCard] = useState(null)
   const [addFeedback, setAddFeedback] = useState(null)
@@ -1180,9 +1199,62 @@ export default function DeckBuilderPage() {
     ;(async () => {
       setLoading(true)
       setOwnershipReady(false)
+      setDeckHydrated(false)
+
+      // Seed the first paint from the last sync. putDeckCards has always
+      // written this store and nothing ever read it, so every deck open sat on
+      // a spinner through the whole network wave even when the answer was
+      // already on disk. Both halves are required before painting: `loading`
+      // gates a render that dereferences `deck`, so cards without a folder row
+      // would render a deck with no name, format or commander.
+      //
+      // Painting early makes the page interactive before the authoritative
+      // fetch lands, which is a window the old spinner did not have: a card
+      // added in it is absent from an already-in-flight read, so a blind
+      // overwrite would erase it from view while leaving it in the database —
+      // indistinguishable from data loss. `seededCards` records what we put
+      // into state so the overwrite below can tell "nothing happened" from
+      // "the user got there first".
+      let seededCards = null
       try {
+        const [cachedCards, cachedFolders] = await Promise.all([
+          getDeckCards(deckId).catch(() => []),
+          getLocalFolders(user.id).catch(() => []),
+        ])
+        const cachedFolder = (cachedFolders || []).find(f => f?.id === deckId)
+        if (!ignore && cachedCards?.length && cachedFolder && cachedFolder.user_id === user.id) {
+          const cachedMeta = parseDeckMeta(cachedFolder.description)
+          setDeck(cachedFolder)
+          setDeckMeta(cachedMeta)
+          deckMetaRef.current = cachedMeta
+          setDeckName(cachedFolder.name)
+          setDeckCards(cachedCards)
+          // Set directly rather than waiting for the [deckCards] effect to
+          // mirror it, exactly as deckMetaRef is above. The divergence check
+          // below compares against this ref, and if the network happened to
+          // answer before React committed the seed render, the ref would still
+          // hold the PREVIOUS deck's array — which reads as "the user changed
+          // something" and would discard the real fetch, leaving the deck empty.
+          deckCardsRef.current = cachedCards
+          seededCards = cachedCards
+          setLoading(false)
+        }
+      } catch { /* a cache miss just means the spinner stays up */ }
+
+      try {
+        // These three depend only on `deckId`, which comes from the URL — the
+        // folder row feeds none of them. Issued together rather than
+        // folder -> categories -> cards, which was three serialized round trips
+        // (~0.5s wired, well over a second on mobile) before a card could paint.
+        // Rejections are captured rather than left floating: the access guard
+        // below can return before either is awaited, and an unhandled rejection
+        // would surface as a console error on every private deck.
+        const folderPromise     = sb.from('folders').select('*').eq('id', deckId).single()
+        const categoriesPromise = fetchDeckCategories(deckId).then(rows => rows, () => [])
+        const cardsPromise      = fetchDeckCards(deckId).then(rows => ({ rows }), err => ({ err }))
+
         // Load deck folder
-        const { data: folder, error } = await sb.from('folders').select('*').eq('id', deckId).single()
+        const { data: folder, error } = await folderPromise
         if (error || !folder) { setLoadError('Deck not found'); setLoading(false); return }
 
         const meta = parseDeckMeta(folder.description)
@@ -1210,7 +1282,7 @@ export default function DeckBuilderPage() {
         setCmdDescription(meta.deckDescription || '')
         setCmdTags(meta.tags || [])
         setStatsBracketOverride(meta.bracketManual ? (meta.bracket ?? null) : null)
-        const categoryRows = await fetchDeckCategories(deckId)
+        const categoryRows = await categoriesPromise
         if (!ignore) setDeckCategories(categoryRows)
 
         async function enrichDeckCardsWithMetadata(rows) {
@@ -1272,7 +1344,9 @@ export default function DeckBuilderPage() {
           return enrichedRows
         }
 
-        let cardList = await fetchDeckCards(deckId)
+        const cardsResult = await cardsPromise
+        if (cardsResult.err) throw cardsResult.err
+        let cardList = cardsResult.rows
         if (folder.type === 'deck' && cardList.length === 0) {
           // The view may exclude rows that exist in the raw table (join mismatch).
           // Check the table directly before deciding to hydrate from allocations.
@@ -1319,8 +1393,29 @@ export default function DeckBuilderPage() {
           cardList = await enrichDeckCardsWithMetadata(cardList)
         }
 
-        setDeckCards(cardList)
-        putDeckCards(cardList).catch(() => {})
+        // Identity, not equality: deckCardsRef tracks the deckCards state
+        // object, so it is still the very array we seeded unless something
+        // replaced it — i.e. unless the user mutated the deck inside the
+        // window above. If they did, their state is newer than this read and
+        // wins; the next load picks the enrichment back up.
+        const divergedDuringSeed = seededCards && deckCardsRef.current !== seededCards
+        if (divergedDuringSeed) {
+          console.warn('[DeckBuilder] deck changed while loading — keeping local state over the in-flight read')
+        } else {
+          setDeckCards(cardList)
+        }
+        // Reconciles rather than merges: a row deleted on another device is
+        // absent from this fetch, and putDeckCards would leave it in the cache
+        // to reappear on every future first paint.
+        //
+        // Written from whatever won above. Reconciling against `cardList` while
+        // local state held a just-added card would delete that card from the
+        // cache, so the next open would seed a deck visibly missing it until
+        // its own fetch landed.
+        replaceDeckCards(deckId, divergedDuringSeed ? deckCardsRef.current : cardList).catch(() => {})
+        // Either branch means the authoritative read has landed — the diverged
+        // one kept local state *over* it, which is still verified, not cached.
+        if (!ignore) setDeckHydrated(true)
         if (!ignore) setLoading(false)
 
         // Build owned maps — failures here must not block the deck display.
@@ -1348,10 +1443,15 @@ export default function DeckBuilderPage() {
 
           // For linked builder decks, allocations live on the paired collection deck
           const allocDeckId = meta.linked_deck_id || (folder.type === 'deck' ? deckId : null) || deckId
-          const thisAllocations = await fetchDeckAllocations(allocDeckId)
+          // Independent queries — one reads this deck's allocations, the other
+          // every deck's for these card identities. Neither consumes the
+          // other's result, so they went out serially for no reason.
+          const [thisAllocations, allAllocations] = await Promise.all([
+            fetchDeckAllocations(allocDeckId),
+            fetchDeckAllocationsForCardIdentities(user.id, collectCardIdentities(cardList)),
+          ])
           const collSet = new Set((thisAllocations || []).flatMap(row => deckAllocationKeys(row)))
 
-          const allAllocations = await fetchDeckAllocationsForCardIdentities(user.id, collectCardIdentities(cardList))
           const otherSet = new Set(
             (allAllocations || [])
               .filter(row => row.deck_id !== deckId && row.deck_id !== allocDeckId)
@@ -1817,8 +1917,19 @@ export default function DeckBuilderPage() {
   // (src/lib/deckDuplicate.js) so a copy behaves the same from either surface.
   // The insert path stays here because it copies the already-loaded deck rather
   // than refetching it.
+  // Gate for anything that turns the current card list into a persistent
+  // artifact. See deckHydrated's declaration for why these four differ from an
+  // ordinary edit. The window is one round trip, so a toast beats disabling the
+  // controls — the action is available again by the time it's read.
+  function requireHydratedDeck() {
+    if (deckHydrated) return true
+    showToast('Still loading this deck — try again in a moment.', { tone: 'info' })
+    return false
+  }
+
   async function handleCopyDeck() {
     if (!deckId || !user?.id || copyDeckBusy) return
+    if (!requireHydratedDeck()) return
     setCopyDeckBusy(true)
     let createdDeckId = null
     try {
@@ -1932,25 +2043,25 @@ export default function DeckBuilderPage() {
         </>
       )}
       {includeAssistant && isEDH && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { setAssistantLab(false); setShowBuildAssistant(true); close() }}>
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { if (requireHydratedDeck()) { if (requireHydratedDeck()) { setAssistantLab(false); setShowBuildAssistant(true) } } close() }}>
           <span>Build Assistant</span>
           <LightningIcon size={13} />
         </button>
       )}
       {includeAssistant && isEDH && isAdmin && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { setAssistantLab(true); setShowBuildAssistant(true); close() }}>
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { if (requireHydratedDeck()) { if (requireHydratedDeck()) { setAssistantLab(true); setShowBuildAssistant(true) } } close() }}>
           <span>Build Assist (test)</span>
           <LightningIcon size={13} />
         </button>
       )}
       {includeBuildActions && (isCollectionDeck || deckMeta.linked_deck_id) && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowSync(true); close() }} disabled={syncRunning}>
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { if (requireHydratedDeck()) setShowSync(true); close() }} disabled={syncRunning}>
           <span>{syncRunning ? 'Syncing...' : 'Sync Collection'}</span>
           <SyncIcon size={13} />
         </button>
       )}
       {includeBuildActions && !isCollectionDeck && !deckMeta.linked_deck_id && (
-        <button className={uiStyles.responsiveMenuAction} onClick={() => { setShowMakeDeck(true); close() }} disabled={makeDeckRunning}>
+        <button className={uiStyles.responsiveMenuAction} onClick={() => { if (requireHydratedDeck()) setShowMakeDeck(true); close() }} disabled={makeDeckRunning}>
           <span>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
           <DeckIcon size={13} />
         </button>
@@ -3274,6 +3385,7 @@ export default function DeckBuilderPage() {
   // are merged by summing qty.
   async function optimizePrintings(mode) {
     if (optimizeBusy) return
+    if (!requireHydratedDeck()) return
     setOptimizeBusy(mode)
     try {
       const cards = deckCardsRef.current.slice()
@@ -3525,7 +3637,12 @@ export default function DeckBuilderPage() {
   // exactly what landed, predict basics from real pip costs, and offer undo.
   // skippedNames carries the cards this run could not resolve, so the summary
   // can say what it dropped instead of leaving unexplained empty slots.
-  async function addCardsToDeckBulk(items) {
+  // `onProgress(step, steps)` reports which of the four network stages below
+  // has completed, so the Build Assistant's bar moves inside a bulk add instead
+  // of sitting still through the longest phase of the run. Optional: every
+  // other caller passes nothing and is unaffected.
+  async function addCardsToDeckBulk(items, { onProgress = null } = {}) {
+    const step = n => { try { onProgress?.(n, ADD_UNITS) } catch { /* never let the bar break the run */ } }
     const list = toAutomaticDeckPrintingRequests(items)
     if (!list.length) return { added: 0, skipped: 0, skippedNames: [], rows: [] }
     if (!user?.id) return { added: 0, skipped: list.length, skippedNames: list.map(i => i.name), rows: [] }
@@ -3535,35 +3652,56 @@ export default function DeckBuilderPage() {
     assertOnline('You’re offline — auto-fill needs a connection.')
 
     const requestedNames = [...new Set(list.map(item => item.name).filter(Boolean))]
-    const [metas, catalog] = await Promise.all([
+    // Two bounded lookups, where this used to walk the whole print catalogue.
+    //
+    // `fetchPrintingsForNames(..., { language: 'all' })` pulled EVERY printing of
+    // every requested name to pick one of them: measured at 724 rows / 598 KB /
+    // 1.8 s for ten Commander staples (~72 printings each), so a 60-card
+    // auto-fill moved ~3.5 MB across five or six serialized 1000-row pages —
+    // and `finishAutoFill` re-enters this function once per post-fill pass, so
+    // the run paid it two to four times over.
+    //
+    // `get_deck_builder_display_printings` makes the same choice in SQL and
+    // answers one row per name. It also removes a real inconsistency: the
+    // assistant already sources its displayed prices from this RPC, so the
+    // printing it quoted and the printing the add resolved were computed two
+    // different ways and could disagree on which copy was cheapest.
+    //
+    // Best-effort — `selectPreferredDeckPrinting` treats the oracle metadata as
+    // a fallback card, so an RPC failure degrades to a resolvable-but-unpriced
+    // add instead of failing the run.
+    const [metas, displayPrintings] = await Promise.all([
       fetchRecommendationMetadataByNames(requestedNames).catch(() => []),
-      fetchPrintingsForNames(requestedNames, { language: 'all' }),
+      fetchDeckBuilderDisplayPrintings(requestedNames, { priceSource: price_source }).catch(() => []),
     ])
+    step(1)
     const metaByRequestedName = new Map()
     for (const metadata of metas || []) {
       const key = normalizeCardName(metadata.requested_name || metadata.name)
       if (key) metaByRequestedName.set(key, metadata)
     }
-    const catalogByAlias = new Map()
-    for (const printing of catalog) {
-      const aliases = new Set([
-        ...cardNameMatchKeys(printing.name),
-        ...(printing.card_faces || []).map(face => normalizeCardName(face?.name)).filter(Boolean),
-      ])
-      for (const alias of aliases) {
-        const rows = catalogByAlias.get(alias) || []
-        rows.push(printing)
-        catalogByAlias.set(alias, rows)
-      }
+    const displayByRequestedName = new Map()
+    for (const printing of displayPrintings || []) {
+      const key = normalizeCardName(printing.requested_name || printing.name)
+      if (key) displayByRequestedName.set(key, printing)
     }
     const canonicalList = list.map(item => {
       const requestedKey = normalizeCardName(item.name)
       const metadata = metaByRequestedName.get(requestedKey) || null
-      const matchingPrintings = catalogByAlias.get(requestedKey) || []
+      const display = displayByRequestedName.get(requestedKey) || null
       return {
         requestedName: item.name,
-        name: resolveCanonicalDeckCardName(item.name, { metadata, printings: matchingPrintings }),
+        // The RPC resolves DFC face names against oracle_cards.face_names and
+        // already excludes art-series/token rows, so its name IS the canonical
+        // one. resolveCanonicalDeckCardName stays as the fallback for names it
+        // didn't answer.
+        name: display?.name
+          || resolveCanonicalDeckCardName(item.name, { metadata, printings: [] }),
         metadata,
+        // Print identity from the chosen printing, oracle fields (type_line,
+        // cmc, mana_cost, color_identity) from the metadata row — the RPC
+        // returns no oracle columns, and getDeckBuilderCardMeta needs them.
+        display: display ? mergeDisplayPrinting(metadata, display) : null,
       }
     })
 
@@ -3571,37 +3709,74 @@ export default function DeckBuilderPage() {
     if (canonicalList.length) {
       const names = [...new Set(canonicalList.map(item => item.name).filter(Boolean))]
       const ownedByName = await fetchRemoteOwnedPrintingCandidates(user.id, names)
-      // Reuse the alias index rather than re-bucketing the catalog on exact
-      // `printing.name` equality. The old exact-match loop was correct only
-      // while the canonical name always equalled the catalog's own name — an
-      // invariant nothing enforces. When it doesn't hold, the pool comes back
-      // empty and the card resolves off the recommendation metadata instead:
-      // no cheapest-printing search, and an owned copy goes undetected because
-      // the ownership lookup keys on the same name. Copied per key so the
-      // shared alias arrays are never mutated by a caller.
-      const printingsByName = new Map(names.map(name => {
-        const key = normalizeCardName(name)
-        return [key, [...(catalogByAlias.get(key) || [])]]
-      }))
+      step(2)
+      // The cheapest-to-buy printing, keyed the same way the loop below reads
+      // it. One row per name now, so there is no alias index to rebuild — the
+      // RPC already matched the request to a canonical card server-side.
+      const displayByName = new Map()
+      for (const item of canonicalList) {
+        const key = normalizeCardName(item.name)
+        if (key && item.display && !displayByName.has(key)) displayByName.set(key, item.display)
+      }
 
-      const missingOwnedIds = new Set()
+      // One id-keyed query for every printing this batch can possibly resolve
+      // to: the RPC's cheapest pick per name, plus every owned copy.
+      //
+      // Both have to be REAL printing rows, not the RPC's projection. The
+      // resolver reads `finishes` to know which finishes a printing has and
+      // `prices` to compare them, and the RPC returns neither — so a pool built
+      // from its rows alone reports "non-foil only, unpriced" for everything,
+      // which silently resolves every unowned card to non-foil and throws away
+      // the `selected_foil` the RPC had already worked out.
+      //
+      // Owned copies used to come from Scryfall's rate-limited /cards/collection
+      // (75 per request, 150ms between), but only for ids the catalogue dump had
+      // missed — which was almost never, because the dump held every printing of
+      // every name. Hydrating by id without that dump would have made that
+      // fallback the normal path and put an external throttled API in the middle
+      // of every auto-fill. Our own card_prints answers both in one query.
+      const hydrateIds = new Set()
+      for (const item of canonicalList) {
+        if (item.display?.id) hydrateIds.add(item.display.id)
+      }
+      const ownedIds = new Set()
       for (const name of names) {
-        const key = normalizeCardName(name)
-        const printings = printingsByName.get(key) || []
-        for (const entry of rankOwnedPrintingCandidates(ownedByName.get(key) || [], printings)) {
-          if (!entry.printing && entry.candidate.scryfall_id) missingOwnedIds.add(entry.candidate.scryfall_id)
+        for (const candidate of ownedByName.get(normalizeCardName(name)) || []) {
+          if (candidate?.scryfall_id) { ownedIds.add(candidate.scryfall_id); hydrateIds.add(candidate.scryfall_id) }
         }
       }
-      const hydratedOwned = missingOwnedIds.size
-        ? await fetchCardsByScryfallIds([...missingOwnedIds])
+      const hydratedRows = hydrateIds.size
+        ? await fetchPrintingsByScryfallIds([...hydrateIds], { withPrices: true })
         : []
+      const hydratedById = new Map(hydratedRows.map(card => [card.id, card]))
+      // Last resort for a printing our catalogue doesn't carry (a very new
+      // release, an odd language). Bounded to the misses, so it is back to
+      // being the rare path it was before.
+      const stillMissing = [...ownedIds].filter(id => !hydratedById.has(id))
+      if (stillMissing.length) {
+        for (const card of await fetchCardsByScryfallIds(stillMissing).catch(() => [])) {
+          if (card?.id) hydratedById.set(card.id, card)
+        }
+      }
+      const hydratedOwned = [...ownedIds].map(id => hydratedById.get(id)).filter(Boolean)
+      step(3)
 
       for (const name of names) {
         const key = normalizeCardName(name)
         const ownedCandidates = ownedByName.get(key) || []
         const candidateIds = new Set(ownedCandidates.map(candidate => candidate.scryfall_id).filter(Boolean))
+        // Pool = the one cheapest-to-buy printing plus the user's own copies.
+        // That is every printing either branch of the resolver can return: the
+        // owned branch only ever picks a copy the user holds, and the unowned
+        // branch only ever picks the cheapest — which the RPC already chose.
+        //
+        // The hydrated row is preferred over the RPC's projection because only
+        // it carries finishes and prices; the projection stays as the fallback
+        // so a catalogue miss still resolves to the right card.
+        const display = displayByName.get(key)
+        const displayPrinting = (display?.id && hydratedById.get(display.id)) || display
         const printings = [
-          ...(printingsByName.get(key) || []),
+          ...(displayPrinting ? [displayPrinting] : []),
           ...hydratedOwned.filter(card => candidateIds.has(card.id)),
         ]
         // An owned copy whose print metadata wouldn't hydrate used to throw here
@@ -3720,6 +3895,7 @@ export default function DeckBuilderPage() {
     putDeckCards(rows).catch(() => {})
     queueOwnershipRefreshForRows(rows)
     logDeckChange(deckId, user?.id, 'Auto-fill', `${rows.length} card${rows.length === 1 ? '' : 's'} added`)
+    step(ADD_UNITS)
     return { added: rows.length, skipped, skippedNames, rows }
   }
 
@@ -4487,11 +4663,14 @@ export default function DeckBuilderPage() {
 
   useEffect(() => {
     if (!location.state?.openSync) return
-    if (loading) return
+    // deckHydrated, not loading: the IDB seed clears `loading` before the
+    // authoritative read lands, and sync writes allocations from the card list.
+    // This is the one auto-opening caller, so it waits rather than toasting.
+    if (!deckHydrated) return
     if (!(isCollectionDeck || deckMeta.linked_deck_id)) return
     setShowSync(true)
     navigate(location.pathname, { replace: true, state: {} })
-  }, [location.state, location.pathname, loading, isCollectionDeck, deckMeta.linked_deck_id, navigate])
+  }, [location.state, location.pathname, deckHydrated, isCollectionDeck, deckMeta.linked_deck_id, navigate])
 
   // Gates the experimental "Build Assist (test)" entry point. Resolves async, so
   // the button simply isn't rendered until it comes back true.
@@ -4502,10 +4681,13 @@ export default function DeckBuilderPage() {
   // Page Tips can hand users directly into the assistant instead of merely
   // describing where its button lives.
   useEffect(() => {
-    if (loading || !location.state?.openBuildAssistant) return
+    // deckHydrated rather than loading: the assistant plans against the deck's
+    // contents and auto-fill writes rows from that plan, so opening it on the
+    // seeded list would build against a deck that may already have changed.
+    if (!deckHydrated || !location.state?.openBuildAssistant) return
     setShowBuildAssistant(true)
     navigate(location.pathname, { replace: true, state: {} })
-  }, [location.state, location.pathname, loading, navigate])
+  }, [location.state, location.pathname, deckHydrated, navigate])
 
   // Guided deck creation: Builder.jsx navigates here with the chosen commander
   // in router state. Set it (full print resolution via pickCommander), then
@@ -5439,7 +5621,7 @@ export default function DeckBuilderPage() {
         {isEDH && (
           <button
             className={`${styles.headerBtnPrimary} ${styles.headerQuickAction} ${styles.headerBtnAssist}`}
-            onClick={() => { setAssistantLab(false); setShowBuildAssistant(true) }}
+            onClick={() => { if (requireHydratedDeck()) { setAssistantLab(false); setShowBuildAssistant(true) } }}
             title="Open the guided deck builder — fill each role from your collection"
           >
             <span className={styles.btnIcon} aria-hidden="true"><LightningIcon size={14} /></span>
@@ -5450,7 +5632,7 @@ export default function DeckBuilderPage() {
         {isEDH && isAdmin && (
           <button
             className={`${styles.headerBtnPrimary} ${styles.headerQuickAction}`}
-            onClick={() => { setAssistantLab(true); setShowBuildAssistant(true) }}
+            onClick={() => { if (requireHydratedDeck()) { setAssistantLab(true); setShowBuildAssistant(true) } }}
             title="Build Assistant with the experimental scoring signals — admin only"
           >
             <span className={styles.btnIcon} aria-hidden="true"><LightningIcon size={14} /></span>
@@ -5459,14 +5641,14 @@ export default function DeckBuilderPage() {
           </button>
         )}
         {(isCollectionDeck || deckMeta.linked_deck_id) && (
-          <button className={styles.headerBtnPrimary} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
+          <button className={styles.headerBtnPrimary} onClick={() => { if (requireHydratedDeck()) setShowSync(true) }} disabled={syncRunning} title="Sync collection">
             <span className={styles.btnIcon} aria-hidden="true"><CollectionIcon size={14} /></span>
             <span className={styles.btnLabel}>{syncLabel}</span>
             <span className={styles.btnLabelMobile}>{syncLabelMobile}</span>
           </button>
         )}
         {!isCollectionDeck && !deckMeta.linked_deck_id && (
-          <button className={styles.headerBtnPrimary} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
+          <button className={styles.headerBtnPrimary} onClick={() => { if (requireHydratedDeck()) setShowMakeDeck(true) }} disabled={makeDeckRunning} title="Make Collection Deck">
             <span className={styles.btnIcon} aria-hidden="true"><DeckIcon size={14} /></span>
             <span className={styles.btnLabel}>{makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}</span>
             <span className={styles.btnLabelMobile}>{makeDeckRunning ? 'Creating...' : 'Make Deck'}</span>
@@ -5558,18 +5740,18 @@ export default function DeckBuilderPage() {
             {isEDH && (
               <button
                 className={`${styles.headerBtnPrimary} ${styles.headerBtnAssist} ${styles.leftActionBtn}`}
-                onClick={() => { setAssistantLab(false); setShowBuildAssistant(true) }}
+                onClick={() => { if (requireHydratedDeck()) { setAssistantLab(false); setShowBuildAssistant(true) } }}
                 title="Open the guided deck builder — fill each role from your collection"
               >
                 Build Assistant
               </button>
             )}
             {(isCollectionDeck || deckMeta.linked_deck_id) ? (
-              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowSync(true)} disabled={syncRunning} title="Sync collection">
+              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => { if (requireHydratedDeck()) setShowSync(true) }} disabled={syncRunning} title="Sync collection">
                 {syncLabel}
               </button>
             ) : (
-              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => setShowMakeDeck(true)} disabled={makeDeckRunning} title="Make Collection Deck">
+              <button className={`${styles.headerBtnPrimary} ${styles.leftActionBtn}`} onClick={() => { if (requireHydratedDeck()) setShowMakeDeck(true) }} disabled={makeDeckRunning} title="Make Collection Deck">
                 {makeDeckRunning ? 'Creating...' : 'Make Collection Deck'}
               </button>
             )}
@@ -5582,7 +5764,7 @@ export default function DeckBuilderPage() {
             <div className={styles.leftActionsRow}>
               <button
                 className={`${styles.headerBtnPrimary} ${styles.leftActionBtn} ${styles.leftActionBtnLab}`}
-                onClick={() => { setAssistantLab(true); setShowBuildAssistant(true) }}
+                onClick={() => { if (requireHydratedDeck()) { setAssistantLab(true); setShowBuildAssistant(true) } }}
                 title="Build Assistant with the experimental scoring signals — admin only"
               >
                 Build Assist (test)
@@ -6356,7 +6538,7 @@ export default function DeckBuilderPage() {
                 {isEDH && (
                   <button
                     className={`${styles.groupToggle} ${styles.groupToggleIcon} ${styles.pillOnly} ${styles.mobileToolbarAction} ${styles.mobileToolbarPrimary}`}
-                    onClick={() => { setAssistantLab(false); setShowBuildAssistant(true) }}
+                    onClick={() => { if (requireHydratedDeck()) { setAssistantLab(false); setShowBuildAssistant(true) } }}
                     title="Open Build Assistant"
                     aria-label="Open Build Assistant"
                   >
