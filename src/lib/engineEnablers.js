@@ -485,7 +485,8 @@ export function deriveEnablerTargets(cards = [], deckSize = 99) {
   return out
 }
 
-export function commanderNeeds(hooks = new Set(), tribe = null, commanderOracle = '', measuredTargets = null, typeFloors = null) {
+// `_tribe` is intentionally unread — see the note above the return.
+export function commanderNeeds(hooks = new Set(), _tribe = null, commanderOracle = '', measuredTargets = null, typeFloors = null) {
   const effective = new Set(hooks)
   // Synthetic hook: only a commander that pays off OTHERS entering wants blink.
   if (caresAboutOthersEntering(commanderOracle)) effective.add('etbOthers')

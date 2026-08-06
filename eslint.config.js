@@ -79,6 +79,28 @@ export default [
     },
   },
   {
+    // Cloudflare Workers (deckloom-og): modules format, but the runtime globals
+    // are the Workers/service-worker set — `fetch`, `Response`, `URL`, `crypto`.
+    // Without this block they'd all read as no-undef.
+    files: ['cloudflare/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2024,
+      sourceType: 'module',
+      globals: {
+        ...globals.serviceworker,
+      },
+    },
+    rules: {
+      'no-unused-vars': ['warn', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
+      'no-empty': ['warn', { allowEmptyCatch: true }],
+      'no-useless-escape': 'warn',
+    },
+  },
+  {
     // Tests run under Node + Vitest globals would normally be added, but the
     // project sets `globals: false` in Vitest config so tests import APIs
     // explicitly. Just allow Node globals here.

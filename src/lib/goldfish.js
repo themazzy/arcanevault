@@ -102,7 +102,7 @@ export function producedColors(card) {
     if (!clause.includes('add')) continue
     if (/\bany (color|type)\b/.test(clause)) { COLORS.forEach(c => out.add(c)); continue }
     for (const c of COLORS) {
-      if (new RegExp(`\{[^}]*${c.toLowerCase()}[^}]*\}`).test(clause)) out.add(c)
+      if (new RegExp(`\\{[^}]*${c.toLowerCase()}[^}]*\\}`).test(clause)) out.add(c)
     }
   }
   return out
