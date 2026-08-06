@@ -87,6 +87,9 @@ function FeedbackSection() {
     }, {}))
   }
 
+  // `load` is a plain async fn recreated each render — listing it would refetch
+  // forever. Mount-only is the intent.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only, see above
   useEffect(() => { load() }, [])
 
   const markResolved = async (id) => {
@@ -889,6 +892,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadRequests()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadRequests is recreated each render; keyed on the user instead
   }, [user?.id])
 
   useEffect(() => {
@@ -897,6 +901,7 @@ export default function AdminPage() {
       loadUsers()
     }, 250)
     return () => window.clearTimeout(timeout)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounced on userSearch only; loadUsers/isAdmin would retrigger every render
   }, [userSearch])
 
   const filteredRequests = useMemo(() => {
@@ -941,6 +946,9 @@ export default function AdminPage() {
     setConfirmText('')
     setConfirmOpen(false)
     setExecuteError('')
+    // Keyed on the request id, not on admin_notes: re-running when the notes value
+    // changes would clobber whatever the admin is mid-way through typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
   }, [selectedRequest?.id])
 
   useEffect(() => {
@@ -966,6 +974,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     loadEvents(selectedRequest?.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadEvents is recreated each render
   }, [selectedRequest?.id, isAdmin])
 
   const updateRequest = async ({
