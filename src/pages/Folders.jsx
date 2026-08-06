@@ -1820,6 +1820,10 @@ export default function FoldersPage({ type }) {
     if (!sfMap) return
     folderJoinRef.current = { ...folderJoinRef.current, sfMap }
     setSfMapVersion(v => v + 1)
+    // `price_source` is deliberately not a dependency: adding it would re-walk
+    // IDB on every currency switch. The price-only effect just below recomputes
+    // values from the cached join instead, which is the whole point of Phase B.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see above
   }, [user.id, type, computeMetaCounts])
 
   useEffect(() => { loadFolders() }, [loadFolders])

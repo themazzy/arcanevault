@@ -34,7 +34,7 @@ The cost of a 30-second clarification is always lower than building the wrong th
 
 **DeckLoom** is a personal Magic: The Gathering collection tracker hosted at **https://deckloom.app/** (served via GitHub Pages with a custom domain). Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, view collection analytics, manage tournaments, and trade cards. Also packaged as a native Android app via Capacitor.
 
-**Stack:** React 18 + Vite + Supabase + IndexedDB + TanStack React Query
+**Stack:** React 19 + Vite + Supabase + IndexedDB + TanStack React Query
 
 ---
 
@@ -44,9 +44,13 @@ The cost of a 30-second clarification is always lower than building the wrong th
 npm run dev       # Start Vite dev server (http://localhost:5173) with API proxies
 npm run build     # Production build → dist/
 npm run preview   # Preview production build locally
+npm test          # Run the Vitest suite once
+npm run lint      # ESLint over src/ and cloudflare/
 ```
 
-There is no test runner configured. There are no lint scripts — Vite's dev server surfaces JSX/import errors on save.
+Vitest is the test runner. ESLint covers `src/` and `cloudflare/`; Vite's dev server also
+surfaces JSX/import errors on save. See [AGENTS.md](AGENTS.md) for the lint baseline and the
+React Compiler decision.
 
 ---
 

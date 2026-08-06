@@ -291,8 +291,12 @@ export default function CollectionPage() {
     canSeedFilteredRef.current = !search && !hasActiveCollectionFilters(filters)
   }, [search, filters])
 
+  // Seeds the sort from settings once, when they finish loading. `default_sort`
+  // is deliberately not a dependency: re-running on every change to it would
+  // clobber the sort the user picked this session each time settings re-sync.
   useEffect(() => {
     if (settingsLoaded) setSort(default_sort || 'name')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed-once, see above
   }, [settingsLoaded])
 
   // Track online status

@@ -57,10 +57,19 @@ export default [
       // Surface real hook bugs — this is the main reason we're adding ESLint
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
-      // React Compiler-aware rules (eslint-plugin-react-hooks v6) are very
-      // strict and target rewrites under React Compiler. We don't run the
-      // compiler yet, so downgrade them to warnings to keep signal high.
-      'react-hooks/set-state-in-effect': 'warn',
+      // React Compiler-aware rules (eslint-plugin-react-hooks v7) are very
+      // strict and target rewrites under React Compiler. We measured adopting
+      // the compiler on 2026-08-06 and decided against it for now — see the
+      // "React Compiler" section in AGENTS.md for the numbers. Keep the rest as
+      // warnings; they still flag genuine Rules-of-React problems.
+      //
+      // `set-state-in-effect` is OFF rather than 'warn' on purpose. It fired 80
+      // times, and we have no intention of acting on any of them while the
+      // compiler is off the table. Left at 'warn' it buried the ~50 warnings we
+      // do care about, which is the only thing that makes lint output useless.
+      // Turn it back on if the compiler is ever adopted — it is that migration's
+      // to-do list.
+      'react-hooks/set-state-in-effect': 'off',
       'react-hooks/preserve-manual-memoization': 'off',
       'react-hooks/immutability': 'warn',
       'react-hooks/refs': 'warn',

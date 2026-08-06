@@ -58,11 +58,45 @@ npm run build     # Production build → dist/
 npm run preview   # Preview production build locally
 npm run test      # Run the Vitest suite once
 npm run test:watch # Run Vitest in watch mode
-npm run lint      # Run ESLint over src/
+npm run lint      # Run ESLint over src/ and cloudflare/
 npm run lint:fix  # Run ESLint and apply safe fixes
 ```
 
-Vitest is the configured test runner. ESLint checks `src/`; Vite's dev server also surfaces JSX/import errors on save.
+Vitest is the configured test runner. ESLint checks `src/` and `cloudflare/`; Vite's dev server also surfaces JSX/import errors on save.
+
+### Lint baseline
+
+**0 errors, ~48 warnings.** That number is meant to stay small enough to read. If a change pushes it up, the change introduced the warning — check it rather than assuming it was already there.
+
+`cloudflare/` needs its own config block in `eslint.config.js` because Workers globals (`fetch`, `Response`, `URL`) aren't browser globals. Without it every worker file reports dozens of `no-undef`. The lint script was scoped to `src` until 2026-08-06, so the worker went unlinted for its whole life — don't narrow it again.
+
+The remaining warnings are almost all `react-hooks/exhaustive-deps`. Some are deliberate and carry an `eslint-disable-next-line ... -- <reason>` comment; the directive has to sit on the **dependency-array line**, not the `useEffect(` line, or ESLint reports it as unused. If you decide an exclusion is intentional, annotate it — an unannotated one should read as suspicious.
+
+`react-hooks/set-state-in-effect` is **off**, not `warn`. See below.
+
+### React Compiler — measured 2026-08-06, not adopted
+
+Worth knowing before anyone proposes it again, or wonders why the compiler-oriented lint rules are relaxed.
+
+The stack is well positioned for it: React 19.2, `babel-plugin-react-compiler` is stable at 1.0.0, `react-compiler-healthcheck` reports **312 of 312 components compile**, and StrictMode is already on. It was still measured as a net loss:
+
+| | Baseline | With compiler |
+|---|---|---|
+| `npm run build` | 9.7s | **22.9s** |
+| Total JS shipped | 6.93 MB | **7.20 MB** (+270 KB) |
+
+Three reasons it lost:
+
+- **It drags Babel back into an Oxc build.** Vite 8 / Rolldown compiles with Oxc and no Babel. The compiler is a Babel plugin, so enabling it re-adds a whole transform pass — that's the 2.4× build time, not the compiler's own analysis.
+- **It skips the components that would benefit most.** `VirtualCardGrid` and `VirtualCardTable` bail out (`react-hooks/incompatible-library`) because TanStack Virtual's `useVirtualizer()` returns functions that can't be safely memoized. The rest of the expensive work already runs in Web Workers. So the payoff lands mostly where there was no bottleneck.
+- **It doesn't install cleanly.** `@rolldown/plugin-babel` wants `@babel/core@^8` via `@babel/plugin-transform-runtime@8`; this tree has `@babel/core@7`. Needs `--legacy-peer-deps` today.
+
+Two traps if you re-run this experiment:
+
+- **`@vitejs/plugin-react` v6 has no `babel` option.** It was removed. Passing `react({ babel: {...} })` is silently ignored and the build succeeds having done nothing — the tell is a byte-identical bundle. The v6 path is `babel({ presets: [reactCompilerPreset()] })` from `@rolldown/plugin-babel`, added as a separate plugin.
+- **Don't grep `dist/` for `compiler-runtime` to confirm it ran.** The specifier is resolved and minified away at bundle time; it only survives in `vendor-react`. Compare bundle bytes against a baseline build instead, or run Babel over a single source file and look for `useMemoCache`.
+
+Because the compiler is off the table, `react-hooks/set-state-in-effect` is disabled rather than warned: it fired 80 times, none of which anyone intends to fix, and it buried the ~48 warnings that matter. **If the compiler is ever adopted, turn it back on first** — those 80 sites are that migration's to-do list. Roughly 61 are synchronous "reset local state when a prop changed" effects; only ~19 are async data loading.
 
 ---
 
