@@ -66,7 +66,9 @@ Vitest is the configured test runner. ESLint checks `src/` and `cloudflare/`; Vi
 
 ### Lint baseline
 
-**0 errors, ~48 warnings.** That number is meant to stay small enough to read. If a change pushes it up, the change introduced the warning — check it rather than assuming it was already there.
+**0 errors, 35 warnings.** That number is meant to stay small enough to read. If a change pushes it up, the change introduced the warning — check it rather than assuming it was already there.
+
+The 35 are a deliberate stopping point, not a backlog. 13 of them were worked through individually on 2026-08-06 and **none was a bug** — 3 were no-op deps, 10 were intentional exclusions that needed a comment rather than a fix. Twice, doing what the rule asked would have *introduced* a bug (see the BuildAssistant cache-key note below). Assume the remainder are the same unless you have a symptom pointing at one; they are concentrated in `DeckBuilder.jsx` (10) and `CardScanner.jsx` (5), where a wrongly-added dependency means an infinite render loop that no test catches.
 
 `cloudflare/` needs its own config block in `eslint.config.js` because Workers globals (`fetch`, `Response`, `URL`) aren't browser globals. Without it every worker file reports dozens of `no-undef`. The lint script was scoped to `src` until 2026-08-06, so the worker went unlinted for its whole life — don't narrow it again.
 
@@ -96,7 +98,7 @@ Two traps if you re-run this experiment:
 - **`@vitejs/plugin-react` v6 has no `babel` option.** It was removed. Passing `react({ babel: {...} })` is silently ignored and the build succeeds having done nothing — the tell is a byte-identical bundle. The v6 path is `babel({ presets: [reactCompilerPreset()] })` from `@rolldown/plugin-babel`, added as a separate plugin.
 - **Don't grep `dist/` for `compiler-runtime` to confirm it ran.** The specifier is resolved and minified away at bundle time; it only survives in `vendor-react`. Compare bundle bytes against a baseline build instead, or run Babel over a single source file and look for `useMemoCache`.
 
-Because the compiler is off the table, `react-hooks/set-state-in-effect` is disabled rather than warned: it fired 80 times, none of which anyone intends to fix, and it buried the ~48 warnings that matter. **If the compiler is ever adopted, turn it back on first** — those 80 sites are that migration's to-do list. Roughly 61 are synchronous "reset local state when a prop changed" effects; only ~19 are async data loading.
+Because the compiler is off the table, `react-hooks/set-state-in-effect` is disabled rather than warned: it fired 80 times, none of which anyone intends to fix, and it buried the 35 warnings that matter. **If the compiler is ever adopted, turn it back on first** — those 80 sites are that migration's to-do list. Roughly 61 are synchronous "reset local state when a prop changed" effects; only ~19 are async data loading.
 
 ---
 
