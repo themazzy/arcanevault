@@ -123,10 +123,26 @@ The web app is deployed to **https://deckloom.app/** via GitHub Actions (`.githu
 |---|---|
 | `public/404.html` | Catches 404s from direct URL access; encodes the path as a query param and redirects to `index.html`. Auto-detects custom domain vs `*.github.io` subpath via `pathSegmentsToKeep`. |
 | `index.html` (redirect script) | Decodes the query param from `404.html` and restores the correct route via `history.replaceState` |
-| `public/CNAME` | Maps the GitHub Pages site to `deckloom.app` |
+| `public/CNAME` | Contains `deckloom.app`; Vite copies it to `dist/`, so every deploy reasserts the custom domain. An artifact without a CNAME can clear the Pages custom-domain setting — and no custom domain means no TLS cert renewal. |
 | `vite.config.js` | `base: '/'` — assets serve from root (custom domain), not a subpath |
 
 `BrowserRouter` in `src/App.jsx` uses the default basename (`/`); do **not** add `basename="/arcanevault"` back — it's a legacy artifact from the old `themazzy.github.io/arcanevault/` URL.
+
+### Cloudflare SSL/TLS mode must stay "Full" — never "Full (strict)"
+
+DNS for `deckloom.app` is proxied through Cloudflare, with GitHub Pages as the origin. The origin's Let's Encrypt cert is renewed by GitHub via an HTTP-01 ACME challenge served at `/.well-known/acme-challenge/` **on the origin**.
+
+**Full (strict) deadlocks this.** Strict refuses to connect to an origin whose cert is expired — including for the challenge path — so the cert can never be renewed, so strict keeps refusing. It does not recover on its own. This happened on 2026-07-27: the cert expired at 20:34 UTC and every visitor got **526 Origin SSL Certificate Invalid** for ~20 hours until the mode was switched to Full.
+
+Only return to strict if an uptime monitor exists, or the same deadlock recurs every ~90 days. The risk of Full here is low: the Cloudflare→origin leg carries only the public static bundle — all authenticated traffic goes browser→Supabase over a separate TLS connection that never touches Pages. Browser→Cloudflare TLS is unaffected either way.
+
+Diagnosing a suspected outage:
+```bash
+curl -sI https://deckloom.app/                       # 526 = origin cert rejected
+echo | openssl s_client -connect 185.199.108.153:443 -servername deckloom.app \
+  | openssl x509 -noout -dates                       # origin cert validity
+```
+Cloudflare → Analytics & Logs shows the error-status breakdown. Ignore the constant scanner noise there (`/.git/HEAD`, `/docker-compose.yaml`, `/kube/config`, `/wp-json/*` — bots probing for leaked secrets); it inflates the error rate but is not user traffic. The durable fix for this whole failure class is moving the origin to Cloudflare Pages, so edge and origin are the same provider and there is no cross-company cert handshake.
 
 ### Email links
 
@@ -152,6 +168,7 @@ Deck share links are the direct `https://deckloom.app/d/<id>` URL (built via `ge
 - **Everyone else** → transparent `fetch(request)` pass-through to the GitHub Pages SPA. Removing the worker degrades gracefully to generic previews.
 - Deck metadata comes from the `get_deck_og_meta(uuid)` SECURITY DEFINER RPC, which **returns null for any non-public deck** — private decks never leak.
 - Deployed manually via `wrangler deploy` (see `cloudflare/og-worker/README.md`); requires the Cloudflare DNS records to be **Proxied** (orange cloud) and SSL mode **Full**.
+- The worker also serves a **raw decklist endpoint** `deckloom.app/api/decklist/<deck-id>.txt` (`.txt` optional) for third-party integrations (e.g. Tabletop Simulator importers) that can't run the SPA's JS: plain `1 Sol Ring` lines + `// Sideboard` / `// Commander` sections, maybeboard omitted, same-name printings merged. Backed by the public-gated `get_deck_cards_for_view` RPC — private/unknown decks 404. Pure helpers in `decklist.js`, tested in `src/lib/decklistWorker.test.js`.
 - Pure helpers in `og.js` are unit-tested in `src/lib/ogWorker.test.js`.
 - History: a previous `og-deck` Supabase Edge Function did the same job but made share links point at `*.supabase.co` (ugly, plus the Edge Runtime forces `Content-Type: text/plain` on the shared domain). It was removed 2026-06 and replaced by this worker.
 
@@ -199,7 +216,7 @@ Folders whose description JSON contains `"isGroup": true` are organisational gro
 
 All SVG icons live in **`src/icons/index.jsx`** — this is the single source of truth for iconography.
 
-- 56 icons, all `viewBox="0 0 16 16"` (except `SettingsIcon` which uses `0 0 24 24` to match its detailed gear path), `currentColor`, props: `size` (default 16), `color`, `className`.
+- 65 icons, all `viewBox="0 0 16 16"` (except `SettingsIcon` which uses `0 0 24 24` to match its detailed gear path), `currentColor`, props: `size` (default 16), `color`, `className`.
 - **`SettingsIcon`** uses the same detailed Material-style gear as the CardScanner menu button. Do not replace it with a simpler cog.
 - `src/components/Icons.jsx` is a compatibility shim — it re-exports folder-type icons from `src/icons`. Import new icons directly from `../icons` (or `../../icons` from scanner/).
 - When adding new icons, add them to `src/icons/index.jsx` following the existing pattern. Never use `⚙`, `☰`, `✕`, `⊞`, `≡`, `⊟` Unicode characters as icon substitutes — use the SVG components instead.
@@ -247,6 +264,10 @@ Owned collection cards cannot exist without at least one binder or collection-de
 - When removing cards from binders or collection decks, only delete the underlying `cards` row if no `folder_cards` or `deck_allocations` placement remains anywhere else.
 - Deleting a non-empty binder or deck must offer transfer options so cards can be moved instead of being implicitly deleted.
 
+**One `cards` row can be placed in several folders**, and Collection renders one tile per placement (`_displayKey`/`_displayFolder`), so the tiles look like independent cards. But the row's *identity* — `card_print_id`, `foil`, `language`, `condition`, i.e. exactly the columns in the `cards_unique_owned_print_idx` unique index — is shared by every copy on that row. Editing any of them from a tile must be scoped to that placement, never written straight to the row (doing so restamps every copy of the card in every location).
+
+All four go through the **`change_owned_card_identity(p_card_id, p_new_print_id, p_foil, p_language, p_condition, p_folder_id, p_qty)`** RPC (null = keep that column). It splits the row — moving only that folder's copies onto a new or existing row and re-pointing the placement — inside one transaction, because `cards.qty` must always equal the sum of its placements and separate client writes could break that mid-way. It merges into an already-owned identity only when that row is in the *same* folder, and otherwise refuses with errcode 23505 (`src/lib/changePrinting.js` maps the message). Quantity edits are not part of it: `CardDetail.handleSave` applies the qty change first, then calls the RPC, so each step is self-consistent on its own. A zero-quantity placement violates `deck_allocations_qty_check` — delete an emptied slot, never decrement it to 0.
+
 ### Deck Model
 
 - `deck_cards` is the source of truth for intended deck contents in Builder.
@@ -272,7 +293,38 @@ Key helpers in `src/lib/deckSync.js`:
 
 In `Builder.jsx`, clicking a collection deck that has `linked_builder_id` navigates to the builder version at `/builder/<linked_builder_id>` instead of the collection deck view.
 
+**A pair is two `folders` rows, so anything shown for "the deck" must be written to both.** Never `sb.from('folders').update({ name })` a deck directly — use `renameFolder(folderId, name)` from `deckSync.js` (the `rename_folder` RPC), which resolves the counterpart and renames both rows. It accepts any folder type, so binders and wishlists can use it too; propagation only applies to deck pairs. This bites asymmetrically and looks like "rename works one way": the /builder index renders the *collection* side of a linked pair, so renaming from the collection side appeared to propagate while renaming from DeckBuilder appeared to do nothing. The same rule already applies to visibility (`set_linked_deck_visibility`) and bracket (`set_linked_deck_bracket`).
+
 Format legality and commander color identity checks are in `src/lib/deckLegality.js` via `getCardLegalityWarnings({ card, formatId, formatLabel, isEDH, commanderColorIdentity })`.
+
+### Trade Post
+
+A per-user public trade listing at `/trade/:username` (`src/pages/Trade.jsx`, a **public** route — `get_trade_post` is granted to `anon`). Haves = the protected **"For Trade"** binder (a normal binder flagged `{"isTradeBinder": true}`; `src/lib/tradeBinder.js`, un-renameable/un-deletable in `Folders.jsx`). Wants = the wishlists selected into `user_settings.trade_wants`. Opt-in via `user_settings.trade_open`. Owner surfaces are the **Trade Post** and **Proposals** tabs of `/trading`.
+
+**Agreeing to a trade and the trade having happened are two different events, and nothing settles on the first one.** This mirrors how Lootstack/Cardsphere/Deckbox work and is the whole point of the status model — do not collapse it:
+
+```
+pending → accepted        "yes, let's meet up"   — moves NO cards
+        → completed       "we actually traded"   — moves NO cards
+        → per-user settle  user reviews in Compare, presses Complete Trade
+```
+
+- `respond_to_trade_proposal` (owner only) and `complete_trade_proposal` (either party) only change `status` and notify the counterpart via a `trade_response` notification.
+- **Settlement is per-user**, tracked by `owner_settled` / `proposer_settled`. Each side applies the trade to *their own* collection through the existing `commit_trade` flow; `mark_trade_settled` then stops a double-commit. It is deliberately **not** two-sided-atomic: the proposer's `offered` entries are free-text names that can't be resolved to their inventory, and `cards` is RLS owner-only — one user's action must never write another user's rows.
+- `get_trade_proposals()` returns `{ incoming, outgoing }`; `requested`/`offered` stay proposer-relative, so **always** derive give/receive via `deriveProposalSides()` in `src/lib/tradeProposals.js` rather than re-deriving per call site.
+- Settling deep-links to `/trading?tab=compare&settle=<id>`, which *stages* both sides (give resolved against owned placements, receive best-guessed to a printing) and warns about anything unresolved. `Complete Trade` remains the only thing that touches inventory.
+
+**`/trading` has exactly two tabs — Trade Post · Compare — and no sub-navigation.** There are only two activities: your public listing and the proposals it produces (async, social), and working out what a trade is worth and committing it (a tool). They're one lifecycle, not separate destinations — a settled proposal hands off from `post` into `compare` via `?settle=<id>`. Legacy `?tab=proposals` / `?tab=log` links alias onto the two survivors (`TAB_ALIASES`).
+
+Three rules that keep it flat, all of which were violated once and shouldn't be again:
+
+- **Proposal direction is a row property, not a place.** Received and sent render as one list with a "From"/"To" marker; `sortProposals()` floats whatever is waiting on the viewer to the top. No Received/Sent switch.
+- **Trade history is not a tab.** It's a collapsed *Past trades* section under the Compare tool that produces it, fetched on first expand.
+- **Trade post settings are a wizard, not a page.** `components/trade/TradePostWizard.jsx` is a Build-Assistant-style modal (node stepper, one concern per step: availability → trading away → looking for → share) and deliberately shares that stepper's visual language. The tab itself shows only a compact status card (`TradePostManager`) plus the proposals list. The previous single-page form stacked all three concerns in one column, so picking which wishlists to feature meant scrolling past every card in the For Trade binder.
+
+The tab badge comes from `countActionable()`, which is why proposal state lives in `Trading.jsx` rather than inside `ProposalsInbox` — the count must exist before the tab is opened.
+
+**There is no per-card "any version" flag.** `folder_cards.trade_any_version` was dropped 2026-08-02 (zero rows had ever set it): the For Trade binder holds *specific owned rows* — an exact print, finish, language and condition — so "I'd trade any printing of this" was a statement about a card the user may not own, wrongly hung off a concrete placement. `trade_note` stays; condition/language remarks are genuinely per-copy. `buildFolderCardInsertRows` in `src/lib/backup.js` ignores the field so pre-drop backup files still restore.
 
 ### Wishlist Rules
 
@@ -362,8 +414,8 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/networkUtils.js` | `isNetworkLikeError()`, `createOfflineError()` |
 | `src/scanner/DatabaseService.js` | Hash-pack orchestrator: manifest → IDB blob cache → same-origin fetch; feeds chunks to the match worker; sync fallback matcher |
 | `src/scanner/hashPack.js` | Binary hash-pack format (encode/decode/`HashPackStore`, format v3 adds the tile section); image URLs derived from scryfall id — shared with Node build script |
-| `src/scanner/matchCore.js` | LSH band index + ranking over packed hash arrays (v8: best-k-of-G² tile distance blend) — shared by worker and main-thread fallback |
-| `src/scanner/tileHash.js` | v8 per-tile art hashes (`computeTileHashes`) — lookalike-art discrimination; shared by client, seed script, and grid harness |
+| `src/scanner/matchCore.js` | LSH band index + ranking over packed hash arrays (incl. dormant best-k-of-G² tile blend) — shared by worker and main-thread fallback |
+| `src/scanner/tileHash.js` | Per-tile art hashes (`computeTileHashes`) — v8 experiment, dormant (`TILE_GRID = 0`; harness showed margin regression); shared by client, seed script, and grid harness |
 | `src/scanner/hashFusion.js` | Multi-frame per-bit majority hash fusion — CardScanner's fused-match rescue |
 | `src/scanner/packLoader.js` | Manifest/chunk fetch + IDB blob caching (`scanner_pack` store); same-origin on web and native alike (`server.url` → deckloom.app) |
 | `src/scanner/prefetch.js` | Idle-time warmup (app shell): pack chunks → IDB; gated on prior scanner use |
@@ -374,12 +426,12 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/scanner/collectorOcr.js` | Collector-line OCR (tesseract.js, self-hosted under `public/ocr/`): noise-tolerant parsing, set-candidate expansion; refines printing + language after a scan |
 | `src/scanner/nameMatch.js` | Fuzzy card-name matching for title-OCR rescue: banded prefix-Levenshtein over all pack names, uniqueness-margin gated |
 | `src/scanner/hashCore.js` | Pure-JS pHash core: precomputed DCT cosine table, CLAHE, percentileCap, Hamming distance — shared with seed script |
-| `src/scanner/constants.js` | Shared card/art dimensions: `CARD_W=500, CARD_H=700, ART_X=38, ART_Y=66, ART_W=424, ART_H=248` + `TILE_GRID` (v8 tile grid, harness-chosen) |
-| `scripts/scanner-grid-harness.js` | Tile-grid A/B experiment: real Scryfall renders + simulated capture degradation → picks `TILE_GRID` empirically |
+| `src/scanner/constants.js` | Shared card/art dimensions: `CARD_W=500, CARD_H=700, ART_X=38, ART_Y=66, ART_W=424, ART_H=248` + `TILE_GRID` (0 = tiles off; see comment there for the harness verdict) |
+| `scripts/scanner-grid-harness.js` | Tile-grid A/B experiment: real Scryfall renders + simulated capture degradation → measures lookalike margins per grid (verdict: tiles regress; keep off) |
 | `src/scanner/CardScanner.jsx` | Full-screen scanner UI: camera, auto-scan loop, targeting reticle, stability buffer, settings panel, match basket |
 | `src/pages/Scanner.jsx` | Route wrapper for `CardScanner` at `/scanner` |
-| `scripts/generate-card-hashes.js` | Node.js seed script (pipeline v8): Scryfall bulk → hashes (art/color/full/tiles, incl. DFC back faces) → writes `public/scanner/hashpack/` directly. The pack is its own incremental state — no Supabase involved. Crash-safe checkpoints every 8k rows |
-| `src/scanner/hashCard.js` | Seed-side hash computation from a perfect 500×700 card render (v8: art/color/full + tile hashes) — shares the exact 32×32 area-resize with the live scanner |
+| `scripts/generate-card-hashes.js` | Node.js seed script (pipeline v7): Scryfall bulk → hashes (art/color/full, incl. DFC back faces) → writes `public/scanner/hashpack/` directly. The pack is its own incremental state — no Supabase involved. Crash-safe checkpoints every 8k rows |
+| `src/scanner/hashCard.js` | Seed-side hash computation from a perfect 500×700 card render (art/color/full; tiles only when `TILE_GRID > 0`) — shares the exact 32×32 area-resize with the live scanner |
 | `src/lib/fx.js` | EUR↔USD conversion via frankfurter.app (6 h IDB cache) |
 | `src/lib/valueSnapshots.js` | Daily collection-value snapshots (`collection_value_snapshots`, 1 row/user/day): `recordCollectionValueSnapshot()`, `fetchValueHistory()`, `computeValueDelta()` — powers Stats "Value Over Time" |
 | `src/lib/setCompletion.js` | Set-completion missing-cards view: `fetchSetCards()` (Scryfall, session cache), `computeMissingCards()`, `missingCostTotal()`, `addMissingToWishlist()` |
@@ -390,6 +442,9 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/commanderBracket.js` | Commander Bracket estimator: `analyzeBracket()` (Game Changers / MLD / extra turns / 2-card combos), `fetchGameChangerNames()` (Scryfall `is:gamechanger`, 7-day localStorage cache). UI: `components/BracketBadge.jsx` — clickable pill in the DeckStats pills row (popover with reasons, flagged cards, combo check, manual 1–5 override). `DeckStats` accepts `showBracket` + `combos` props; DeckBuilder passes `showBracket={isEDH}` |
 | `src/lib/importFlow.js` | Import pipeline: `parseImportText()`, `resolveImportEntries()`, `summarizeImportRows()`, `aggregateResolvedRows()`, `fetchPaperPrintings()` |
 | `src/lib/csvParser.js` | Manabox CSV → cards + folders |
+| `src/lib/cardSearch.js` | Name-based card search from our own tables: `searchCardNames()` (ranked `search_card_names` RPC over `oracle_cards`), `fetchPrintingsByName()`/`fetchPrintingsForNames()` (`card_prints`, newest first, shared prices attached), `searchCardArt()` (distinct artworks via the `search_card_art` RPC — **no** Scryfall fallback). Every other entry point falls back to the equivalent Scryfall query on error/empty. Used by AddCardModal, scanner manual search + printing picker, Trading want-list, Home autocomplete, CardArtPicker |
+| `src/components/CardArtPicker.jsx` | Shared background-art picker modal (binders, wishlists, profile header) — searches `card_prints` for distinct artworks, incl. both faces of double-faced prints |
+| `scripts/lib/print-sync-core.mjs` | Pure helpers for the daily card_prints sync (`shouldInsertPrint`, `buildPrintRow`); tested in `src/lib/printSyncCore.test.js` |
 | `src/components/CardComponents.jsx` | `FilterBar`, `CardDetail`, `CardGrid`, `EMPTY_FILTERS`, `applyFilterSort`, `BulkActionBar` |
 | `src/components/VirtualCardGrid.jsx` | Virtualised card grid (@tanstack/react-virtual) |
 | `src/components/UI.jsx` | Shared UI primitives: `Button`, `Input`, `Modal`, `SectionHeader`, `Select`, `Badge`, `EmptyState`, `ErrorBox`, `ProgressBar` |
@@ -618,7 +673,9 @@ When a scan's hash result is rejected (glare, foils, low light) but a card was w
 
 **Pipeline v7 second signal** (format-v2 packs): `phash_full_hex` — whole-card luma pHash (`computeFullCardHash` client-side, once per warped orientation). `matchCore` combines: art 0.45 + color 0.20 + full 0.35×`FULL_SCALE`(1.14, harness-calibrated so random ≈ art's 126); without a full hash it collapses to the exact v6 formula (0.65/0.35), so v1 packs behave identically. A second LSH band index over full hashes rescues candidates whose art hash was destroyed by glare. v2 packs also carry **DFC back-face rows** (same scryfall id, face=1) and **flavor names** (indexed by the title-OCR rescue — Marvel/Godzilla cards print the flavor name).
 
-**Pipeline v8 tile hashes** (format-v3 packs): `phash_tiles_hex` — `TILE_GRID`² per-tile art hashes (`tileHash.js`, grid in `constants.js`, chosen empirically by `scripts/scanner-grid-harness.js`). Tiles re-inject the spatial locality the global 32×32 art hash smears away — the fix for lookalike arts (dense-tree Forests, gate cycles). `matchCore` scores a candidate on the mean of its best (G²−⌊G²/4⌋) tile distances (dropping the worst ~¼ is the glare tolerance) blended as art 0.15 + tiles 0.30 + color 0.20 + full 0.35×`FULL_SCALE`; without a `tileQuery` or on a pre-v3 pack the v7 formula applies unchanged. The whole-art hash stays stored for LSH banding and the foil/dark variant ladder. **Multi-frame fusion** (`hashFusion.js`): when no sampled frame passes the acceptance gates, CardScanner per-bit majority-votes the frames' primary hash sets (art/color/full/tiles) and tries one fused match — glare flips different bits in different frames.
+**Multi-frame fusion** (`hashFusion.js`, shipped): when no sampled frame passes the acceptance gates, CardScanner per-bit majority-votes the frames' primary hash sets (art/color/full/tiles) and tries one fused match labeled `fused` — glare flips different bits in different frames, so the majority hash is cleaner than any single capture. Rescue-only: it runs after the normal path failed and is judged by the same distance/gap/cluster gates.
+
+**Tile hashes (v8 experiment — built, measured, NOT shipped):** `tileHash.js` (G×G per-tile art hashes), pack format v3 (`phash_tiles_hex` section), and the `matchCore` tile blend (best G²−⌊G²/4⌋ tile distances at art 0.15 + tiles 0.30 + color 0.20 + full 0.35×`FULL_SCALE`) all exist, are unit-tested, and are fully wired through the client — but **`TILE_GRID = 0` keeps them dormant**. `scripts/scanner-grid-harness.js` (400 probes over a 1050-card lookalike-heavy pool, simulated capture degradation) showed every grid **reduces** the same-name wrong-art margin (p10: baseline 60.2 → 2×2 59.5 → 3×3 55.1 → 4×4 51.7): under corner-detection error/blur the correct card's tile distances inflate faster than its whole-art distance. Do not enable tiles without re-running the harness and beating the baseline margin. **The shipped pack stays pipeline v7 / format v2.**
 
 #### Hash database delivery — static hash pack
 
@@ -687,11 +744,24 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 
 | Service | Usage | Notes |
 |---|---|---|
-| Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay |
+| Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay. Name-based search surfaces (AddCardModal, scanner manual add, Trading, Home autocomplete) are served from our own `oracle_cards`/`card_prints` tables via `src/lib/cardSearch.js` with Scryfall as fallback only; syntax search, rulings, catalogs, sets, and images stay on Scryfall |
 | Supabase | Auth, cloud sync | RLS enforced; never bypass with service key |
 | frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
 | EDHRec | Commander recommendations | Direct fetch — `json.edhrec.com/pages/` sends CORS `*` |
 | deckloom-og worker | MTG RSS feeds | `deckloom.app/api/rss?feed=<url>` — allow-listed feeds only, edge-cached 15 min, CORS `*`. Adding a feed requires updating `RSS_ALLOWED_FEEDS` in `cloudflare/og-worker/worker.js` + redeploying |
+
+### Card-art search (`search_card_art` RPC)
+
+Every card-art picker in the app runs on `card_prints`, **not** Scryfall's `unique=art` search: binder tiles + collection-deck tiles (`Folders.jsx`), wishlist tiles (`Lists.jsx`), the profile header (`Profile.jsx`) — all via the shared `components/CardArtPicker.jsx` modal — plus life-tracker seat backgrounds (`components/lifeTracker/ArtPicker.jsx`, used by the seat sheet and the public `/join/:code` page). Two reasons the old direct-to-Scryfall version was wrong:
+
+- **Double-faced cards were invisible.** Scryfall puts `image_uris` on each entry in `card_faces` for DFCs, never at the top level, and every picker filtered on `card.image_uris?.art_crop` — so transform/MDFC cards silently vanished from results.
+- **A typo logged a console error per keystroke.** `cards/search` answers **404** when nothing matches; the browser logs that as a failed request regardless of how the app handles it.
+
+`search_card_art(search_term, max_results)` returns one row per distinct artwork (`illustration_id`), and a genuine two-sided print contributes a second row for its back-face art — derived by swapping `/normal/` → `/art_crop/` in `card_faces[1].image_uris.normal`. Split cards ("Fire // Ice") also have two faces but no per-face image, which is what gates that extra row. **Terms shorter than 3 characters return nothing**: the trigram index on `card_prints.name` can't produce candidates below that and `ilike` degrades to a 3.4 s seq scan over ~113k rows. `MIN_ART_SEARCH_LENGTH` in `cardSearch.js` mirrors the limit client-side.
+
+`EXECUTE` is granted to **`anon`** as well as `authenticated` — `/join/:code` is a public route and its seat picker must work for a signed-out guest.
+
+Builder decks have no art picker: their tile art is derived from the commander via `useDeckArts`/`coverArtUri` (`src/lib/deckArt.js`), not a name search.
 
 ### RSS Feed Parsing
 

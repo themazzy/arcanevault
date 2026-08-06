@@ -145,6 +145,8 @@ User action
 - `src/lib/supabase.js` — Exports the `sb` singleton. Authoritative for all cloud reads/writes plus auth.
 - `src/lib/scryfall.js` — Scryfall metadata/art cache. `getInstantCache()` returns in-memory map (null if cold); always guard with `sfMap || {}`.
 
+**Owned-card sync:** `syncOwnedCards(userId)` in `src/lib/collectionFetchers.js` persists the per-user IDB cursor `cards_synced_at:<userId>`. The first sync loads the full `owned_cards_view`; later syncs fetch only rows with a newer `updated_at`, then compare against a cheap ID-only `cards` query to catch hard deletes. Preserve this cursor and delete-detection behavior when changing card sync.
+
 **React Query layer:** Collection data loading is migrated to **TanStack React Query** (`@tanstack/react-query`). The `queryClient` is in `src/lib/queryClient.js` (staleTime 5 min, gcTime 30 min, networkMode `offlineFirst`). On startup, `hydrateCollectionQueriesFromIdb()` from `src/lib/idbQueryBridge.js` seeds the cache from IDB so the first render is instant. Query keys: `['cards', userId]`, `['folders', userId]`. Pages that previously read IDB directly may now use `useQuery` hooks backed by `src/lib/collectionFetchers.js`.
 
 **Key gotcha:** Never use Supabase's nested `select('folder_cards(cards(*))')` — it requires FK relationships configured in PostgREST and silently returns empty. Always do flat queries and join in memory.
@@ -168,7 +170,7 @@ Folders whose description JSON contains `"isGroup": true` are organisational gro
 
 All SVG icons live in **`src/icons/index.jsx`** — this is the single source of truth for iconography.
 
-- 61 icons, all `viewBox="0 0 16 16"` (except `SettingsIcon` which uses `0 0 24 24` to match its detailed gear path), `currentColor`, props: `size` (default 16), `color`, `className`. See [DESIGN.md](DESIGN.md) §9 for the icon rules.
+- 65 icons, all `viewBox="0 0 16 16"` (except `SettingsIcon` which uses `0 0 24 24` to match its detailed gear path), `currentColor`, props: `size` (default 16), `color`, `className`. See [DESIGN.md](DESIGN.md) §9 for the icon rules.
 - **`SettingsIcon`** uses the same detailed Material-style gear as the CardScanner menu button. Do not replace it with a simpler cog.
 - `src/components/Icons.jsx` is a compatibility shim — it re-exports folder-type icons from `src/icons`. Import new icons directly from `../icons` (or `../../icons` from scanner/).
 - When adding new icons, add them to `src/icons/index.jsx` following the existing pattern. Never use `⚙`, `☰`, `✕`, `⊞`, `≡`, `⊟` Unicode characters as icon substitutes — use the SVG components instead.
@@ -299,9 +301,9 @@ Wishlists are not part of owned collection inventory.
 
 ### Routing
 
-React Router v6. `BrowserRouter` in `src/App.jsx` uses the default basename (`/`) — the site is served from the root of `deckloom.app`.
+React Router v7. `BrowserRouter` in `src/App.jsx` uses the default basename (`/`) — the site is served from the root of `deckloom.app`.
 
-**Public routes** (outside `PrivateApp`): `/legal`, `/terms`, `/privacy`, `/storage`, `/credits`, `/delete-account`, `/share/:token`, `/d/:id`, `/join/:code`, `/join-tournament/:code`.
+**Public routes** (outside `PrivateApp`): `/legal`, `/terms`, `/privacy`, `/storage`, `/credits`, `/delete-account`, `/share/:token`, `/trade/:username`, `/d/:id`, `/join/:code`, `/join-tournament/:code`.
 
 **Private routes** (require auth): all others, wrapped in `PrivateApp`.
 
@@ -582,7 +584,7 @@ The hash pack (`public/scanner/hashpack/pack-v*-*.bin` + `manifest.json`, newest
 - **Seeding workflow:** `node scripts/generate-card-hashes.js` → commit `public/scanner/hashpack/`. The pack is the script's own incremental state (Supabase is not involved); new cards produce delta chunks, checkpointed every 8k rows (an interrupted run resumes), and fragmented packs auto-consolidate. `--reseed` rebuilds everything (hash algorithm changes).
 - Chunk filenames are content-hashed; `manifest.json` is the only mutable file.
 - The service worker must never precache `scanner/**` (see `globIgnores` in `vite.config.js`).
-- The old Supabase `card_hashes` table is retired; `supabase/migrations/20260703000000_drop_card_hashes.sql` reclaims its 75 MB — **apply only after a verified v7 pack is committed + deployed**.
+- The old Supabase `card_hashes` table is retired; the drop migration (`20260703122930_drop_card_hashes.sql`) is applied and reclaimed ~75 MB. The static pack is now the sole hash source.
 
 ### Life Tracker (`LifeTracker.jsx`)
 
@@ -643,6 +645,10 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 | Service | Usage | Notes |
 |---|---|---|
 | Scryfall | Card data, search, autocomplete, catalog | Rate-limited: 75 cards/batch, 120 ms delay. Name-based search surfaces (AddCardModal, scanner manual add, Trading, Home autocomplete) are served from our own `oracle_cards`/`card_prints` tables via `src/lib/cardSearch.js` with Scryfall as fallback only; syntax search, rulings, catalogs, sets, and images stay on Scryfall |
+| Supabase | Auth, cloud sync | RLS enforced; never bypass with service key |
+| frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
+| EDHRec | Commander recommendations | Direct fetch — `json.edhrec.com/pages/` sends CORS `*` |
+| deckloom-og worker | MTG RSS feeds | `deckloom.app/api/rss?feed=<url>` — allow-listed feeds only, edge-cached 15 min, CORS `*`. Adding a feed requires updating `RSS_ALLOWED_FEEDS` in `cloudflare/og-worker/worker.js` + redeploying |
 
 ### Card-art search (`search_card_art` RPC)
 
@@ -656,10 +662,6 @@ Every card-art picker in the app runs on `card_prints`, **not** Scryfall's `uniq
 `EXECUTE` is granted to **`anon`** as well as `authenticated` — `/join/:code` is a public route and its seat picker must work for a signed-out guest.
 
 Builder decks have no art picker: their tile art is derived from the commander via `useDeckArts`/`coverArtUri` (`src/lib/deckArt.js`), not a name search.
-| Supabase | Auth, cloud sync | RLS enforced; never bypass with service key |
-| frankfurter.app | EUR↔USD rates | Cached 6 h in IDB |
-| EDHRec | Commander recommendations | Direct fetch — `json.edhrec.com/pages/` sends CORS `*` |
-| deckloom-og worker | MTG RSS feeds | `deckloom.app/api/rss?feed=<url>` — allow-listed feeds only, edge-cached 15 min, CORS `*`. Adding a feed requires updating `RSS_ALLOWED_FEEDS` in `cloudflare/og-worker/worker.js` + redeploying |
 
 ### RSS Feed Parsing
 
