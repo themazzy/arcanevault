@@ -35,6 +35,9 @@ const PRINTINGS_NAME_CHUNK = 40
 // dozens of simultaneous PostgREST connections.
 const PRINTINGS_FALLBACK_CONCURRENCY = 5
 const DISPLAY_PRINTING_NAME_CHUNK = 100
+// Exact-id lookups, so the row count is bounded by the id count and a chunk
+// never pages — unlike the name-keyed query, where one name can carry ~72 rows.
+const PRINTINGS_ID_CHUNK = 200
 const PRICE_ID_CHUNK = 200
 const SCRYFALL_PAGE_CAP = 20
 
@@ -397,6 +400,38 @@ export async function fetchPrintingsByName(name, {
  * Printings for several exact names in one query (Trading want-list search).
  * Results are newest-first within each name; group client-side.
  */
+/**
+ * Full printing rows for a known set of scryfall ids, from our own catalogue.
+ *
+ * The deck builder's bulk add needs real printing objects, not just an id: the
+ * resolver reads `finishes` to know which finishes exist and `prices` to compare
+ * them, and a row missing either silently resolves every card to non-foil.
+ * `get_deck_builder_display_printings` returns neither, and the Scryfall
+ * `/cards/collection` endpoint is rate-limited and throttled — this is the same
+ * data, from the table the rest of the app already trusts, in one query.
+ *
+ * `language: 'all'` is deliberate: an owned copy is a physical card, so its
+ * language is a fact about it and not a preference to filter on.
+ */
+export async function fetchPrintingsByScryfallIds(ids, { withPrices = true } = {}) {
+  const wanted = [...new Set((ids || []).filter(Boolean))]
+  if (!wanted.length) return []
+  const rows = []
+  try {
+    for (let i = 0; i < wanted.length; i += PRINTINGS_ID_CHUNK) {
+      rows.push(...await queryPrintRows(
+        query => query.in('scryfall_id', wanted.slice(i, i + PRINTINGS_ID_CHUNK)),
+        { language: 'all' },
+      ))
+    }
+  } catch {
+    return []
+  }
+  const cards = rows.map(rowToCard).filter(Boolean)
+  if (withPrices && cards.length) return attachSharedPrices(cards)
+  return cards
+}
+
 export async function fetchPrintingsForNames(names, { withPrices = true, language = 'english' } = {}) {
   const wanted = [...new Set((names || []).map(n => (n || '').trim()).filter(Boolean))]
   if (!wanted.length) return []

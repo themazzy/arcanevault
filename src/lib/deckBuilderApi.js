@@ -358,6 +358,19 @@ export function recommendationMetadataRowToCard(row) {
 // Smaller batches are also *faster* in total, so there is no trade here.
 export const RECOMMENDATION_META_BATCH = 75
 
+// How many of those batches are in flight at once. A ~250-name build plan is
+// four batches, and running them one after another meant the panel waited for
+// the sum of four independent queries — on the RPC that is already the slowest
+// thing on the path. They don't read each other's results, so the only reason
+// to serialize was that nobody had unserialized it.
+//
+// Three, not unbounded: the reason batches are 75 in the first place is that
+// this RPC's cost is superlinear and lives near the statement timeout, so
+// firing all four at a loaded database trades one kind of failure for another.
+// Three keeps the connection count low enough that each still runs at roughly
+// its solo cost, and the split-and-retry below stays the safety net.
+export const RECOMMENDATION_META_CONCURRENCY = 3
+
 export async function fetchRecommendationMetadataByNames(names) {
   const uniqueNames = [...new Set((names || []).map(name => String(name || '').trim()).filter(Boolean))]
   if (!uniqueNames.length) return []
@@ -371,8 +384,7 @@ export async function fetchRecommendationMetadataByNames(names) {
     cards.push(...(data || []).map(recommendationMetadataRowToCard).filter(Boolean))
   }
 
-  for (let i = 0; i < uniqueNames.length; i += RECOMMENDATION_META_BATCH) {
-    const batch = uniqueNames.slice(i, i + RECOMMENDATION_META_BATCH)
+  const runWithRetry = async batch => {
     try {
       await run(batch)
     } catch (err) {
@@ -385,6 +397,8 @@ export async function fetchRecommendationMetadataByNames(names) {
       // Each half is attempted independently — one bad half must not cancel the
       // other. Partial metadata beats none: callers classify per card, so losing
       // a slice costs a few classifications instead of the whole build plan.
+      // Sequential on purpose: this path only runs because the database just
+      // refused the work, so the retry does not also double the pressure.
       for (const half of halves) {
         try {
           await run(half)
@@ -394,6 +408,16 @@ export async function fetchRecommendationMetadataByNames(names) {
         }
       }
     }
+  }
+
+  const batches = []
+  for (let i = 0; i < uniqueNames.length; i += RECOMMENDATION_META_BATCH) {
+    batches.push(uniqueNames.slice(i, i + RECOMMENDATION_META_BATCH))
+  }
+  // runWithRetry never rejects (it records into `failed`/`lastError`), so a
+  // window can't lose its siblings to one rejection.
+  for (let i = 0; i < batches.length; i += RECOMMENDATION_META_CONCURRENCY) {
+    await Promise.all(batches.slice(i, i + RECOMMENDATION_META_CONCURRENCY).map(runWithRetry))
   }
 
   // Only surface the error when nothing at all resolved — otherwise callers

@@ -23,7 +23,7 @@ vi.mock('./supabase', () => ({ sb: { from: vi.fn(), rpc: vi.fn() } }))
 import {
   parseTextDecklist, parseImportUrl, searchCards, fetchPaperPrintings,
   getDeckBuilderCardMeta, importProxyUrl,
-  fetchRecommendationMetadataByNames, recommendationMetadataRowToCard,
+  fetchRecommendationMetadataByNames, recommendationMetadataRowToCard, RECOMMENDATION_META_CONCURRENCY,
   RECOMMENDATION_META_BATCH,
   pickAutomaticDeckPrinting, FORMATS, nameToSlug, getEdhrecPartnerSlugCandidates,
   fetchEdhrecCommander,
@@ -175,6 +175,34 @@ describe('recommendation metadata', () => {
     expect(Math.max(...sizes)).toBeLessThanOrEqual(RECOMMENDATION_META_BATCH)
     expect(cards).toHaveLength(305)
     expect(cards.at(-1).name).toBe('Card 304')
+  })
+
+  // The batches don't read each other's results, so a ~250-name build plan used
+  // to wait for the sum of four independent queries on the slowest RPC on the
+  // panel-open path. Bounded rather than unbounded: batch size exists because
+  // this RPC's cost is superlinear and sits near the statement timeout.
+  it('runs batches concurrently, up to the concurrency limit', async () => {
+    const names = Array.from({ length: RECOMMENDATION_META_BATCH * 4 }, (_, i) => `Card ${i}`)
+    let inFlight = 0
+    let peak = 0
+    sb.rpc.mockImplementation(async (_fn, { requested_names }) => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await new Promise(resolve => setTimeout(resolve, 0))
+      inFlight -= 1
+      return {
+        data: requested_names.map(name => ({
+          scryfall_id: `id-${name}`, oracle_id: `oracle-${name}`, name, set_code: 'tst', legalities: {},
+        })),
+        error: null,
+      }
+    })
+
+    const cards = await fetchRecommendationMetadataByNames(names)
+
+    expect(peak).toBeGreaterThan(1)
+    expect(peak).toBeLessThanOrEqual(RECOMMENDATION_META_CONCURRENCY)
+    expect(cards).toHaveLength(RECOMMENDATION_META_BATCH * 4)
   })
 
   // A build plan asks for ~250 names at once. One timing-out batch used to throw

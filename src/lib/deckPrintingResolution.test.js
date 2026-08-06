@@ -196,6 +196,48 @@ describe('deck printing resolution', () => {
     expect(selectPreferredDeckPrinting({ printings: [foilOnly] }).foil).toBe(true)
   })
 
+  // The bulk add resolves against `get_deck_builder_display_printings`, whose
+  // projection carries neither `finishes` nor `prices`. Feeding those rows in
+  // directly reads as "non-foil only, unpriced" for every card: a foil-only
+  // printing resolves to non-foil, and the cheapest-priced search never runs at
+  // all — so the caller has to hydrate real card_prints rows for the ids the RPC
+  // picks. These pin why, since the failure is silent and plausible-looking.
+  describe('printings must be real catalogue rows, not the display projection', () => {
+    // Shape of displayPrintingRowToCard's output: id/set/lang/released_at and a
+    // display_* price triple, but no finishes and no prices.
+    const projection = (id, extra = {}) => ({
+      id,
+      name: 'Lightning Bolt',
+      set: id,
+      collector_number: '1',
+      lang: 'en',
+      released_at: '2026-01-01',
+      display_price: 3.5,
+      display_foil: true,
+      ...extra,
+    })
+
+    it('mis-resolves a foil-only printing when finishes are missing', () => {
+      expect(selectPreferredDeckPrinting({ printings: [projection('proj')] }).foil).toBe(false)
+      // Same printing, hydrated: the finish the RPC actually chose survives.
+      const hydrated = print('proj', '2026-01-01', { finishes: ['foil'] })
+      expect(selectPreferredDeckPrinting({ printings: [hydrated] }).foil).toBe(true)
+    })
+
+    it('cannot compare prices without a prices object', () => {
+      const dearHydrated = print('dear', '2026-02-01', { prices: { eur: '20.00' } })
+      const cheapProjection = projection('cheap', { display_price: 1 })
+      // The cheap one is invisible to the price search, so the dear hydrated row
+      // wins on price and the run quietly buys the wrong copy.
+      const result = selectPreferredDeckPrinting({
+        printings: [dearHydrated, cheapProjection],
+        priceSource: 'cardmarket_trend',
+      })
+      expect(result.sfCard).toBe(dearHydrated)
+      expect(result.source).toBe('automatic-cheapest')
+    })
+  })
+
   describe('cheapest-priced automatic pick', () => {
     it('buys the cheapest priced printing rather than the newest', () => {
       const newest = print('newest', '2026-01-01', { prices: { eur: '2.40' } })
