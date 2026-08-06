@@ -960,12 +960,16 @@ export default function DeckBuilderPage() {
   }, [queryClient, user.id])
 
   useEffect(() => {
+    // `qtyTimers.current` is a useRef(new Map()) that is only ever mutated, never
+    // reassigned, so capturing it here is equivalent to reading it at teardown —
+    // and it's what the ref-in-cleanup lint rule wants to see.
+    const pendingQtyTimers = qtyTimers.current
     return () => {
       clearTimeout(saveMetaTimer.current)
       clearTimeout(addFeedbackTimer.current)
       clearTimeout(warningTargetTimer.current)
       if (dragAutoScrollFrame.current) cancelAnimationFrame(dragAutoScrollFrame.current)
-      for (const timer of qtyTimers.current.values()) clearTimeout(timer)
+      for (const timer of pendingQtyTimers.values()) clearTimeout(timer)
     }
   }, [])
 

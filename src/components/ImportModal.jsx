@@ -804,7 +804,7 @@ export default function ImportModal({
     setImported(importedCopies || importedRows)
     setSkippedOwnedCount(skippedOwned)
     setStep('done')
-  }, [folderId, parsed, resolvedRows, activeFolderType, selectedDestinationType, userId, hasSourceFolders, sourceFolders, beginImportProgress, trackImportBatch])
+  }, [folderId, parsed, resolvedRows, selectedDestinationType, userId, hasSourceFolders, sourceFolders, beginImportProgress, trackImportBatch])
 
   return (
     <Modal onClose={onClose}>

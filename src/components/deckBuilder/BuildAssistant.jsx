@@ -982,6 +982,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // Memoised per candidate: this runs once per rendered tile (up to MAX_TILES
   // per section) and scoreCandidate is not cheap. The cache is rebuilt whenever
   // the context or config changes, which is what invalidates it.
+  // The deps are cache keys, not values read by the factory: minting a new Map
+  // when the config changes is exactly what invalidates the cache (see above).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- cache keys, see above
   const expScoreCache = useMemo(() => new Map(), [experimental, scoringCtx, expCfg])
   const expScore = useCallback(cand => {
     if (!experimental || !scoringCtx || !cand) return null
@@ -992,6 +995,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   }, [experimental, scoringCtx, expCfg, expScoreCache])
   // Ranking used by the engine pass — must follow the ACTIVE config, since that
   // pass now runs for everyone and lab mode's tile readout does not.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are cache keys, see expScoreCache
   const rankCache = useMemo(() => new Map(), [scoringCtx, activeCfg])
   const rankOf = useCallback(cand => {
     if (rankCache.has(cand)) return rankCache.get(cand)
@@ -1174,6 +1178,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // object: candidateOracle and candidateRoleTags memoise per candidate
   // identity, and rebuilding the wrapper each time would miss both caches and
   // re-run ~20 regexes per card per render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are cache keys, see expScoreCache
   const cutCandCache = useMemo(() => new WeakMap(), [sfMap, inclusionByName, recScoreByName])
   const asCutCandidate = useCallback(dc => {
     const hit = cutCandCache.get(dc)

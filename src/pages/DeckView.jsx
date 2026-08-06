@@ -334,7 +334,7 @@ export default function DeckViewPage() {
       setCombosFetched(true)
       setCombosLoading(false)
     }
-  }, [cards, combosLoading, id])
+  }, [cards, combosLoading])
 
   // ── Copy deck to own builder ────────────────────────────────────────────────
   async function copyDeck() {

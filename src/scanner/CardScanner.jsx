@@ -866,9 +866,15 @@ export default function CardScanner({ onMatch, onClose }) {
       const stream = localStream || cameraStreamRef.current
       if (stream) stream.getTracks().forEach(t => t.stop())
       if (cameraStreamRef.current === stream) cameraStreamRef.current = null
-      if (videoRef.current?.srcObject === stream) {
-        videoRef.current.pause()
-        videoRef.current.srcObject = null
+      // Deliberately reads videoRef at teardown rather than capturing it when the
+      // effect ran: the element may not be mounted yet at that point (camera start
+      // is async), and the `srcObject === stream` guard means a swapped-in node is
+      // correctly left alone. Capturing early would detach the wrong element.
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional, see above
+      const video = videoRef.current
+      if (video?.srcObject === stream) {
+        video.pause()
+        video.srcObject = null
       }
     }
   }, [isNative])
@@ -1525,7 +1531,7 @@ export default function CardScanner({ onMatch, onClose }) {
       candidateCount: bestStats.candidateCount, totalCount: bestStats.totalCount,
       variant: bestVariant, source: bestSource, cardLoaded, primaryHashes, timing,
     }
-  }, [captureFrame, isNative])
+  }, [captureFrame])
 
   // ── Title-OCR rescue (name identification when hashing comes up empty) ────
   // The art hash fails on glare/foils/low light; the card NAME is usually
