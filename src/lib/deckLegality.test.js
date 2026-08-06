@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { getDeckCopyLimit } from './deckLegality'
+import { getDeckCopyLimit, getCardLegalityWarnings } from './deckLegality'
+import { getCommanderRuleContext } from './deckCommanderRules'
 
 describe('getDeckCopyLimit', () => {
   it('reads "any number" as unlimited', () => {
@@ -54,5 +55,53 @@ describe('getDeckCopyLimit', () => {
       ],
     })).toBe(3)
     expect(getDeckCopyLimit({ oracle_text: 'Flying', card_faces: [] })).toBe(null)
+  })
+})
+
+describe('getCardLegalityWarnings with Rulebreaker commanders', () => {
+  const seluma = getCommanderRuleContext({
+    commanders: [{
+      name: 'Seluma, Light of Aysen',
+      oracle_text: 'Rulebreaker — A deck with this commander can have Angel cards of any color identity and any basic land cards.',
+    }],
+  })
+  const everforger = getCommanderRuleContext({
+    commanders: [{
+      name: 'The Everforger',
+      oracle_text: 'Rulebreaker — A deck with this commander can have artifact creature and Equipment cards of any color identity and any basic land cards.',
+    }],
+  })
+  const angel = { name: 'Aurelia, the Warleader', type_line: 'Legendary Creature — Angel', color_identity: ['R', 'W'] }
+  const bolt  = { name: 'Lightning Bolt', type_line: 'Instant', color_identity: ['R'] }
+
+  const warn = (card, identity, rulebreakers) => getCardLegalityWarnings({
+    card, formatId: 'commander', formatLabel: 'Commander', isEDH: true,
+    commanderColorIdentity: identity, rulebreakers,
+  })
+
+  it('still flags off-color cards with no rulebreaker', () => {
+    expect(warn(angel, ['W']).map(w => w.reason)).toEqual(['color_identity'])
+  })
+
+  it('drops the color-identity warning for an exempt card', () => {
+    expect(warn(angel, ['W'], seluma)).toEqual([])
+  })
+
+  it('keeps the warning for a card the rulebreaker does not cover', () => {
+    expect(warn(bolt, ['W'], seluma).map(w => w.reason)).toEqual(['color_identity'])
+  })
+
+  it('runs the identity check for a colorless rulebreaker commander', () => {
+    // Without the exemption a colorless commander allows nothing colored, and
+    // an empty identity used to skip the check entirely.
+    const equipment = { name: 'Batterskull', type_line: 'Artifact — Equipment', color_identity: ['W'] }
+    const aura = { name: 'Rancor', type_line: 'Enchantment — Aura', color_identity: ['G'] }
+    expect(warn(equipment, [], everforger)).toEqual([])
+    expect(warn(aura, [], everforger).map(w => w.reason)).toEqual(['color_identity'])
+  })
+
+  it('leaves format legality warnings untouched', () => {
+    const banned = { ...angel, legalities: { commander: 'banned' } }
+    expect(warn(banned, ['W'], seluma).map(w => w.reason)).toEqual(['format_legality'])
   })
 })

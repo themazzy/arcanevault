@@ -1,3 +1,5 @@
+import { offColorIdentity } from './deckCommanderRules'
+
 // Number words Wizards uses in "A deck can have up to N cards named …".
 // Printed limits top out at nine today (Nazgûl); the rest is cheap headroom so
 // a future card doesn't need a code change.
@@ -46,22 +48,27 @@ export function getDeckCopyLimit(source) {
   return null
 }
 
+// `rulebreakers` is an optional context from getCommanderRuleContext() carrying
+// the commander's Rulebreaker exemptions (MBC). Omitting it applies the plain
+// Commander color-identity rule, which is what every non-EDH caller wants.
 export function getCardLegalityWarnings({
   card,
   formatId,
   formatLabel,
   isEDH = false,
   commanderColorIdentity = [],
+  rulebreakers = null,
 } = {}) {
   if (!card) return []
 
   const warnings = []
   const cardName = card.name || 'This card'
-  const identity = Array.isArray(card.color_identity) ? card.color_identity : []
   const allowed = Array.isArray(commanderColorIdentity) ? commanderColorIdentity : []
 
-  if (isEDH && allowed.length > 0) {
-    const outside = identity.filter(color => !allowed.includes(color))
+  // A colorless commander with a Rulebreaker still restricts the deck, so the
+  // check must run on an empty identity too whenever exemptions are in play.
+  if (isEDH && (allowed.length > 0 || rulebreakers?.active)) {
+    const outside = offColorIdentity(card, allowed, rulebreakers)
     if (outside.length) {
       warnings.push({
         reason: 'color_identity',

@@ -21,7 +21,7 @@ import styles from './BuildAssistant.module.css'
 //
 // `imageOf(card, size)` resolves a result's art URL — injected so this file
 // stays free of the heavier API modules and easy to test.
-export function SpecificCardSearch({ search, priceSource, onAdd, isAdded, categoryOf, commanderColorIdentity, makePreview, imageOf }) {
+export function SpecificCardSearch({ search, priceSource, onAdd, isAdded, categoryOf, commanderColorIdentity, rulebreakers = null, makePreview, imageOf }) {
   const { query, results, loading, handleInput } = search
   const trimmed = (query || '').trim()
   // The results float over the panel (don't push it down) and behave like an
@@ -106,6 +106,7 @@ export function SpecificCardSearch({ search, priceSource, onAdd, isAdded, catego
                     formatLabel: 'Commander',
                     isEDH: true,
                     commanderColorIdentity,
+                    rulebreakers,
                   })
                   const added = isAdded(card.name)
                   const thumb = imageOf(card, 'small')

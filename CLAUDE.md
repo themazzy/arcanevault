@@ -249,7 +249,27 @@ In `Builder.jsx`, clicking a collection deck that has `linked_builder_id` naviga
 
 **A pair is two `folders` rows, so anything shown for "the deck" must be written to both.** Never `sb.from('folders').update({ name })` a deck directly — use `renameFolder(folderId, name)` from `deckSync.js` (the `rename_folder` RPC), which resolves the counterpart and renames both rows. It accepts any folder type, so binders and wishlists can use it too; propagation only applies to deck pairs. This bites asymmetrically and looks like "rename works one way": the /builder index renders the *collection* side of a linked pair, so renaming from the collection side appeared to propagate while renaming from DeckBuilder appeared to do nothing. The same rule already applies to visibility (`set_linked_deck_visibility`) and bracket (`set_linked_deck_bracket`).
 
-Format legality and commander color identity checks are in `src/lib/deckLegality.js` via `getCardLegalityWarnings({ card, formatId, formatLabel, isEDH, commanderColorIdentity })`.
+Format legality and commander color identity checks are in `src/lib/deckLegality.js` via `getCardLegalityWarnings({ card, formatId, formatLabel, isEDH, commanderColorIdentity, rulebreakers })`.
+
+#### Commander text that changes deckbuilding
+
+`src/lib/deckCommanderRules.js` owns two unrelated families that answer the same question. **Never re-derive an off-color check by hand** — `offColorIdentity(card, allowedColors, ctx)` is the single place that decides, and it collapses to the plain Commander rule when `ctx` is null.
+
+**1. Rulebreaker** (`mbc`, 2026-11) — an ability word on eight legendary cards that **exempts a subset** of cards from color identity: off-color Angels (Seluma), any lands (Grizzlegom), artifact creatures + Equipment (The Everforger), Auras (The Unluckiest Planeswalker), Phyrexians (Valko Indorian), creatures at MV 7+ (Maular), one chosen extra color for instants/sorceries only (Tolabow), and no maximum deck size (Whtz).
+
+**2. Chosen-color commanders** — The Prismatic Piper, Faceless One, Clara Oswald: *"If <name> is your commander, choose a color before the game begins. <name> is the chosen color."* This **widens the whole deck's identity**, not a subset.
+
+> **Scryfall reports all three chosen-color commanders as `color_identity: []`, and that is a data-model limit, not a rules statement.** It cannot encode "whatever the player picks". The ability is a characteristic-defining ability; CR 903.4 folds CDA-defined colors into color identity and CR 604.3 makes CDAs function *outside the game*, i.e. during deckbuilding — the same mechanism that gives Transguild Courier a WUBRG identity off a `{4}` mana cost. Reading the `[]` as "colorless" silently forbids the deck's own chosen color. This was gotten wrong once.
+
+- `getCommanderRuleContext({ commanders, chosenColors })` → `{ active, rules, noMaxDeckSize, identityColors, colorChoices }`, or an inactive context. DeckBuilder memoizes it as `rulebreakers` and passes `null` when no rule is in force; **BuildAssistant keys a data reload off its identity**, so keep it memoized.
+- **`identityColors` is unioned into DeckBuilder's `colorIdentity` memo**, so every downstream consumer (warnings, combo filter, manabase/Karsten, build plan, identity pips) gets it with no plumbing of its own. That memo therefore depends on the context — keep the context declared first.
+- Both families are **parsed from oracle text**, so future printings need no code change. `COMMANDER_RULE_OVERRIDES` is the escape hatch for wording the parser can't safely read — currently only Tolabow.
+- The chosen-color parser requires *"is your commander"* **and** *"before the game begins"* **and** *"is the chosen color"* together. That conjunction is what keeps in-game effects out: Alloy Golem and Shimmerwilds Growth say "is the chosen color" about a battlefield permanent, and Iona/Painter's Servant choose a color on ETB. Tests pin both directions.
+- Matching uses the **front face only** (CR 712.4a: a DFC has only its front face's characteristics outside the game). Callers must therefore supply `type_line` and `cmc`, not just `color_identity` — a probe missing them silently matches nothing.
+- A **colorless** commander with a Rulebreaker still restricts the deck, so the identity check must run even when `commanderColorIdentity` is empty. Guard on `identity.length > 0 || rulebreakers?.active`, never on identity alone.
+- Color choices are **persisted, not inferred**, in `deckMeta.rulebreaker_colors` keyed by lowercased commander name. Any future choice-granting card gets the picker for free by declaring `chooseColors`; `label` on the choice tells the UI whether the pick joins the deck identity or only widens a Rulebreaker's named subset.
+
+Consumers: `useDeckWarnings.js`, DeckBuilder's `deckWarnings` + `colorIdentity` + search results + deck-size badge, `analyzeBuildPlan()`, and `SpecificCardSearch`.
 
 ### Trade Post
 
@@ -391,6 +411,7 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/deckBuilderApi.js` | Deck builder helpers + external API calls |
 | `src/lib/deckSync.js` | Linked deck sync: `getLinkedDeckIds()`, `getSyncState()`, `withLinkedPair()`, `clearLinkedPair()`, `writeSyncState()`, `normalizeBuilderCards()` |
 | `src/lib/deckLegality.js` | `getCardLegalityWarnings()` — format legality + commander color identity checks |
+| `src/lib/deckCommanderRules.js` | Commander text that changes deckbuilding — Rulebreaker (MBC) exemptions + chosen-color commanders: `getCommanderRuleContext()`, `offColorIdentity()` — the one place an off-color decision is made |
 | `scripts/sync-oracle-cards.mjs` | Weekly Scryfall bulk-data sync into `oracle_cards`; supplies legality data for recommendation enrichment without runtime Scryfall API calls |
 | `src/lib/commanderBracket.js` | Commander Bracket estimator: `analyzeBracket()` (Game Changers / MLD / extra turns / 2-card combos), `fetchGameChangerNames()` (Scryfall `is:gamechanger`, 7-day localStorage cache). UI: `components/BracketBadge.jsx` — clickable pill in the DeckStats pills row (popover with reasons, flagged cards, combo check, manual 1–5 override). `DeckStats` accepts `showBracket` + `combos` props; DeckBuilder passes `showBracket={isEDH}` |
 | `src/lib/importFlow.js` | Import pipeline: `parseImportText()`, `resolveImportEntries()`, `summarizeImportRows()`, `aggregateResolvedRows()`, `fetchPaperPrintings()` |

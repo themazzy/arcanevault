@@ -1585,6 +1585,7 @@ export function analyzeBuildPlan({
   currentDeckCards = [],
   template = COMMANDER_TEMPLATE,
   deckSize = COMMANDER_DECK_SIZE,
+  rulebreakers = null,
 } = {}) {
   const commanderColorIdentity = Array.isArray(commander?.color_identity)
     ? commander.color_identity
@@ -1618,8 +1619,13 @@ export function analyzeBuildPlan({
     // Scryfall metadata, fall back to the owned row. Cards whose metadata hasn't
     // been fetched yet (no legalities) default to "legal" — offline-first, we'd
     // rather show an owned card than hide it on a cold cache.
+    // type_line and cmc are carried so Rulebreaker exemptions can be evaluated
+    // ("Angel cards", "creature cards with mana value 7 or greater", …).
     const legalityCard = {
       name,
+      type_line: sfCard?.type_line || card?.type_line || '',
+      cmc: sfCard?.cmc ?? card?.cmc ?? 0,
+      card_faces: sfCard?.card_faces || card?.card_faces || null,
       color_identity: sfCard?.color_identity || card?.color_identity || [],
       legalities: sfCard?.legalities || card?.legalities || {},
     }
@@ -1629,6 +1635,7 @@ export function analyzeBuildPlan({
       formatLabel: 'Commander',
       isEDH: true,
       commanderColorIdentity,
+      rulebreakers,
     })
     if (warnings.length) continue // outside color identity or banned/not legal
 

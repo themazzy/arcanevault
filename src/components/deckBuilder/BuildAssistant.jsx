@@ -533,7 +533,7 @@ function MenuOption({ active, onClick, children, desc }) {
 // needs — enabler targets, type floors, top-end allowance, the draw sub-curve
 // share — is derived per commander from that commander's EDHREC page, so the
 // settings that used to be knobs tune themselves and stay hidden.
-export function BuildAssistant({ userId, commander, deckCards = [], accessToken, experimental = false, onAddCard, onAddCards, onUndoAutoFill, onPlaytest, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
+export function BuildAssistant({ userId, commander, deckCards = [], accessToken, experimental = false, rulebreakers = null, onAddCard, onAddCards, onUndoAutoFill, onPlaytest, onRemoveCard, onRemoveCards, onAddToWishlist, onAddBasics, onClose }) {
   const [loading, setLoading] = useState(true)
   // True between the EDHREC plan landing and the Recommander merge resolving —
   // the second of the two waves that used to reshuffle the grids mid-view.
@@ -699,6 +699,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         ownedCards: d.ownedNorm,
         sfMap: d.sfById,
         currentDeckCards: deckCards,
+        rulebreakers,
         template,
       })
       const edhrec = await fetchEdhrecCommander(commander.name, 'commander', { themeSlug: themeSlug || '', partnerName: commander.partnerName || '' })
@@ -708,7 +709,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     } finally {
       setRebuilding(false)
     }
-  }, [commander, deckCards, fetchUpgradeMeta, mergeRecommender])
+  }, [commander, deckCards, fetchUpgradeMeta, mergeRecommender, rulebreakers])
 
   useEffect(() => {
     let cancelled = false
@@ -836,6 +837,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           ownedCards: ownedNorm,
           sfMap: sfById,
           currentDeckCards: deckCards,
+          rulebreakers,
         })
         const enriched = await enrichPlanWithEdhrec(base, async () => edhrec, fetchUpgradeMeta)
         if (cancelled) return
@@ -869,8 +871,11 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     })()
     return () => { cancelled = true }
     // Re-run only when the commander identity changes — not on every deck edit.
+    // Rulebreaker exemptions widen the legal candidate pool, so a change to
+    // them (including the player picking Tolabow's color) counts as an identity
+    // change; `rulebreakers` is memoized upstream so this stays stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, commander?.name, commander?.partnerName, (commander?.color_identity || []).join('')])
+  }, [userId, commander?.name, commander?.partnerName, (commander?.color_identity || []).join(''), rulebreakers])
 
   function onSelectTheme(slug) {
     if (slug === selectedTheme) return
@@ -1354,6 +1359,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         ownedCards: d.ownedNorm,
         sfMap: merged,
         currentDeckCards: deckCards,
+        rulebreakers,
         template,
       })
       const edhrec = await fetchEdhrecCommander(
@@ -2797,6 +2803,7 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
             isAdded={isAdded}
             categoryOf={card => searchRoleOf(card)}
             commanderColorIdentity={commander?.color_identity || []}
+            rulebreakers={rulebreakers}
             makePreview={previewHandlers}
             imageOf={getCardImageUri}
           />

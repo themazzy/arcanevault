@@ -53,6 +53,9 @@ import {
   updateDeckCategoryOrder,
 } from '../lib/deckCategories'
 import { getCardLegalityWarnings, getDeckCopyLimit } from '../lib/deckLegality'
+import {
+  getCommanderRuleContext, offColorIdentity, sanitizeColors, MANA_COLORS,
+} from '../lib/deckCommanderRules'
 import { comboInColorIdentity } from '../lib/deckBuildAssistant'
 import { isCurrentUserAdmin } from '../lib/admin'
 import { useDeckCardLegalityWarnings } from '../lib/useDeckWarnings'
@@ -1536,11 +1539,41 @@ export default function DeckBuilderPage() {
   const handleSearchRowHoverLeave = useCallback(() => {
     setHoverImages([])
   }, [])
+  // Commander text that changes deckbuilding: Rulebreaker (MBC) exemptions and
+  // chosen-color commanders (The Prismatic Piper, Faceless One, Clara Oswald).
+  // Null when no commander carries any, which is the signal every consumer
+  // reads as "apply the plain Commander rules". Memoized so the identity is
+  // stable: BuildAssistant keys a data reload off it.
+  //
+  // Declared before colorIdentity because a chosen color feeds into it.
+  const rulebreakers = useMemo(() => {
+    if (!isEDH || !commanderCards.length) return null
+    const commanders = commanderCards.map(dc => {
+      const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
+      return { name: dc.name, oracle_text: getCommanderOracle(sf) || dc.oracle_text || '' }
+    })
+    const ctx = getCommanderRuleContext({
+      commanders,
+      chosenColors: deckMeta.rulebreaker_colors || {},
+    })
+    return ctx.active ? ctx : null
+  }, [isEDH, commanderCards, builderSfMap, deckMeta.rulebreaker_colors])
+
+  // A chosen-color commander's pick is a characteristic-defining ability, so it
+  // is part of the commander's color identity for deckbuilding (CR 903.4 +
+  // 604.3) — Scryfall can only report those cards as colorless because the
+  // color isn't known until the player picks it. Folding the pick in here means
+  // every downstream consumer (warnings, combo filter, manabase, build plan,
+  // the identity pips) gets it without its own plumbing.
   const colorIdentity  = useMemo(() => {
     const cols = new Set()
     for (const c of commanderCards) for (const col of (c.color_identity || [])) cols.add(col)
+    for (const col of rulebreakers?.identityColors || []) cols.add(col)
     return [...cols]
-  }, [commanderCards])
+  }, [commanderCards, rulebreakers])
+
+  // Whtz, the Bibliophile: "no maximum deck size". The minimum still applies.
+  const deckSizeIsMax = !rulebreakers?.noMaxDeckSize
 
   // Spellbook's `almost` list merges the "by adding colors" group — combos with
   // pieces outside the commander's identity. The Combos tab offers one-click
@@ -1586,7 +1619,7 @@ export default function DeckBuilderPage() {
     const formatLabel = format?.label || formatId
     const pushWarning = (warning) => warnings.push(warning)
 
-    if (mainQty > deckSize) pushWarning({ key: 'size-over', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is over size by ${mainQty - deckSize} card${mainQty - deckSize === 1 ? '' : 's'}.` })
+    if (mainQty > deckSize && deckSizeIsMax) pushWarning({ key: 'size-over', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is over size by ${mainQty - deckSize} card${mainQty - deckSize === 1 ? '' : 's'}.` })
     if (mainQty < deckSize) pushWarning({ key: 'size-under', level: 'error', summary: `Mainboard ${mainQty}/${deckSize}`, detail: `Mainboard is short by ${deckSize - mainQty} card${deckSize - mainQty === 1 ? '' : 's'}.` })
     const isOath = formatId === 'oathbreaker'
     if (isEDH && commanderCards.length === 0) pushWarning({ key: 'no-commander', level: 'error', summary: isOath ? 'Oathbreaker missing' : 'Commander missing', detail: isOath ? 'Oathbreaker requires a planeswalker Oathbreaker before the deck is legal.' : 'Commander format requires a commander before the deck is legal.' })
@@ -1604,10 +1637,23 @@ export default function DeckBuilderPage() {
     if (maybeQty > 0) pushWarning({ key: 'maybeboard', level: 'info', summary: `Maybeboard ${maybeQty}`, detail: `Maybeboard has ${maybeQty} card${maybeQty === 1 ? '' : 's'} and is excluded from stats, combos, and collection sync.` })
     getAttractionDeckWarnings(deckCards, builderSfMap).forEach(pushWarning)
 
-    if (isEDH && colorIdentity.length > 0) {
+    // A colorless commander normally needs no identity pass, but a Rulebreaker
+    // one (The Everforger) does — it can legalise off-color cards, so the loop
+    // must run to decide which.
+    if (isEDH && (colorIdentity.length > 0 || rulebreakers)) {
       for (const dc of playableCards) {
         if (dc.is_commander) continue
-        const outside = (dc.color_identity || []).filter(color => !colorIdentity.includes(color))
+        // Type line and mana value drive the Rulebreaker matchers; deck rows
+        // carry both, with Scryfall filling gaps on card_prints-resolved rows.
+        const sf = dc.set_code && dc.collector_number ? builderSfMap[getScryfallKey(dc)] : null
+        const probe = {
+          name: dc.name,
+          color_identity: dc.color_identity || sf?.color_identity || [],
+          type_line: sf?.type_line || dc.type_line || '',
+          cmc: sf?.cmc ?? dc.cmc ?? 0,
+          card_faces: sf?.card_faces || null,
+        }
+        const outside = offColorIdentity(probe, colorIdentity, rulebreakers)
         if (outside.length) pushWarning({ key: `color:${dc.id}`, level: 'error', targetCardId: dc.id, summary: `${dc.name}: off-color`, detail: `${dc.name} is outside the commander's color identity because it includes ${outside.join('')}.` })
       }
     }
@@ -1676,13 +1722,27 @@ export default function DeckBuilderPage() {
         })
       }
       if (isEDH && colorIdentity.length) {
-        const outside = (deckMeta.companion.color_identity || []).filter(c => !colorIdentity.includes(c))
+        const outside = offColorIdentity(deckMeta.companion, colorIdentity, rulebreakers)
         if (outside.length) pushWarning({ key: 'companion-ci', level: 'error', summary: 'Companion off-color', detail: `${deckMeta.companion.name} is outside the commander color identity (${outside.join('')}).` })
       }
     }
 
+    // A pending color choice does nothing until the player makes it, and the
+    // picker is easy to miss — say so rather than silently holding every
+    // off-color card illegal. A chosen-color commander is the common case: an
+    // unpicked Prismatic Piper leaves the deck mono-colored.
+    for (const choice of rulebreakers?.colorChoices || []) {
+      if (choice.selected.length >= choice.count) continue
+      pushWarning({
+        key: `rulebreaker-color:${choice.key}`,
+        level: 'info',
+        summary: `${choice.source}: pick a color`,
+        detail: `${choice.source} lets you choose ${choice.count === 1 ? 'a color' : `${choice.count} colors`}. Until you pick under Commander, the deck is restricted to the rest of the command zone's color identity.`,
+      })
+    }
+
     return warnings
-  }, [builderSfMap, deckLegalitiesByName, deckCopyLimitsByName, colorIdentity, commanderCards, deckCards, deckSize, format, isEDH, mainDeckCards, deckMeta.companion, companionValidation])
+  }, [builderSfMap, deckLegalitiesByName, deckCopyLimitsByName, colorIdentity, commanderCards, deckCards, deckSize, deckSizeIsMax, format, isEDH, mainDeckCards, deckMeta.companion, companionValidation, rulebreakers])
 
   const visibleDeckWarnings = useMemo(
     () => deckWarnings.filter(w => w.level === 'error'),
@@ -1697,6 +1757,7 @@ export default function DeckBuilderPage() {
     format,
     isEDH,
     colorIdentity,
+    rulebreakers,
   })
 
   // Open card detail modal from a deck_card or Scryfall card object.
@@ -2759,6 +2820,21 @@ export default function DeckBuilderPage() {
     const baseMeta = deckMetaRef.current || {}
     applyLocalDeckMeta(nextMeta)
     return saveMeta(nextMeta, baseMeta)
+  }
+
+  // Rulebreaker color choice (Tolabow, Loch Rascal is the only printed one).
+  // Persisted per commander name in deck meta so the pick survives a reload;
+  // selecting past the card's allowance drops the oldest pick.
+  function toggleRulebreakerColor(choice, color) {
+    const base = deckMetaRef.current || {}
+    const current = sanitizeColors(base.rulebreaker_colors?.[choice.key])
+    const next = current.includes(color)
+      ? current.filter(c => c !== color)
+      : [...current, color].slice(-choice.count)
+    applyAndSaveMeta({
+      ...base,
+      rulebreaker_colors: { ...(base.rulebreaker_colors || {}), [choice.key]: next },
+    })
   }
 
   useEffect(() => {
@@ -5642,6 +5718,38 @@ export default function DeckBuilderPage() {
                     )}
                   </div>
                 )}
+
+                {/* Commanders whose text makes the player pick a color at
+                    deckbuilding: chosen-color commanders (the pick joins the
+                    deck's color identity) and Tolabow (it only widens the cards
+                    the Rulebreaker names). `label` distinguishes the two. */}
+                {(rulebreakers?.colorChoices || []).map(choice => (
+                  <div key={choice.key} className={styles.rbChoice}>
+                    <div className={styles.rbChoiceLabel}>
+                      {choice.label}{choice.count > 1 ? 's' : ''}
+                      <span className={styles.rbChoiceCount}>{choice.selected.length}/{choice.count}</span>
+                    </div>
+                    <div className={styles.deckFilterPips} role="group" aria-label={`${choice.label} for ${choice.source}`}>
+                      {MANA_COLORS.map(c => {
+                        const on = choice.selected.includes(c)
+                        return (
+                          <button
+                            key={c}
+                            type="button"
+                            className={`${styles.deckFilterPip}${on ? ' ' + styles.deckFilterPipActive : ''}`}
+                            aria-label={DECK_FILTER_COLOR_LABELS[c]}
+                            aria-pressed={on}
+                            title={DECK_FILTER_COLOR_LABELS[c]}
+                            onClick={() => toggleRulebreakerColor(choice, c)}
+                          >
+                            <img src={manaSymbolUrl(c)} alt="" aria-hidden="true" />
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className={styles.rbChoiceNote}>{choice.note}</div>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -5785,6 +5893,7 @@ export default function DeckBuilderPage() {
                     formatLabel: format?.label,
                     isEDH,
                     commanderColorIdentity: colorIdentity,
+                    rulebreakers,
                   })}
                   addFeedback={addFeedback?.key === (c.id || c.name) ? addFeedback : null}
                   onAdd={addCardToDeck}
@@ -5884,7 +5993,9 @@ export default function DeckBuilderPage() {
         {/* Right panel tab bar */}
         <div className={`${styles.tabBar} ${styles.rightTabBar}`}>
           {[
-            { id: 'deck',   label: 'Deck',   badge: `${totalCards}/${deckSize}`, over: totalCards > deckSize },
+            // "100+" when a Rulebreaker removes the maximum — the minimum is
+            // still the target, so going past it isn't an error.
+            { id: 'deck',   label: 'Deck',   badge: `${totalCards}/${deckSize}${deckSizeIsMax ? '' : '+'}`, over: deckSizeIsMax && totalCards > deckSize },
             { id: 'stats',  label: 'Stats',  badge: null },
             { id: 'combos', label: 'Combos', badge: combosFetched ? String(combosIncluded.length) : null },
           ].filter(Boolean).map(({ id, label, badge, over }) => (
@@ -6958,6 +7069,7 @@ export default function DeckBuilderPage() {
           deckCards={mainDeckCards}
           accessToken={session?.access_token}
           experimental={assistantLab}
+          rulebreakers={rulebreakers}
           onAddCard={addCardToDeck}
           onAddCards={addCardsToDeckBulk}
           onUndoAutoFill={undoAutoFill}

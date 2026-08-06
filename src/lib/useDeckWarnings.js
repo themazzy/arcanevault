@@ -18,6 +18,7 @@ export function useDeckCardLegalityWarnings({
   format,
   isEDH,
   colorIdentity,
+  rulebreakers = null,
 }) {
   return useMemo(() => {
     const warningsById = new Map()
@@ -47,6 +48,7 @@ export function useDeckCardLegalityWarnings({
           formatLabel: format?.label,
           isEDH,
           commanderColorIdentity: colorIdentity,
+          rulebreakers,
         }))
       }
 
@@ -84,5 +86,5 @@ export function useDeckCardLegalityWarnings({
     }
 
     return warningsById
-  }, [builderSfMap, legalitiesByName, copyLimitsByName, colorIdentity, deckCards, format, isEDH])
+  }, [builderSfMap, legalitiesByName, copyLimitsByName, colorIdentity, deckCards, format, isEDH, rulebreakers])
 }

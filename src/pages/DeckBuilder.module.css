@@ -222,6 +222,35 @@
   margin-bottom: 4px;
 }
 
+/* Rulebreaker color choice — sits under the commander picker. */
+.rbChoice {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rbChoiceLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--label-size-lg);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: var(--label-tracking);
+}
+
+.rbChoiceCount {
+  font-variant-numeric: tabular-nums;
+  color: var(--gold);
+}
+
+.rbChoiceNote {
+  font-size: var(--label-size-sm);
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+
 .cmdSelected {
   display: flex;
   align-items: center;
