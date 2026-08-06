@@ -2,7 +2,7 @@
 // polyfilled globals.
 import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
-import { getMeta, setMeta, getDeckCards, putDeckCards, deleteDeckCardsLocal, _simulateExternalConnectionClose } from './db'
+import { getMeta, setMeta, getDeckCards, putDeckCards, replaceDeckCards, deleteDeckCardsLocal, _simulateExternalConnectionClose } from './db'
 
 describe('IDB connection recovery', () => {
   it('reads and writes through the meta store', async () => {
@@ -58,5 +58,42 @@ describe('deleteDeckCardsLocal', () => {
     await deleteDeckCardsLocal([])
     await deleteDeckCardsLocal(undefined)
     expect((await getDeckCards(deckId)).map(r => r.id)).toEqual(['dc-keep'])
+  })
+})
+
+describe('replaceDeckCards', () => {
+  // DeckBuilder seeds its first paint from this store, so a row the server no
+  // longer returns has to leave it. putDeckCards merges, which meant a card
+  // deleted on another device stayed cached and reappeared as a ghost on every
+  // subsequent open — local deletes prune, cross-device ones never did.
+  it('drops cached rows the authoritative fetch no longer returns', async () => {
+    const deckId = 'deck-reconcile'
+    await putDeckCards([
+      { id: 'dc-a', deck_id: deckId, name: 'Still there' },
+      { id: 'dc-gone', deck_id: deckId, name: 'Deleted on another device' },
+    ])
+
+    await replaceDeckCards(deckId, [
+      { id: 'dc-a', deck_id: deckId, name: 'Still there' },
+      { id: 'dc-new', deck_id: deckId, name: 'Added on another device' },
+    ])
+
+    const rows = await getDeckCards(deckId)
+    expect(rows.map(r => r.id).sort()).toEqual(['dc-a', 'dc-new'])
+  })
+
+  it('leaves other decks alone', async () => {
+    const other = 'deck-reconcile-other'
+    await putDeckCards([{ id: 'dc-other', deck_id: other, name: 'Untouched' }])
+    await replaceDeckCards('deck-reconcile-empty', [])
+    expect((await getDeckCards(other)).map(r => r.id)).toEqual(['dc-other'])
+  })
+
+  // An emptied deck must clear, not silently keep its last known contents.
+  it('clears a deck whose fetch came back empty', async () => {
+    const deckId = 'deck-reconcile-cleared'
+    await putDeckCards([{ id: 'dc-x', deck_id: deckId, name: 'Removed' }])
+    await replaceDeckCards(deckId, [])
+    expect(await getDeckCards(deckId)).toEqual([])
   })
 })

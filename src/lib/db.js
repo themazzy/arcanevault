@@ -454,6 +454,30 @@ export async function putDeckCards(rows) {
   await Promise.all([...rows.map(r => tx.store.put(r)), tx.done])
 }
 
+/**
+ * Reconcile a deck's cached rows against an authoritative fetch: rows the
+ * server no longer returns are deleted, not just left behind.
+ *
+ * `putDeckCards` alone cannot do this — it merges, so a row deleted on another
+ * device survives locally forever. That was invisible while nothing read the
+ * store back, and became a ghost card on every first paint the moment
+ * DeckBuilder started seeding from it. Deletes made on THIS device already
+ * prune (deleteDeckCardLocal); the drift is entirely cross-device.
+ *
+ * Mirrors replaceLocalFolderCards — same one-transaction read-delete-put, so a
+ * failure can't leave the store half-reconciled.
+ */
+export async function replaceDeckCards(deckId, rows) {
+  if (!deckId) return
+  const db = await getDb()
+  const tx = db.transaction('deck_cards', 'readwrite')
+  const existing = await tx.store.index('deck_id').getAll(deckId)
+  const keep = new Set((rows || []).map(r => r?.id).filter(Boolean))
+  for (const row of existing) if (!keep.has(row.id)) await tx.store.delete(row.id)
+  for (const row of rows || []) await tx.store.put(row)
+  await tx.done
+}
+
 export async function deleteDeckCardLocal(id) {
   const db = await getDb()
   await db.delete('deck_cards', id)
