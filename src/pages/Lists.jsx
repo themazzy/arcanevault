@@ -12,6 +12,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { EmptyState, LibraryEmptyState, SectionHeader, Modal, ConfirmModal, ResponsiveHeaderActions, ResponsiveMenu, Button, SearchInput, Select } from '../components/UI'
+import { BrowserSkeleton, TileGridSkeleton } from '../components/Skeletons'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -584,7 +585,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
     if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'item' : 'items'} to ${targetFolder.name}.`)
   })
 
-  if (loading) return <EmptyState>Loading…</EmptyState>
+  if (loading) return <BrowserSkeleton viewMode={viewMode} label="Loading wishlist" />
 
   return (
     <div className={styles.browserPage} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
@@ -1510,7 +1511,7 @@ export default function ListsPage() {
     />
   )
 
-  if (loading) return <EmptyState>Loading wishlists…</EmptyState>
+  if (loading) return <TileGridSkeleton label="Loading wishlists" />
 
   return (
     <div className={styles.page}>

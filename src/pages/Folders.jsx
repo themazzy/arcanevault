@@ -8,6 +8,7 @@ import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, LibraryEmptyState, SectionHeader, Button, Input, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select, SearchInput } from '../components/UI'
+import { BrowserSkeleton, TileGridSkeleton } from '../components/Skeletons'
 import { isTradeBinder } from '../lib/tradeBinder'
 import { parseFolderBgUrl, withFolderBgUrl } from '../lib/folderBackground'
 import { getPublicAppUrl } from '../lib/publicUrl'
@@ -958,7 +959,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'card' : 'cards'} to ${targetFolder.name}.`)
   })
 
-  if (loading) return <EmptyState>Loading…</EmptyState>
+  if (loading) return <BrowserSkeleton viewMode={viewMode} label={`Loading ${noun.toLowerCase()}`} />
 
   return (
     <div className={styles.browserPage} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>
@@ -2114,7 +2115,7 @@ export default function FoldersPage({ type }) {
   }
 
 
-  if (loading) return <EmptyState>Loading {noun.toLowerCase()}s…</EmptyState>
+  if (loading) return <TileGridSkeleton label={`Loading ${noun.toLowerCase()}s`} />
 
   return (
     <div className={styles.page}>

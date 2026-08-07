@@ -8,6 +8,7 @@ import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, LibraryEmptyState, Button, ConfirmModal, ResponsiveMenu } from '../components/UI'
+import { BrowserSkeleton } from '../components/Skeletons'
 import { ChevronLeftIcon, EditIcon, ImageIcon, ImportIcon, ExportIcon, AddIcon, BuilderIcon, DeckIcon, RemoveIcon, SettingsIcon, DeleteIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import CardArtPicker from '../components/CardArtPicker'
@@ -772,7 +773,7 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
     }
   }, [selectedCard, folder.id, markCurrentLinkedDeckUnsynced, invalidatePlacementCaches, loadCards, toast])
 
-  if (loading) return <EmptyState>Loading deck…</EmptyState>
+  if (loading) return <BrowserSkeleton viewMode={viewMode} label="Loading deck" />
 
   // The verb stays constant once a pair exists, and drift is shown beside it rather
   // than replacing it — a button should keep saying where it goes. The unpaired case
