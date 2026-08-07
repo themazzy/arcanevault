@@ -12,6 +12,7 @@ import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../componen
 import VirtualCardGrid from '../components/VirtualCardGrid'
 import VirtualCardTable from '../components/VirtualCardTable'
 import { ProgressBar, ErrorBox, EmptyState, LibraryEmptyState, SectionHeader, Button, ResponsiveMenu, Select } from '../components/UI'
+import { BrowserSkeleton } from '../components/Skeletons'
 import { AddIcon, CheckIcon, CollectionIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, ScannerIcon, SettingsIcon, SortIcon, TableViewIcon } from '../icons'
 import AddCardModal from '../components/AddCardModal'
 import ExportModal from '../components/ExportModal'
@@ -328,6 +329,15 @@ export default function CollectionPage() {
     let cancelled = false
     ;(async () => {
       const remoteCards = cardsQuery.data || []
+
+      // Paint from the rows we already have, before touching IDB. Everything
+      // below is cache maintenance — a whole-collection read followed by a
+      // whole-collection write — and nothing in the render depends on it having
+      // finished. Painting after it kept the page on its loading state for the
+      // length of two IDB passes over the entire collection even when the data
+      // was already in hand, which is long enough to see on a large one.
+      if (!cancelled && remoteCards.length) setCards(remoteCards)
+
       const localCards = await getLocalCards(user.id)
       if (cancelled) return
 
@@ -348,7 +358,6 @@ export default function CollectionPage() {
       }
       await putCards(remoteCards)
       await setMeta(`cards_synced_${user.id}`, Date.now())
-      if (!cancelled) setCards(remoteCards)
     })()
     return () => { cancelled = true }
   }, [cardsQuery.data, cardsQuery.dataUpdatedAt, cardsQuery.isSuccess, user.id])
@@ -1233,11 +1242,7 @@ export default function CollectionPage() {
   const showScanner = shouldOfferCardScanner()
 
   if (collectionInitialLoading) {
-    return (
-      <>
-        <EmptyState>Loading your collection...</EmptyState>
-      </>
-    )
+    return <BrowserSkeleton viewMode={viewMode} label="Loading your collection" />
   }
 
   return (
