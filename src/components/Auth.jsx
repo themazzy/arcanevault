@@ -29,6 +29,7 @@ import {
 } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Auth.module.css'
+import { AppBootSkeleton } from './Skeletons'
 
 const AuthContext = createContext(null)
 export const useAuth = () => useContext(AuthContext)
@@ -105,8 +106,11 @@ export function AuthProvider({ children }) {
     return () => { active = false; subscription.unsubscribe() }
   }, [])
 
+  // Blocks every route, public ones included, so a visitor arriving on a share
+  // link sees this before the page itself. Layout-agnostic on purpose — see
+  // AppBootSkeleton.
   if (session === undefined) {
-    return <div className={styles.loading}>Loading DeckLoom…</div>
+    return <AppBootSkeleton />
   }
 
   return (

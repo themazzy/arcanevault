@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
-import { BrowserSkeleton, TileGridSkeleton } from './Skeletons'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { AppBootSkeleton, BrowserSkeleton, TileGridSkeleton } from './Skeletons'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 // Query the data-skeleton attribute, not class names: CSS-module classes are
 // hashed at build time, so a class selector is neither exact nor stable.
@@ -61,5 +64,30 @@ describe('BrowserSkeleton', () => {
   it('defaults to grid when no preference is passed', () => {
     const { container } = render(<BrowserSkeleton count={3} />)
     expect(ofKind(container, 'card')).toHaveLength(3)
+  })
+})
+
+describe('AppBootSkeleton', () => {
+  // This gate normally clears in a few milliseconds (the session is read from
+  // localStorage), so it holds its blocks back rather than flashing a shimmer
+  // for one frame. The status message is still there from the start, so the
+  // wait is announced even while nothing is drawn.
+  it('announces immediately but draws nothing until the delay elapses', () => {
+    vi.useFakeTimers()
+    const { container } = render(<AppBootSkeleton delayMs={150} />)
+
+    expect(screen.getByRole('status').textContent).toBe('Loading DeckLoom')
+    expect(placeholders(container)).toHaveLength(0)
+
+    act(() => vi.advanceTimersByTime(149))
+    expect(placeholders(container)).toHaveLength(0)
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(placeholders(container).length).toBeGreaterThan(0)
+  })
+
+  it('marks itself busy so the gate is not mistaken for an empty page', () => {
+    const { container } = render(<AppBootSkeleton />)
+    expect(container.firstChild.getAttribute('aria-busy')).toBe('true')
   })
 })

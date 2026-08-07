@@ -69,3 +69,38 @@
 @media (prefers-reduced-motion: reduce) {
   .block { animation: none; }
 }
+
+/* ── App boot gate ────────────────────────────────────────────────────────────
+   Rendered above the route split, so it commits to no particular layout.
+   See AppBootSkeleton in Skeletons.jsx. */
+.boot {
+  min-height: 100dvh;
+  background: var(--bg);
+}
+.bootBar {
+  display: flex;
+  align-items: center;
+  height: 52px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--s-border);
+}
+.bootBrand { width: 132px; height: 18px; }
+
+.bootBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+.bootTitle { width: min(280px, 60%); height: 26px; }
+.bootLine  { width: min(420px, 85%); height: 13px; }
+
+.bootGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.bootTile { min-height: 104px; border-radius: var(--radius-md); }

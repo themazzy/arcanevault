@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import styles from './Skeletons.module.css'
 
 // Shared loading skeletons for the collection surfaces.
@@ -61,6 +62,48 @@ export function BrowserSkeleton({ viewMode = 'grid', count, label = 'Loading' })
         <div className={styles.rowList} aria-hidden="true">
           {times(items, i => <Block key={i} kind="row" className={styles.row} />)}
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Whole-app boot gate — AuthProvider, before the session resolves.
+ *
+ * Deliberately layout-agnostic. This renders above the router's route split, so
+ * it cannot know whether the app shell or a public page like /d/:id is coming
+ * next; committing to either would swap into the wrong shape for the other.
+ *
+ * Unlike the other skeletons it waits before appearing. The session normally
+ * resolves from localStorage in a few milliseconds, and a shimmer that flashes
+ * for a frame is worse than showing nothing at all. The delay only pays off on
+ * the slow path — an expired token being refreshed over the network — which is
+ * exactly the case where a blank screen would otherwise look like a hang.
+ */
+export function AppBootSkeleton({ delayMs = 150, label = 'Loading DeckLoom' }) {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), delayMs)
+    return () => clearTimeout(timer)
+  }, [delayMs])
+
+  return (
+    <div className={styles.boot} aria-busy="true">
+      <span className="sr-only" role="status">{label}</span>
+      {visible && (
+        <>
+          <div className={styles.bootBar} aria-hidden="true">
+            <Block kind="boot-brand" className={styles.bootBrand} />
+          </div>
+          <div className={styles.bootBody} aria-hidden="true">
+            <Block kind="boot-title" className={styles.bootTitle} />
+            <Block kind="boot-line" className={styles.bootLine} />
+            <div className={styles.bootGrid}>
+              {times(3, i => <Block key={i} kind="boot-tile" className={styles.bootTile} />)}
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
