@@ -3,13 +3,14 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
-import { parseDeckMeta, serializeDeckMeta, FORMATS, classifyCardType, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
+import { serializeDeckMeta, FORMATS, classifyCardType, groupDeckCards, TYPE_GROUPS } from '../lib/deckBuilderApi'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
 import { cardNameMatchKeys } from '../lib/deckBuilderHelpers'
 import DeckStats, { CAT_ORDER, getCardCategory, normalizeDeckBuilderCards } from '../components/DeckStats'
 import styles from './DeckView.module.css'
 import uiStyles from '../components/UI.module.css'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
+import { fetchDeckForView } from '../lib/deckViewData'
 import { getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import { Modal, ResponsiveMenu, SearchInput } from '../components/UI'
 import { CardBrowserContent } from '../components/CardBrowserViews'
@@ -221,6 +222,81 @@ function ComboCard({ combo, deckNames, deckImages, dim, onOpenDetail }) {
   )
 }
 
+// Top bar + guest banner. Shared by the loaded page and the skeleton: none of
+// it depends on deck data, so a visitor arriving on a share link gets the brand,
+// the sign-in call to action and the banner on the very first paint instead of
+// after two round trips.
+function DeckViewChrome({ user, onBack, ownerAction = null }) {
+  return (
+    <>
+      {/* Back sits in the left cluster, opposite the forward actions: it's a
+          retreat, and grouping it with "Open in Deck Builder" on the right
+          read as one more thing to do with the deck. The logo stays leftmost
+          so the brand is anchored where it is on every other page. */}
+      <div className={styles.topBar}>
+        <div className={styles.topLeft}>
+          <Link to="/" className={styles.logo}>
+            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
+            <span className={styles.logoText}>Deck<span>Loom</span></span>
+          </Link>
+          {user && (
+            <button type="button" className={styles.backBtn} onClick={onBack}>
+              <span aria-hidden="true" className={styles.backArrow}>←</span>
+              <span>Back</span>
+            </button>
+          )}
+        </div>
+
+        <div className={styles.topActions}>
+          {!user ? (
+            <>
+              <Link to="/login" className={styles.signInBtn}>Sign In</Link>
+              <Link to="/login" className={styles.actionLink}>Create Account</Link>
+            </>
+          ) : ownerAction}
+        </div>
+      </div>
+
+      {!user && (
+        <div className={styles.guestBanner}>
+          Want to try DeckLoom?{' '}
+          <Link to="/login" className={styles.guestBannerLink}>Sign up.</Link>
+        </div>
+      )}
+    </>
+  )
+}
+
+// Shown while the deck loads. Deliberately not a branded splash: this is the
+// public share landing page, and a centred logo made every shared link look
+// like it was still booting the app rather than opening a deck.
+function DeckViewSkeleton({ user, onBack }) {
+  return (
+    <div className={styles.page} aria-busy="true">
+      <span className="sr-only" role="status">Loading deck</span>
+      <DeckViewChrome user={user} onBack={onBack} />
+      <div className={styles.deckHeader} aria-hidden="true">
+        <div className={styles.deckHeaderInner}>
+          <div className={styles.deckInfo}>
+            <span className={`${styles.skelBar} ${styles.skelTitle}`} />
+            <span className={`${styles.skelBar} ${styles.skelCreator}`} />
+            <div className={styles.skelPillRow}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <span key={i} className={`${styles.skelBar} ${styles.skelPill}`} />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className={styles.skelGrid} aria-hidden="true">
+        {Array.from({ length: 9 }).map((_, i) => (
+          <span key={i} className={`${styles.skelBar} ${styles.skelCard}`} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function DeckViewPage() {
   const { id } = useParams()
   const { user } = useAuth()
@@ -266,18 +342,16 @@ export default function DeckViewPage() {
   // ── Load deck data ──────────────────────────────────────────────────────────
   useEffect(() => {
     ;(async () => {
-      const { data: folder, error: ferr } = await sb.from('folders').select('*').eq('id', id).maybeSingle()
-      if (ferr || !folder) {
-        setError('Deck not found')
+      const { deck: folder, meta, cards: deckCards, error: loadErr } = await fetchDeckForView({
+        id,
+        viewerId: user?.id ?? null,
+      })
+      if (loadErr) {
+        setError(loadErr)
         setLoading(false)
         return
       }
-      const meta = parseDeckMeta(folder.description)
-      if (!meta.is_public && folder.user_id !== user?.id) {
-        setError('Deck not found')
-        setLoading(false)
-        return
-      }
+
       setDeck(folder)
       setDeckMeta(meta)
       setStatsBracketOverride(meta.bracketManual ? (meta.bracket ?? null) : null)
@@ -287,10 +361,6 @@ export default function DeckViewPage() {
         .then(({ data }) => { if (data) setCreatorNick(data) })
         .catch(() => {})
 
-      // Use security-definer RPC: bypasses cards RLS for collection decks
-      // so visitors who are not the owner still see the full card list.
-      const { data: rpcCards } = await sb.rpc('get_deck_cards_for_view', { p_deck_id: id })
-      const deckCards = Array.isArray(rpcCards) ? rpcCards : (rpcCards || [])
       setCards(deckCards)
       setLoading(false)
       if (deckCards.length) {
@@ -651,15 +721,7 @@ export default function DeckViewPage() {
   }, [cards, groupBy, groupedCards, sortCards])
 
   // ── Loading / error states ─────────────────────────────────────────────────
-  if (loading) return (
-    <div className={styles.signinPage}>
-      <div className={styles.signinLogo}>
-        <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
-        <span className={styles.logoText}>Deck<span>Loom</span></span>
-      </div>
-      <div className={styles.signinMsg} style={{ fontStyle: 'italic' }}>Loading deck…</div>
-    </div>
-  )
+  if (loading) return <DeckViewSkeleton user={user} onBack={() => navigate('/decks')} />
 
   if (error) return (
     <div className={styles.signinPage}>
@@ -675,53 +737,18 @@ export default function DeckViewPage() {
       {/* Card detail modal */}
       {detailCard && <CardDetailModal {...detailNav} card={detailCard} sfMap={sfMap} priceSource={price_source} onClose={() => setDetailCard(null)} />}
 
-      {/* ── Top bar ── */}
-      <div className={styles.topBar}>
-        {/* Back sits in the left cluster, opposite the forward actions: it's a
-            retreat, and grouping it with "Open in Deck Builder" on the right
-            read as one more thing to do with the deck. The logo stays leftmost
-            so the brand is anchored where it is on every other page. */}
-        <div className={styles.topLeft}>
-          <Link to="/" className={styles.logo}>
-            <img className={styles.brandMark} src={BRAND_MARK} alt="" aria-hidden="true" />
-            <span className={styles.logoText}>Deck<span>Loom</span></span>
+      <DeckViewChrome
+        user={user}
+        onBack={() => {
+          if (window.history.length > 1) navigate(-1)
+          else navigate(deck?.type === 'builder_deck' ? '/builder' : '/decks')
+        }}
+        ownerAction={isOwner ? (
+          <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>
+            <BuilderIcon size={12} /> Open in Deck Builder
           </Link>
-          {user && (
-            <button
-              type="button"
-              className={styles.backBtn}
-              onClick={() => {
-                if (window.history.length > 1) navigate(-1)
-                else navigate(deck?.type === 'builder_deck' ? '/builder' : '/decks')
-              }}
-            >
-              <span aria-hidden="true" className={styles.backArrow}>←</span>
-              <span>Back</span>
-            </button>
-          )}
-        </div>
-
-        <div className={styles.topActions}>
-          {!user ? (
-            <>
-              <Link to="/login" className={styles.signInBtn}>Sign In</Link>
-              <Link to="/login" className={styles.actionLink}>Create Account</Link>
-            </>
-          ) : isOwner && (
-            <Link to={`/builder/${builderEditId}`} className={styles.actionLink}>
-              <BuilderIcon size={12} /> Open in Deck Builder
-            </Link>
-          )}
-        </div>
-      </div>
-
-      {/* ── Guest banner ── */}
-      {!user && (
-        <div className={styles.guestBanner}>
-          Want to try DeckLoom?{' '}
-          <Link to="/login" className={styles.guestBannerLink}>Sign up.</Link>
-        </div>
-      )}
+        ) : null}
+      />
 
       {/* ── Deck header ── */}
       <div className={styles.deckHeader}>

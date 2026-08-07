@@ -5097,3 +5097,43 @@
   /* Board header shows just the label — no count pill (per design) */
   .boardCount { display: none; }
 }
+
+/* ── Cold-open skeleton ──────────────────────────────────────────────────────
+   Sits inside the real .page / .left / .right grid so the swap to the loaded
+   builder does not reflow. See DeckBuilderSkeleton in DeckBuilder.jsx. */
+.skelStack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  min-width: 0;
+}
+
+.skelBar {
+  display: block;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background-size: 200% 100%;
+  animation: builderShimmer 1.5s infinite;
+}
+
+@keyframes builderShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skelSearchBar { height: 38px; border-radius: var(--radius-sm); }
+.skelDeckTitle { width: min(320px, 60%); height: 26px; }
+.skelRow       { height: 34px; }
+
+.skelPillRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.skelPill { width: 74px; height: 22px; border-radius: 999px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skelBar { animation: none; }
+}

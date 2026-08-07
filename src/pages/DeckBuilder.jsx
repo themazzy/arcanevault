@@ -651,6 +651,44 @@ import { useCombosFetch } from '../hooks/useCombosFetch'
 import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 
 // ── Main DeckBuilder component ────────────────────────────────────────────────
+// Cold-open placeholder. The warm path never reaches this: the loader below
+// seeds from the IDB deck-card cache and drops `loading` before the network
+// wave, so this only shows the first time a deck is opened on a device.
+//
+// It mirrors the real two-panel grid (search rail left, deck list right) so the
+// swap does not reflow. Previously an unstyled inline-styled "Loading deck..."
+// in the top-left corner, which read as a broken page rather than a loading one.
+export function DeckBuilderSkeleton() {
+  return (
+    <div className={styles.page} aria-busy="true">
+      <span className="sr-only" role="status">Loading deck</span>
+      <div className={styles.left} aria-hidden="true">
+        <div className={styles.leftContent}>
+          <div className={styles.skelStack}>
+            <span className={`${styles.skelBar} ${styles.skelSearchBar}`} />
+            {Array.from({ length: 6 }).map((_, i) => (
+              <span key={i} className={`${styles.skelBar} ${styles.skelRow}`} />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className={styles.right} aria-hidden="true">
+        <div className={styles.skelStack}>
+          <span className={`${styles.skelBar} ${styles.skelDeckTitle}`} />
+          <div className={styles.skelPillRow}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <span key={i} className={`${styles.skelBar} ${styles.skelPill}`} />
+            ))}
+          </div>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <span key={i} className={`${styles.skelBar} ${styles.skelRow}`} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function DeckBuilderPage() {
   const { id: deckId } = useParams()
   const { user, session } = useAuth()
@@ -5555,7 +5593,7 @@ export default function DeckBuilderPage() {
   if (loading) return (
     <>
       <GuidedBuildOverlay visible={guidedPreparing} commanderName={guidedPrepNameRef.current} />
-      <div style={{ padding: 40, color: 'var(--text-faint)' }}>Loading deck...</div>
+      <DeckBuilderSkeleton />
     </>
   )
   if (loadError) return (
