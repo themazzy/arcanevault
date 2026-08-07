@@ -57,7 +57,7 @@ async function fetchOwnedCardIds(userId) {
 // `limit(0)` rather than `head: true`: the count rides the Content-Range header
 // either way, but Chrome logs every bodiless HEAD response as "Fetch failed
 // loading" in the console even on a 200, which reads like a real error.
-async function fetchOwnedCardCount(userId) {
+export async function fetchOwnedCardCount(userId) {
   assertOnline()
 
   const { count, error } = await sb.from('cards')

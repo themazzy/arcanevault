@@ -27,16 +27,24 @@ export function invalidateWishlistQueries(queryClient, userId, options = {}) {
   return Promise.all(invalidations)
 }
 
+// Home reads from two queries: ['home-mode'] (layout decision + builder decks,
+// one round trip) and ['home-snapshot'] (the collection load behind
+// CollectionPulse). Deck and card mutations can move either, so invalidate both.
 export function invalidateHomeSnapshot(queryClient, userId) {
   if (!queryClient || !userId) return Promise.resolve()
-  return queryClient.invalidateQueries({ queryKey: ['home-snapshot', userId] })
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['home-mode', userId] }),
+    queryClient.invalidateQueries({ queryKey: ['home-snapshot', userId] }),
+  ])
 }
 
 export function removeDecksFromHomeSnapshot(queryClient, userId, deckIds) {
   if (!queryClient || !userId) return Promise.resolve()
   const removedIds = new Set(deckIds || [])
   if (removedIds.size) {
-    queryClient.setQueryData(['home-snapshot', userId], snapshot => {
+    // Optimistic: drop the deck from the mode query so Continue Building stops
+    // offering it before the refetch lands.
+    queryClient.setQueryData(['home-mode', userId], snapshot => {
       if (!snapshot?.builderDecks) return snapshot
       return {
         ...snapshot,

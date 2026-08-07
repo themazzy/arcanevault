@@ -86,25 +86,31 @@ describe('invalidateWishlistQueries', () => {
 })
 
 describe('Home snapshot invalidation', () => {
-  it('invalidates the user-scoped Home snapshot', async () => {
+  // Home splits its data across two queries so the layout decision does not wait
+  // on the collection walk; both have to be revalidated together.
+  it('invalidates both user-scoped Home queries', async () => {
     const client = makeClient()
     await invalidateHomeSnapshot(client, 'user-1')
-    expect(keysFrom(client)).toEqual([['home-snapshot', 'user-1']])
+    expect(keysFrom(client)).toEqual([
+      ['home-mode', 'user-1'],
+      ['home-snapshot', 'user-1'],
+    ])
   })
 
-  it('removes deleted decks from cached Home data before revalidation', async () => {
+  it('removes deleted decks from the cached Home mode data before revalidation', async () => {
     const client = makeClient()
     await removeDecksFromHomeSnapshot(client, 'user-1', ['deck-1'])
 
     const [key, updater] = client.setQueryData.mock.calls[0]
-    expect(key).toEqual(['home-snapshot', 'user-1'])
+    expect(key).toEqual(['home-mode', 'user-1'])
     expect(updater({
-      cards: [{ id: 'card-1' }],
+      cardCount: 42,
       builderDecks: [{ id: 'deck-1' }, { id: 'deck-2' }],
     })).toEqual({
-      cards: [{ id: 'card-1' }],
+      cardCount: 42,
       builderDecks: [{ id: 'deck-2' }],
     })
+    expect(keysFrom(client)).toContainEqual(['home-mode', 'user-1'])
     expect(keysFrom(client)).toContainEqual(['home-snapshot', 'user-1'])
   })
 })

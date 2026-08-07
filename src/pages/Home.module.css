@@ -1,38 +1,50 @@
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 .home { max-width: 1100px; margin: 0 auto; }
 
-.homeModeLoading {
-  min-height: calc(100dvh - 110px);
-  display: grid;
-  place-items: center;
-  padding: 24px;
+/* ── Home skeleton ───────────────────────────────────────────────────────────
+   Shown for the one round trip it takes to decide dashboard vs onboarding.
+   Reuses .returningLeadGrid / .returningSecondary / .pulseGrid so the blocks
+   land where the real content will, and the swap has no layout shift. */
+.skelBlock,
+.skelBar {
+  display: block;
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
 }
-.homeModeLoadingInner {
+
+.skelHead {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  gap: 10px;
+  margin-bottom: 18px;
 }
-.homeModeLoadingBrand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--gold);
+.skelBar { border-radius: 4px; }
+.skelBarEyebrow { width: 116px; height: 10px; }
+.skelBarTitle   { width: min(340px, 70%); height: 26px; }
+.skelBarLead    { width: min(480px, 90%); height: 13px; }
+
+.skelHero {
+  min-height: 238px;
+  border-radius: 10px;
 }
-.homeModeLoadingBrand img {
-  width: 38px;
-  height: 38px;
-  object-fit: contain;
+.skelPanel {
+  flex: 1;
+  min-height: 118px;
+  border-radius: var(--radius-md);
 }
-.homeModeLoadingBrand > span > span { color: var(--purple); }
-.homeModeLoadingText {
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  color: var(--text-faint);
+.skelPanelShort {
+  min-height: 96px;
+  border-radius: var(--radius-md);
+}
+.skelSearch {
+  height: 46px;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skelBlock,
+  .skelBar { animation: none; }
 }
 
 /* Dashboard: the rail (What's New, support, upcoming sets) must not eat width
@@ -569,51 +581,6 @@
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
-/* ── Set Completion ──────────────────────────────────────────────────────── */
-.setList { display: flex; flex-direction: column; gap: 8px; }
-
-.setRow { display: flex; flex-direction: column; gap: 4px; }
-.setRowMeta {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
-}
-.setRowName {
-  font-size: 0.82rem; color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.setRowCount { font-size: 0.7rem; color: var(--text-faint); flex-shrink: 0; }
-.setRowTrack {
-  height: 4px; border-radius: 2px; background: var(--s2);
-  overflow: hidden;
-}
-.setRowFill {
-  height: 100%; border-radius: 2px;
-  background: linear-gradient(90deg, rgba(201,168,76,0.5), var(--gold));
-  transition: width 0.4s ease;
-  min-width: 2px;
-}
-
-.setSkeletons { display: flex; flex-direction: column; gap: 10px; }
-.setSkeleton {
-  height: 36px; border-radius: 5px;
-  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
-  background-size: 200% 100%; animation: shimmer 1.5s infinite;
-}
-
-.setDropdown { margin-top: 6px; }
-.setDropdownToggle {
-  background: none; border: none; color: var(--text-faint);
-  font-size: 0.74rem; cursor: pointer; padding: 4px 0;
-  transition: color 0.15s;
-}
-.setDropdownToggle:hover { color: var(--gold); }
-.setDropdownList {
-  margin-top: 8px; display: flex; flex-direction: column; gap: 8px;
-  max-height: 320px; overflow-y: auto;
-  padding-right: 4px;
-}
-.setDropdownList::-webkit-scrollbar { width: 4px; }
-.setDropdownList::-webkit-scrollbar-thumb { background: var(--s-border2); border-radius: 2px; }
-
 .snapshotTopCard {
   display: flex;
   align-items: center;

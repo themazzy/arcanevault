@@ -6,9 +6,8 @@ import { getInstantCache, getPriceSource, formatPrice, sfGet } from '../lib/scry
 import { sortByNameRelevance } from '../lib/scryfallSearch'
 import { fetchAutocomplete, buildLookupQuery, hasLookupFilters } from '../lib/cardLookup'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
-import { getLocalCards, getLocalFolders, getAllLocalFolderCards, getAllDeckAllocationsForUser } from '../lib/db'
+import { getLocalCards, getLocalFolders } from '../lib/db'
 import { syncOwnedCards } from '../lib/collectionFetchers'
-import { fetchAllByKeysetSharded } from '../lib/keysetPager'
 import { cardsContentHash } from '../lib/cardsHash'
 import { perfSpan } from '../lib/perf'
 import { getProdAppUrl } from '../lib/publicUrl'
@@ -17,10 +16,10 @@ import { lastInputWasTouch } from '../lib/inputType'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { FloatingPreview } from '../components/deckBuilder/FloatingPreview'
-import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
 import { getHomeMode, selectUpcomingSets } from '../lib/homeLayout'
+import { loadHomeMode } from '../lib/homeMode'
 import { shouldOfferCardScanner } from '../lib/scannerAvailability'
 import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { enrichDecksWithCommanderArt, useDeckArt } from '../lib/deckArt'
@@ -58,35 +57,30 @@ function addRecentlyViewed(card) {
 // ── Collection data loader ────────────────────────────────────────────────────
 // Uses IDB (same store Collection.jsx syncs into) — no Supabase RLS issues.
 // Falls back to a fresh Supabase pull if IDB is empty (first visit on device).
+// Feeds CollectionPulse only, so it is free to resolve after first paint.
 async function loadCollectionData(userId) {
   const endLoad = perfSpan('home-collection-load')
   // IDB reads + price cache in parallel — fast
   const endIdb = perfSpan('home-idb-read')
-  const [idbCards, idbFolders, sfMap, myDecksResult] = await Promise.all([
+  const [idbCards, idbFolders, sfMap] = await Promise.all([
     getLocalCards(userId),
     getLocalFolders(userId),
     getInstantCache(),
-    sb.rpc('get_my_decks'),
   ])
   endIdb()
 
   let safeSfMap = sfMap || {}
 
-  // Prefer IDB folders; if IDB is cold, pull from Supabase
-  let allFolders = idbFolders?.length ? idbFolders : []
-  if (!allFolders.length) {
-    const { data } = await sb.from('folders').select('id, name, type').eq('user_id', userId)
-    allFolders = data || []
-  }
-
-  const deckIds = allFolders.filter(f => f.type === 'deck').map(f => f.id)
-  const placementFolderIds = allFolders.filter(f => f.type !== 'deck').map(f => f.id)
-
-  // Cards, placements and allocations are independent of each other, so on a
-  // cold cache they run concurrently — walked one after the other they cost the
-  // sum of three multi-page walks (~14s measured after a logout wiped IDB).
+  // Nothing here depends on anything else, so a cold cache pays one round trip
+  // rather than stacking the folders read in front of the card walk.
   const endFetch = perfSpan('home-collection-fetch')
-  const [allCards, allFc, allDa] = await Promise.all([
+  const [allFolders, allCards] = await Promise.all([
+    (async () => {
+      if (idbFolders?.length) return idbFolders
+      const { data } = await sb.from('folders').select('id, name, type').eq('user_id', userId)
+      return data || []
+    })(),
+
     (async () => {
       if (idbCards?.length) return idbCards
       // syncOwnedCards, not a raw fetch: it seeds IDB and the sync cursor, so
@@ -99,42 +93,8 @@ async function loadCollectionData(userId) {
         return []
       }
     })(),
-
-    (async () => {
-      if (!placementFolderIds.length) return []
-      const local = await getAllLocalFolderCards(placementFolderIds)
-      if (local.length) return local
-      try {
-        return await fetchAllByKeysetSharded(() => sb.from('folder_cards')
-          .select('id, folder_id, card_id, qty')
-          .in('folder_id', placementFolderIds))
-      } catch (error) {
-        console.warn('[Home] folder_cards fallback error:', error.message)
-        return []
-      }
-    })(),
-
-    (async () => {
-      if (!deckIds.length) return []
-      const local = await getAllDeckAllocationsForUser(userId)
-      if (local.length) return local
-      try {
-        return await fetchAllByKeysetSharded(() => sb.from('deck_allocations')
-          .select('id, deck_id, card_id, qty, user_id')
-          .eq('user_id', userId)
-          .in('deck_id', deckIds))
-      } catch (error) {
-        console.warn('[Home] deck_allocations fallback error:', error.message)
-        return []
-      }
-    })(),
   ])
   endFetch()
-
-  // Join in memory
-  const cardById  = Object.fromEntries(allCards.map(c => [c.id, c]))
-  const cardRows  = allFc.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
-  const deckRows = allDa.map(r => ({ ...r, cards: cardById[r.card_id] || null }))
 
   if (allCards.length) {
     const endPrices = perfSpan('home-price-map')
@@ -142,23 +102,8 @@ async function loadCollectionData(userId) {
     endPrices()
   }
 
-  const deckSource = !myDecksResult.error && Array.isArray(myDecksResult.data)
-    ? myDecksResult.data
-    : allFolders
-  const builderDecks = deckSource
-    .filter(deck => {
-      if (deck.type !== 'builder_deck') return false
-      const meta = parseDeckMeta(deck.description)
-      return !meta.isGroup && !meta.hideFromBuilder && !meta.linked_deck_id
-    })
-    .sort((a, b) => {
-      const aTime = Date.parse(a.deck_modified_at || a.updated_at || a.created_at || 0) || 0
-      const bTime = Date.parse(b.deck_modified_at || b.updated_at || b.created_at || 0) || 0
-      return bTime - aTime
-    })
-
   endLoad()
-  return { folders: allFolders, cards: allCards, cardRows, deckRows, sfMap: safeSfMap, builderDecks }
+  return { folders: allFolders, cards: allCards, sfMap: safeSfMap }
 }
 
 // Syncs cards from Supabase into IDB and returns updated cards array if anything changed.
@@ -1027,99 +972,6 @@ export function EmptyAccountStart({ premium }) {
   )
 }
 
-// ── Set Completion ────────────────────────────────────────────────────────────
-function SetRow({ row }) {
-  const pct = row.pct ?? 0
-  return (
-    <div className={styles.setRow}>
-      <div className={styles.setRowMeta}>
-        <span className={styles.setRowName}>{row.name}</span>
-        <span className={styles.setRowCount}>
-          {row.owned}{row.total ? `/${row.total}` : ''}{row.pct != null ? ` · ${row.pct}%` : ''}
-        </span>
-      </div>
-      <div className={styles.setRowTrack}>
-        <div className={styles.setRowFill} style={{ width: `${Math.min(pct, 100)}%` }} />
-      </div>
-    </div>
-  )
-}
-
-const _SetCompletionSection = function SetCompletionSection({ data, loading }) {
-  const [setsMap,  setSetsMap]  = useState(null)
-  const [expanded, setExpanded] = useState(false)
-
-  // Group owned cards by set — unique collector_numbers only
-  const ownedBySet = useMemo(() => {
-    if (!data) return []
-    const { cardRows, sfMap } = data
-    const map = {}
-    for (const row of cardRows) {
-      const card = row.cards
-      if (!card?.set_code || !card?.collector_number) continue
-      const sf = sfMap[`${card.set_code}-${card.collector_number}`]
-      if (!map[card.set_code])
-        map[card.set_code] = { code: card.set_code, name: sf?.set_name || card.set_code.toUpperCase(), nums: new Set() }
-      map[card.set_code].nums.add(card.collector_number)
-    }
-    return Object.values(map)
-  }, [data])
-
-  useEffect(() => {
-    if (ownedBySet.length) fetchScryfallSetsMap().then(setSetsMap)
-  }, [ownedBySet.length])
-
-  // Build rows: sort by completion % desc, fallback to owned count
-  const rows = useMemo(() => {
-    return ownedBySet.map(s => {
-      const total = setsMap?.[s.code]?.count || null
-      const pct   = total ? Math.min(100, Math.round(s.nums.size / total * 100)) : null
-      return { code: s.code, name: setsMap?.[s.code]?.name || s.name, owned: s.nums.size, total, pct }
-    }).sort((a, b) => {
-      if (a.pct != null && b.pct != null) return b.pct - a.pct
-      if (a.pct != null) return -1
-      if (b.pct != null) return 1
-      return b.owned - a.owned
-    })
-  }, [ownedBySet, setsMap])
-
-  if (!loading && rows.length === 0) return null
-
-  const top  = rows.slice(0, 5)
-  const rest = rows.slice(5)
-
-  return (
-    <section className={styles.section}>
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.sectionTitle}>Set Completion</h2>
-        <span className={styles.sectionCount}>{rows.length} sets</span>
-      </div>
-      {loading
-        ? <div className={styles.setSkeletons}>{[0,1,2].map(i => <div key={i} className={styles.setSkeleton} />)}</div>
-        : (
-          <>
-            <div className={styles.setList}>
-              {top.map(r => <SetRow key={r.code} row={r} />)}
-            </div>
-            {rest.length > 0 && (
-              <div className={styles.setDropdown}>
-                <button className={styles.setDropdownToggle} onClick={() => setExpanded(v => !v)}>
-                  {expanded ? <><ChevronUpIcon size={12} /> Show less</> : <><ChevronDownIcon size={12} /> Show all {rows.length} sets</>}
-                </button>
-                {expanded && (
-                  <div className={styles.setDropdownList}>
-                    {rest.map(r => <SetRow key={r.code} row={r} />)}
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )
-      }
-    </section>
-  )
-}
-
 // ── Collection pulse ──────────────────────────────────────────────────────────
 function CollectionPulse({ data, loading, priceSource }) {
   const navigate = useNavigate()
@@ -1205,7 +1057,10 @@ function CollectionPulse({ data, loading, priceSource }) {
         <h2 className={styles.sectionTitle}>Collection</h2>
       </div>
       <div className={styles.pulseGrid}>
-        {loading
+        {/* `!stats` matters as much as `loading`: the page now paints before the
+            collection snapshot resolves, so a failed snapshot query leaves us
+            settled-but-empty rather than loading. */}
+        {loading || !stats
           ? Array.from({ length: 3 }).map((_, i) => <div key={i} className={styles.snapshotSkeleton} />)
           : <>
               {tiles.map(t => (
@@ -1540,25 +1395,37 @@ export function ChangelogPanel({ entries }) {
   )
 }
 
-export function HomeModeLoading() {
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    const timer = setTimeout(() => setVisible(true), 180)
-    return () => clearTimeout(timer)
-  }, [])
-
+// Neutral holding state while loadHomeMode decides the layout — one round trip,
+// so this renders immediately rather than behind an anti-flash delay: a skeleton
+// in the shape of the page it is about to become reads as loading content, not
+// as a stalled screen the way a branded splash does.
+//
+// It deliberately does NOT guess between dashboard and onboarding (see
+// getHomeMode) — the blocks are generic enough to resolve into either.
+export function HomeSkeleton() {
   return (
-    <div className={styles.homeModeLoading} aria-busy="true">
-      {visible && (
-        <div className={styles.homeModeLoadingInner} role="status" aria-live="polite">
-          <div className={styles.homeModeLoadingBrand} aria-hidden="true">
-            <img src={BRAND_MARK} alt="" />
-            <span>Deck<span>Loom</span></span>
-          </div>
-          <span className={styles.homeModeLoadingText}>Preparing your home</span>
+    <div className={`${styles.home} ${styles.returningHome}`} aria-busy="true">
+      <span className="sr-only" role="status">Loading your home</span>
+      <section className={styles.returningLead} aria-hidden="true">
+        <div className={styles.skelHead}>
+          <span className={`${styles.skelBar} ${styles.skelBarEyebrow}`} />
+          <span className={`${styles.skelBar} ${styles.skelBarTitle}`} />
+          <span className={`${styles.skelBar} ${styles.skelBarLead}`} />
         </div>
-      )}
+        <div className={styles.returningLeadGrid}>
+          <div className={`${styles.skelBlock} ${styles.skelHero}`} />
+          <div className={styles.returningSecondary}>
+            <div className={`${styles.skelBlock} ${styles.skelPanel}`} />
+            <div className={`${styles.skelBlock} ${styles.skelPanelShort}`} />
+          </div>
+        </div>
+      </section>
+      <div className={`${styles.skelBlock} ${styles.skelSearch}`} aria-hidden="true" />
+      <section className={styles.section} aria-hidden="true">
+        <div className={styles.pulseGrid}>
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className={styles.snapshotSkeleton} />)}
+        </div>
+      </section>
     </div>
   )
 }
@@ -1584,8 +1451,18 @@ export default function HomePage() {
     }
   }, [])
 
+  // Which layout to render. One round trip, and the only thing first paint waits
+  // on — keep it free of anything that walks the collection.
+  const { data: modeData } = useQuery({
+    queryKey: ['home-mode', user?.id],
+    queryFn: () => loadHomeMode(user.id),
+    enabled: !!user?.id,
+    refetchOnMount: 'always',
+  })
+
   // Cross-mount cached collection load. staleTime defaults to 5 min via queryClient defaults,
-  // so Home → Collection → Home returns instantly from cache.
+  // so Home → Collection → Home returns instantly from cache. Feeds CollectionPulse,
+  // which skeletons its own tiles until this lands.
   const { data: collData, isLoading } = useQuery({
     queryKey: ['home-snapshot', user?.id],
     queryFn: () => loadCollectionData(user.id),
@@ -1652,13 +1529,13 @@ export default function HomePage() {
   }, [user?.id, collData, queryClient, cardsCacheTick])
 
   const homeMode = getHomeMode({
-    loading: collLoading || !collData,
-    cardCount: collData?.cards?.length ?? 0,
-    builderDeckCount: collData?.builderDecks?.length ?? 0,
+    loading: !modeData,
+    cardCount: modeData?.cardCount ?? 0,
+    builderDeckCount: modeData?.builderDecks?.length ?? 0,
   })
 
   if (homeMode === 'loading') {
-    return <HomeModeLoading />
+    return <HomeSkeleton />
   }
 
   const isOnboarding = homeMode === 'onboarding'
@@ -1669,7 +1546,7 @@ export default function HomePage() {
         <EmptyAccountStart premium={premium} />
       ) : (
         <>
-          <ContinueBuilding decks={collData?.builderDecks} />
+          <ContinueBuilding decks={modeData?.builderDecks} />
           <CardLookupSection />
           <CollectionPulse data={collData} loading={collLoading} priceSource={price_source} />
           {showBelowFold && <DiscoverSection changelog={changelog} />}
