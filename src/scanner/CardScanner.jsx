@@ -1641,9 +1641,14 @@ export default function CardScanner({ onMatch, onClose }) {
   // `options.prefetched` comes from the auto-scan probe (frame + corners for
   // the first sample). The manual button passes a click event — ignored.
   const handleScan = useCallback(async (options) => {
-    if (!isReady || scanning || !mountedRef.current) return
+    // scanningRef, not just the `scanning` state: the ref is set synchronously
+    // below, while the state only lands after React flushes. A manual tap in
+    // that window would otherwise start a SECOND scan concurrently with the
+    // auto-scan one — and both drive the vision worker's single current-card
+    // slot, so one frame's hashes would be matched against the other's warp.
+    if (!isReady || scanning || scanningRef.current || !mountedRef.current) return
     const prefetched = options?.prefetched ?? null
-    scanningRef.current = true  // block detection loop before any async OpenCV work
+    scanningRef.current = true  // block detection loop before any async work
     setScanning(true)
     const scanStart = Date.now()
     try {
@@ -1730,7 +1735,19 @@ export default function CardScanner({ onMatch, onClose }) {
             const fusedGap = fusedResult.diffGap ?? 0
             const fusedCluster = !!(fusedResult.second?.name &&
               normalizeName(fusedResult.best.name) === normalizeName(fusedResult.second.name))
-            if (fusedResult.best.distance <= MATCH_THRESHOLD && (fusedGap >= MATCH_MIN_GAP || fusedCluster)) {
+            // Judged by the SAME gate as a normal frame — MATCH_ACCEPT_CEILING
+            // included. This used to inline the distance/gap/cluster test and
+            // so let the rescue accept anything up to MATCH_THRESHOLD (122),
+            // straight through the 97-105 band where every match ever logged
+            // was wrong. The fused hash is a majority vote over the sampled
+            // frames, so it votes with their count.
+            const fusedAcceptance = shouldAcceptMatch({
+              best: fusedResult.best,
+              gap: fusedGap,
+              stableCount: fusionFrames.length,
+              sameNameCluster: fusedCluster,
+            })
+            if (fusedAcceptance.accepted) {
               match = fusedResult.best
               bestObservedSource = `fused×${fusionFrames.length}`
               if (!bestObserved || fusedResult.best.distance < bestObserved.distance) {

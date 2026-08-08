@@ -87,4 +87,32 @@ describe('shouldAcceptMatch — ceiling', () => {
   it('handles a missing candidate', () => {
     expect(shouldAcceptMatch({ best: null, gap: 0, stableCount: 0 }).accepted).toBe(false)
   })
+
+  // The multi-frame fusion rescue in handleScan used to inline its own
+  // distance/gap/cluster test (`distance <= MATCH_THRESHOLD && …`) instead of
+  // calling this function, which let it accept the whole 94-122 band the
+  // ceiling exists to refuse. It now calls shouldAcceptMatch with the fused
+  // candidate and the sampled frame count as its vote, so these cases pin the
+  // band the rescue must not be able to talk its way through.
+  describe('the fusion rescue is subordinate to the ceiling', () => {
+    for (const stableCount of [2, 3]) {
+      it(`rejects the old inline-gate band on ${stableCount} fused frames`, () => {
+        for (const distance of [94, 99, 105, 122]) {
+          const withGap = shouldAcceptMatch({ best: card(distance), gap: 20, stableCount })
+          expect(withGap.accepted, `distance ${distance} with a wide gap`).toBe(false)
+          const withCluster = shouldAcceptMatch({
+            best: card(distance), gap: 0, stableCount, sameNameCluster: true,
+          })
+          expect(withCluster.accepted, `distance ${distance} as a same-name cluster`).toBe(false)
+        }
+      })
+    }
+
+    it('still lets a genuinely clean fused hash through', () => {
+      expect(shouldAcceptMatch({ best: card(72), gap: 22, stableCount: 2 }).accepted).toBe(true)
+      expect(shouldAcceptMatch({
+        best: card(72), gap: 0, stableCount: 2, sameNameCluster: true,
+      }).accepted).toBe(true)
+    })
+  })
 })
