@@ -573,7 +573,9 @@ Collector-line OCR (printing auto-correct) and the title-OCR rescue are **gone**
 
 Both were measured against real device logs and neither earned its place. The title rescue fired on seven logged scans and **every one still missed** — it never once converted a miss into a hit, at 97–516 ms a time. The collector-line refinement had been reported as *"has not worked well at all"* in practice since July. Meanwhile the scan path itself was tuned to 41–216 ms typical with zero wrong matches, so the fallbacks were paying a latency cost to rescue failures that had largely stopped happening.
 
-Consequences to be aware of if this is ever revisited: **same-art reprints are once again indistinguishable** (the art hash carries no set information — that was the one thing collector OCR was genuinely for), and there is no name-based fallback when hashing fails. `visionClient.getCollectorStrip()`/`getTitleStrip()`, the vision worker's `getStrip` handler, and `ScannerEngine`'s strip extraction were removed with them.
+**Same-art reprints are not a hole — printing selection is deliberate and unchanged.** The art hash carries no set information, so every printing of one artwork ties on distance, and the tie is resolved in two defined ways: the **Lock Set** setting restricts the candidate pool up front (`buildAllowedFlags` in `matchCore`), and with no lock the **newest printing** wins — the manifest lists chunks newest-first and `rank()` inserts equal-distance candidates *after* existing ones (`top[at - 1].d > d`, strictly greater), so the first row in scan order takes it. Collector OCR only ever narrowed that same choice; it did not provide a capability that is now missing.
+
+The one genuine loss is that there is **no name-based fallback when hashing fails** — a scan that cannot hash now simply misses. `visionClient.getCollectorStrip()`/`getTitleStrip()`, the vision worker's `getStrip` handler, and `ScannerEngine`'s strip extraction were removed with the rest.
 
 #### Hash algorithm — must match seed script exactly
 
