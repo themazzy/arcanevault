@@ -151,12 +151,18 @@ const NATIVE_CAPTURE_QUALITY = 80
 // cheap probe" actually runs at roughly 1.5 Hz on Android, which is why picking
 // up a new card and painting the tracking quad both feel sluggish: the overlay
 // can only update once per probe.
-// Probes only need corner detection on a half-res frame, so they do not need
-// scan-grade JPEG. Whether this helps depends on how much of captureSample's
-// cost is encode/transfer versus sensor readout — the `probe` field in the
-// [scan] line now measures exactly that, so this constant can be tuned on
-// evidence rather than moved around hopefully.
-const NATIVE_PROBE_QUALITY   = 50
+// Probes were briefly captured at quality 50 on the theory that corner
+// detection on a half-res frame does not need scan-grade JPEG. REVERTED: on
+// device the tracking frame started flashing green then red with no scan at
+// all, i.e. detection became INTERMITTENT — weaker JPEG edges make findBestQuad
+// fail on some probes, and two consecutive detections are required before
+// stability can even begin to accumulate. Cheaper probes are worthless if they
+// stop the loop ever reaching a scan.
+const NATIVE_PROBE_QUALITY   = NATIVE_CAPTURE_QUALITY
+// How often the probe loop reports itself, when no scan is firing. Without
+// this, a loop that never reaches a scan produces NO log at all — which is
+// exactly the state that needs diagnosing.
+const PROBE_LOG_INTERVAL_MS  = 2500
 const PENDING_KEY         = 'arcanevault_scan_basket'
 const SET_ICON_CACHE_KEY  = 'arcanevault_scan_set_icons'
 const CARD_LANGUAGES = [
@@ -599,8 +605,18 @@ export default function CardScanner({ onMatch, onClose }) {
   const canvasRef         = useRef(null)
   const mountedRef        = useRef(true)
   const autoScanRef = useRef(false)
-  // Probe-loop cost accumulated since the last scan; drained into the [scan] line.
-  const probeStatsRef = useRef({ count: 0, capMs: 0, detMs: 0 })
+  // Probe-loop diagnostics accumulated since the last drain. Drained by the
+  // [scan] line when a scan fires, and by the periodic [probe] line when one
+  // does not — the "flashes green then red, never scans" state produces no
+  // scan, so it would otherwise be invisible.
+  const probeStatsRef = useRef({
+    count: 0, capMs: 0, detMs: 0,
+    quads: 0,        // probes that found a quad at all
+    maxStable: 0,    // best consecutive-stable run reached
+    maxDcx: 0,       // largest centroid move between consecutive probes (px)
+    maxDarea: 0,     // largest area change between consecutive probes (fraction)
+    lastEmit: 0,
+  })
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
   const lastTitleRescueAtRef = useRef(0)
@@ -1823,7 +1839,10 @@ export default function CardScanner({ onMatch, onClose }) {
         // Drain the probe accumulator: these are the probes that led up to THIS
         // scan, and the next scan should start from zero.
         const probeStats = { ...probeStatsRef.current }
-        probeStatsRef.current = { count: 0, capMs: 0, detMs: 0 }
+        probeStatsRef.current = {
+          count: 0, capMs: 0, detMs: 0, quads: 0, maxStable: 0,
+          maxDcx: 0, maxDarea: 0, lastEmit: performance.now(),
+        }
         const line =
           // On a miss, name the candidate that was refused. Without it a ceiling
           // rejection is unattributable: "95 > 90" cannot distinguish the gate
@@ -1839,7 +1858,8 @@ export default function CardScanner({ onMatch, onClose }) {
           ` | src ${bestObservedSource ?? '-'}` +
           ` | broad ${BROAD_BUDGET_PER_SCAN - broadBudget.remaining}/${BROAD_BUDGET_PER_SCAN}` +
           (probeStats.count
-            ? ` | probe ×${probeStats.count} cap ${r(probeStats.capMs)} det ${r(probeStats.detMs)}`
+            ? ` | probe ×${probeStats.count} cap ${r(probeStats.capMs)} det ${r(probeStats.detMs)}` +
+              ` drift ${r(probeStats.maxDcx)}px`
             : '') +
           ` | mode ${isAutoScan ? 'auto' : 'manual'}`
         console.info(line)
@@ -1973,12 +1993,22 @@ export default function CardScanner({ onMatch, onClose }) {
           probeStatsRef.current.count++
           probeStatsRef.current.capMs += probeCapMs
           probeStatsRef.current.detMs += performance.now() - detT0
+          if (corners) probeStatsRef.current.quads++
           if (corners) {
             missStreak = 0
             showQuad(mapQuadToViewport(corners, frame.sw, frame.sh))
             const sig = quadSig(corners)
             const stable = quadSigRoughlyEqual(sig, lastSig, AUTOSCAN_PROBE_EPS_PX, AUTOSCAN_PROBE_AREA_TOL)
+            // Record WHY stability failed: a quad found on every probe but
+            // moving >AUTOSCAN_PROBE_EPS_PX between them can never trigger a
+            // scan, and that is indistinguishable from "no quad" without this.
+            if (lastSig) {
+              const ps = probeStatsRef.current
+              ps.maxDcx = Math.max(ps.maxDcx, Math.hypot(sig.cx - lastSig.cx, sig.cy - lastSig.cy))
+              ps.maxDarea = Math.max(ps.maxDarea, Math.abs(sig.area - lastSig.area) / Math.max(1, lastSig.area))
+            }
             stableCount = stable ? stableCount + 1 : 1
+            probeStatsRef.current.maxStable = Math.max(probeStatsRef.current.maxStable, stableCount)
             if (!stable) duplicateHoldUntilRef.current = 0
             lastSig = sig
             if (stableCount >= AUTOSCAN_PROBE_STABLE) {
@@ -2010,6 +2040,28 @@ export default function CardScanner({ onMatch, onClose }) {
             showQuad(null)
           }
         } catch { /* keep probing */ }
+
+        // Periodic probe report. Only fires when a scan has NOT drained the
+        // accumulator, so a healthy scanning session stays quiet and a loop
+        // that is spinning without ever scanning becomes visible.
+        const ps = probeStatsRef.current
+        const now = performance.now()
+        if (!ps.lastEmit) ps.lastEmit = now
+        if (ps.count > 0 && now - ps.lastEmit >= PROBE_LOG_INTERVAL_MS) {
+          const r = Math.round
+          const per = r((now - ps.lastEmit) / ps.count)
+          pushScanLog(
+            `[probe] ×${ps.count} over ${r(now - ps.lastEmit)}ms (${per}ms/probe)` +
+            ` | quad ${ps.quads}/${ps.count} stable-max ${ps.maxStable}/${AUTOSCAN_PROBE_STABLE}` +
+            ` | drift ${r(ps.maxDcx)}px (limit ${AUTOSCAN_PROBE_EPS_PX})` +
+            ` darea ${r(ps.maxDarea * 100)}% (limit ${r(AUTOSCAN_PROBE_AREA_TOL * 100)})` +
+            ` | cap ${r(ps.capMs)} det ${r(ps.detMs)}`,
+          )
+          probeStatsRef.current = {
+            count: 0, capMs: 0, detMs: 0, quads: 0, maxStable: 0,
+            maxDcx: 0, maxDarea: 0, lastEmit: now,
+          }
+        }
       }
       if (cancelled) return
       timer = setTimeout(loop, delay)
