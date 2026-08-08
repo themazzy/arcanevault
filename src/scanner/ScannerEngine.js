@@ -309,40 +309,6 @@ export function computePHash256(artImageData) {
 }
 
 /**
- * Variant of computePHash256 with aggressive glare suppression (percentileCap 0.92).
- * Used as a client-side fallback when the standard hash scores poorly on a given frame,
- * typically caused by foil specular reflections. Does not affect stored DB hashes.
- */
-export function computePHash256Foil(artImageData) {
-  const rgba = resizeArtTo32(artImageData)
-  return computeHashFromGrayGlare(rgbToGray32x32(rgba, 4))
-}
-
-/**
- * Variant of computePHash256 for dark art. Stretches the low dynamic range before hashing.
- * Returns null when the art crop isn't dark (mean brightness ≥ 80) — caller skips in that case.
- * Does not affect stored DB hashes — client-side fallback only.
- */
-export function computePHash256Dark(artImageData) {
-  const rgba = resizeArtTo32(artImageData)
-  const gray = rgbToGray32x32(rgba, 4)
-  const mean = gray.reduce((s, v) => s + v, 0) / gray.length
-  if (mean >= 80) return null  // not dark art — skip this fallback
-  return computeHashFromGrayDark(gray)
-}
-
-/**
- * Compute a 256-bit perceptual hash of the HSV saturation channel of the art crop.
- * Captures color identity independently of luminance — helps distinguish cards with
- * similar art composition but different color palettes (e.g. land reprints).
- * Stored as phash_hex2 in the DB; used client-side for combined-distance re-ranking.
- */
-export function computePHash256Color(artImageData) {
-  const rgba = resizeArtTo32(artImageData)
-  return computeHashFromGray(rgbToSaturation32x32(rgba, 4))
-}
-
-/**
  * Whole-card luma pHash (pipeline v7 second signal): frames, borders, name
  * bar, and set symbol differ between printings and across cards even when
  * art doesn't. Computed once per warped card orientation — it does not vary
@@ -356,10 +322,21 @@ export function computeFullCardHash(cardImageData) {
 }
 
 /**
- * Compute all hash variants from a single art crop in one resize pass.
- * Returns { hash, foilHash, darkHash, colorHash, tileHashes } — caller uses
- * whichever are non-null. `tileGrid` > 0 (the loaded pack's grid) adds the v8
- * per-tile hashes (array of G² Uint32Array(8), row-major).
+ * Compute all hash variants from a single art crop in one resize pass — the
+ * only hashing entry point the scanner uses. Returns
+ * { hash, foilHash, darkHash, colorHash, tileHashes }; caller uses whichever
+ * are non-null. `tileGrid` > 0 (the loaded pack's grid) adds the v8 per-tile
+ * hashes (array of G² Uint32Array(8), row-major).
+ *
+ *   hash      standard luma pHash (percentileCap 0.98 + CLAHE)
+ *   foilHash  glare variant, percentileCap 0.92 — the fallback for foil
+ *             specular reflections; never changes stored DB hashes
+ *   darkHash  dynamic-range stretch, null unless the crop is dark (mean < 80)
+ *   colorHash saturation-channel pHash — colour identity independent of luma,
+ *             stored as phash_hex2
+ *
+ * Each of those had a standalone computePHash256* wrapper until 2026-08-08;
+ * they were dead once this batched them into one resize.
  */
 export function computeAllHashes(artImageData, { tileGrid = 0 } = {}) {
   const rgba = resizeArtTo32(artImageData)

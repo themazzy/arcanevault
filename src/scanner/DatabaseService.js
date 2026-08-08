@@ -361,16 +361,6 @@ class DatabaseService {
     }
   }
 
-  /**
-   * Exact-print lookup by OCR'd set code + collector number.
-   * Returns a public card object ({ id, name, setCode, collNum, imageUri })
-   * or null. Runs on the main-thread store copy (no worker round-trip).
-   */
-  lookupPrint(setCode, collNum) {
-    const idx = this._store.findByPrint(setCode, collNum)
-    return idx >= 0 ? this._store.getCardPublic(idx, 0) : null
-  }
-
   get cardCount()       { return this._store.count }
   /** Tile grid of the loaded pack (0 = pack has no tile hashes). */
   get tileGrid()        { return this._store.tileGrid }

@@ -14,12 +14,14 @@ import {
 } from './ScannerEngine.js'
 import { flattenTileHashes } from './tileHash.js'
 
-// Current card being scanned (set by loadWarped / loadReticle). The source
-// frame + corners are retained so OCR strips are extracted LAZILY — only the
-// scans that actually consult OCR pay the warp cost.
+// Current card being scanned (set by loadWarped / loadReticle), held so that
+// hash batches for different crop variants and the 180° fallback don't resend
+// the frame. Nothing retains the SOURCE frame: it used to be kept alongside
+// for lazy OCR strip extraction, which pinned a full-resolution capture
+// (~3.5 MB at 1280×720) in the worker for the lifetime of the last scan long
+// after OCR was removed.
 let currentCard = null
 let currentCard180 = null
-let currentSource = null      // { frame, corners } (warp path) or null (reticle path)
 
 // Transferred frames arrive as Uint8ClampedArray views already — use them
 // directly (zero copy); only wrap raw ArrayBuffers.
@@ -56,7 +58,6 @@ self.onmessage = (event) => {
       const frame = toFrame(payload.frame)
       currentCard = warpCard(frame, payload.corners)
       currentCard180 = null
-      currentSource = currentCard ? { frame, corners: payload.corners } : null
       self.postMessage({ id, ok: true, result: { ok: !!currentCard } })
       return
     }
@@ -68,7 +69,6 @@ self.onmessage = (event) => {
         payload.viewportWidth, payload.viewportHeight,
       )
       currentCard180 = null
-      currentSource = null   // reticle strips upscale from the cropped card
       self.postMessage({ id, ok: true, result: { ok: !!currentCard } })
       return
     }

@@ -393,7 +393,7 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/scanner/packLoader.js` | Manifest/chunk fetch + IDB blob caching (`scanner_pack` store); same-origin on web and native alike (`server.url` → deckloom.app) |
 | `src/scanner/prefetch.js` | Idle-time warmup (app shell): pack chunks → IDB; gated on prior scanner use |
 | `src/scanner/visionCore.js` | Pure-JS vision primitives (replaced OpenCV.js): Canny, contours, approxPolyDP, minAreaRect, perspective warp, INTER_AREA-equivalent resize |
-| `src/scanner/ScannerEngine.js` | Card pipeline over visionCore: 3-pass quad detection + scoring, warp, art/reticle crops, 180° rotation, pHash variants — pure, canvas-free |
+| `src/scanner/ScannerEngine.js` | Card pipeline over visionCore: 4-pass quad detection + scoring, warp, art/reticle crops, 180° rotation, pHash variants — pure, canvas-free |
 | `src/scanner/visionWorker.js` | Runs the whole vision pipeline off the main thread; holds the current warped card between hash batches |
 | `src/scanner/visionClient.js` | Main-thread handle on visionWorker (transferable frames); synchronous main-thread fallback |
 | `src/scanner/hashCore.js` | Pure-JS pHash core: precomputed DCT cosine table, CLAHE, percentileCap, Hamming distance — shared with seed script |
@@ -547,7 +547,7 @@ captureFrame()  [main thread]
   → small ImageData (640×360, GPU canvas.drawImage)
 
 visionClient.detect(smallImageData, { quick })   [visionWorker]
-  → 3-pass: adaptive Canny → fixed lo=5/hi=40 → CLAHE(2.0, 8×8) contrast boost
+  → 4-pass: adaptive Canny → fixed lo=5/hi=40 → CLAHE(2.0, 8×8) contrast boost → chroma gradient
   → quick=true runs pass 1 only (auto-scan probe)
   → corners in small-image coords; caller scales back to full-res (×2)
 
@@ -559,7 +559,7 @@ databaseService.findBestTwoWithStatsAsyncAll(queries)   ← match worker: LSH ba
 stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=20)
 ```
 
-**Auto-scan** runs a continuous cheap probe (`detect({ quick: true })`, ~10 Hz, `AUTOSCAN_PROBE_INTERVAL_MS`) and fires a full scan only after a card-like quad holds still for `AUTOSCAN_PROBE_STABLE` consecutive probes — an empty table never triggers 3-pass detection or hashing. There are no fixed miss/match cooldowns anymore; `AUTOSCAN_AFTER_SCAN_MS` paces attempts and the name+foil signature guard suppresses re-adding the card left in frame.
+**Auto-scan** runs a continuous cheap probe (`detect({ quick: true })`, ~10 Hz, `AUTOSCAN_PROBE_INTERVAL_MS`) and fires a full scan only after a card-like quad holds still for `AUTOSCAN_PROBE_STABLE` consecutive probes — an empty table never triggers full detection or hashing. There are no fixed miss/match cooldowns anymore; `AUTOSCAN_AFTER_SCAN_MS` paces attempts and the name+foil signature guard suppresses re-adding the card left in frame.
 
 **Only the card leaving frame re-arms the duplicate guard** (`src/scanner/autoScanGuard.js`) — a quad-less run of `AUTOSCAN_GUARD_RELEASE_MS` (2 s) of probes, or the "Next Card" button. **A failed scan must never re-arm it.** A card sitting at the edge of `MATCH_ACCEPT_CEILING` alternates hit/miss/hit while completely stationary, so clearing the guard on a miss made every other match look like a new card: a device log (2026-08-08) shows one physical Vivi Ornitier added 4× and one Command Tower 3×, each repeat separated by a ceiling rejection of that same card at 94–99. The grace period matters too — the quick probe drops the quad on ~40–60% of attempts with a card still in frame, so a single quad-less probe is noise, not a pickup.
 
@@ -567,7 +567,7 @@ stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=20)
 
 **180° rotation fallback**: after each warp/reticle pass, if no decisive match, `rotateCard180(warpedCard)` is tried — catches cards held upside-down.
 
-**Foil fallback**: when standard hash distance > `MATCH_THRESHOLD`, `computePHash256Foil(artCrop)` re-hashes with `percentileCap(0.92)` (aggressive glare suppression). Does not affect stored DB hashes.
+**Foil fallback**: `computeAllHashes` returns a `foilHash` alongside the standard one, re-hashed with `percentileCap(0.92)` (aggressive glare suppression); `matchAll` tries it when the standard query comes back weak. Does not affect stored DB hashes.
 
 #### OCR — removed 2026-08-08
 
@@ -589,7 +589,7 @@ The one genuine loss is that there is **no name-based fallback when hashing fail
 5. 2D-DCT via `dct2d()` with **precomputed cosine/norm tables** (built at module load in `hashCore.js` — do not add `Math.cos` calls back to the inner loop)
 6. Top-left 16×16 DCT coefficients → median threshold → 256-bit hash
 
-**If any step changes, run `generate-card-hashes.js --reseed`, bump `HASH_PIPELINE_VERSION` (seed script) and add the new version to `SUPPORTED_HASH_VERSIONS` (packLoader.js).** `computePHash256Foil` uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
+**If any step changes, run `generate-card-hashes.js --reseed`, bump `HASH_PIPELINE_VERSION` (seed script) and add the new version to `SUPPORTED_HASH_VERSIONS` (packLoader.js).** `computeAllHashes`'s `foilHash` uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
 
 **Pipeline v7 second signal** (format-v2 packs): `phash_full_hex` — whole-card luma pHash (`computeFullCardHash` client-side, once per warped orientation). `matchCore` combines: art 0.45 + color 0.20 + full 0.35×`FULL_SCALE`(1.14, harness-calibrated so random ≈ art's 126); without a full hash it collapses to the exact v6 formula (0.65/0.35), so v1 packs behave identically. A second LSH band index over full hashes rescues candidates whose art hash was destroyed by glare. v2 packs also carry **DFC back-face rows** (same scryfall id, face=1) and **flavor names** (Marvel/Godzilla crossover cards print the flavor name; carried in the pack, no longer read by anything since OCR was removed).
 
@@ -633,7 +633,7 @@ The auto-scan probe loop also reports itself every 2.5 s, but **only when a scan
 |---|---|---|
 | `CameraPreview.captureSample()` | **~400–500 ms** | the floor; a bridge round-trip of base64 JPEG. Lowering `quality` does *not* help — it is transfer, not encode |
 | detection, quick (pass 1) | ~50–60 ms | |
-| detection, full (3-pass) | ~120–180 ms | 5–10× cheaper than the frame it is given |
+| detection, full (4-pass) | ~120–180 ms | 5–10× cheaper than the frame it is given |
 | match, LSH-indexed | ~15–30 ms | near-independent of pack size |
 | match, broad re-rank | ~90 ms+ per call | full 111k linear scan |
 

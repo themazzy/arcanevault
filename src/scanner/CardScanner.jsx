@@ -23,7 +23,7 @@
  * Toggle in gear menu; persisted to localStorage 'arcanevault_scanner_autoscan'.
  * Continuous cheap corner probe (~10 Hz, detection pass 1 only) fires a full
  * scan only once a card-like quad holds still for consecutive probes — an
- * empty table costs one quick worker probe per tick, not a full 3-pass scan.
+ * empty table costs one quick worker probe per tick, not a full multi-pass scan.
  * Pauses automatically when any overlay is open (basket, add-flow, settings).
  */
 
@@ -133,9 +133,9 @@ const AUTOSCAN_PROBE_STABLE       = 1
 const AUTOSCAN_PROBE_EPS_PX       = 10    // max centroid drift between probes (small-frame px)
 const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change between probes
 // After this many consecutive quick-probe misses, every Nth probe escalates to
-// the full 3-pass detection — pass 1 alone misses dark/low-contrast cards that
+// the full multi-pass detection — pass 1 alone misses dark/low-contrast cards that
 // manual scanning (all passes + reticle) still finds.
-// Escalate to full 3-pass detection after a SINGLE miss, on every probe until a
+// Escalate to full multi-pass detection after a SINGLE miss, on every probe until a
 // quad is found again. Was 3/3, which was economising on the wrong thing: a
 // device log measured probe capture at ~430-660ms against detection at only
 // ~50-105ms, so detection is 5-10x cheaper than the frame it is given. Being
@@ -150,7 +150,7 @@ const AUTOSCAN_ESCALATE_AFTER     = 1
 const AUTOSCAN_ESCALATE_EVERY     = 1
 // ...but stop escalating once the miss streak says the scene is simply EMPTY.
 // A device log showed 13 consecutive [probe] lines of `quad 0/4 (full 4)` while
-// nothing was in frame — 35 seconds of running the full 3-pass ladder to
+// nothing was in frame — 35 seconds of running the full detection ladder to
 // confirm an empty table, which pushed probe cost from ~525ms to ~700ms for no
 // benefit. Escalation should buy responsiveness when a card is present, not
 // pay a premium to keep discovering there is nothing there.
@@ -666,7 +666,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const probeStatsRef = useRef({
     count: 0, capMs: 0, detMs: 0,
     quads: 0,        // probes that found a quad at all
-    fulls: 0,        // probes that escalated to full 3-pass detection
+    fulls: 0,        // probes that escalated to full multi-pass detection
     maxStable: 0,    // best consecutive-stable run reached
     maxDcx: 0,       // largest centroid move between consecutive probes (px)
     maxDarea: 0,     // largest area change between consecutive probes (fraction)
@@ -1222,16 +1222,6 @@ export default function CardScanner({ onMatch, onClose }) {
       return nextQty > 0 ? [{ ...card, qty: nextQty }] : []
     }))
   }, [])
-
-  // Patch basket entries by scryfall id — used by the async OCR refinement,
-  // which resolves after the entry was added (targets all entries of that
-  // print; dedupe means there is normally exactly one).
-  const correctPendingByCardId = useCallback((cardId, patch) => {
-    setPendingCards(prev => prev.map(c => (c.id === cardId ? { ...c, ...patch } : c)))
-  }, [])
-
-  // ── OCR printing refinement (fire-and-forget after an accepted scan) ──────
-
 
   // ── Printing picker ────────────────────────────────────────────────────────
 
@@ -1928,7 +1918,7 @@ export default function CardScanner({ onMatch, onClose }) {
   // Continuous cheap corner probe: a single-pass detection on the half-res
   // frame (~10 Hz, in the vision worker) that fires a full multi-pass scan
   // only once a card-like quad holds still for AUTOSCAN_PROBE_STABLE probes.
-  // An empty table costs one quick probe per tick — no 3-pass scans, no fixed
+  // An empty table costs one quick probe per tick — no full-ladder scans, no fixed
   // miss cooldowns. Pauses automatically when any overlay is open.
   // Must be defined after handleScan (useCallback const — TDZ applies).
   //
@@ -2004,7 +1994,7 @@ export default function CardScanner({ onMatch, onClose }) {
           const frame = await captureFrame({ quality: NATIVE_PROBE_QUALITY })
           const probeCapMs = performance.now() - probeT0
           // Quick probe = detection pass 1 only. Once it has missed a few
-          // times in a row, periodically escalate to the full 3-pass
+          // times in a row, periodically escalate to the full multi-pass
           // detection so dark/low-contrast cards still trigger auto-scan
           // (costs ~one old-style full detection every ~270 ms while idle).
           // Full detection while we have plausibly just lost a card; back to

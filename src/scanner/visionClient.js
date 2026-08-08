@@ -32,7 +32,6 @@ class VisionClient {
   // Main-thread fallback state (mirrors the worker's currentCard slot)
   _localCard = null
   _localCard180 = null
-  _localSource = null   // { frame, corners } for lazy strip extraction
 
   _ensureWorker() {
     if (this._failed || typeof Worker === 'undefined') return null
@@ -103,7 +102,6 @@ class VisionClient {
     } catch {
       this._localCard = warpCard(imageData, corners)
       this._localCard180 = null
-      this._localSource = this._localCard ? { frame: imageData, corners } : null
       return !!this._localCard
     }
   }
@@ -122,7 +120,6 @@ class VisionClient {
         imageData, imageData.width, imageData.height, viewportWidth, viewportHeight,
       )
       this._localCard180 = null
-      this._localSource = null
       return !!this._localCard
     }
   }

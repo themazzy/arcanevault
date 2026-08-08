@@ -385,13 +385,6 @@ export class HashPackStore {
     }
   }
 
-  /** Union of set codes across chunks (OCR set-candidate validation). */
-  allSets() {
-    const sets = new Set()
-    for (const chunk of this.chunks) for (const s of chunk.sets) sets.add(s)
-    return sets
-  }
-
   /** All scryfall ids in the store (tests). */
   *ids() {
     for (const chunk of this.chunks) {
@@ -409,38 +402,6 @@ export class HashPackStore {
         yield { id: bytesToUuid(chunk.uuids, i * 16), face: chunk.faces ? chunk.faces[i] : 0 }
       }
     }
-  }
-
-  /**
-   * Find a card by set code + collector number (OCR printing lookup).
-   * Tolerates the printed-vs-Scryfall promo set mismatch ('fdn' printed on a
-   * card Scryfall codes as 'pfdn'). Returns a global index or -1. Front faces
-   * win (first-encoded). The index is built lazily on first use and rebuilt
-   * when chunks were appended since.
-   */
-  findByPrint(setCode, collNum) {
-    if (!setCode || !collNum) return -1
-    if (!this._printIndex || this._printIndexCount !== this.count) {
-      const index = new Map()
-      let globalIdx = 0
-      for (const chunk of this.chunks) {
-        for (let i = 0; i < chunk.count; i++, globalIdx++) {
-          const [, coll] = HashPackStore.rowMeta(chunk, i, this._decoder)
-          if (!coll) continue
-          const key = `${chunk.sets[chunk.setIdx[i]]}|${coll.toLowerCase()}`
-          if (!index.has(key)) index.set(key, globalIdx)
-        }
-      }
-      this._printIndex = index
-      this._printIndexCount = this.count
-    }
-    const set = String(setCode).toLowerCase()
-    const coll = String(collNum).toLowerCase()
-    for (const key of [`${set}|${coll}`, `p${set}|${coll}`]) {
-      const idx = this._printIndex.get(key)
-      if (idx !== undefined) return idx
-    }
-    return -1
   }
 
   /** Re-hex the stored hashes for a chunk-local row (seed-state diffing). */
