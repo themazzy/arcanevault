@@ -145,6 +145,18 @@ const DEBUG               = false
 // If Android frames come back stale/duplicated, raise this first.
 const NATIVE_CAPTURE_SETTLE_MS = 40
 const NATIVE_CAPTURE_QUALITY = 80
+// The auto-scan probe loop calls captureFrame() on EVERY iteration, and on
+// native that is CameraPreview.captureSample() — measured at ~390-535 ms per
+// call in a real device log. So the loop the comments describe as a "~10 Hz
+// cheap probe" actually runs at roughly 1.5 Hz on Android, which is why picking
+// up a new card and painting the tracking quad both feel sluggish: the overlay
+// can only update once per probe.
+// Probes only need corner detection on a half-res frame, so they do not need
+// scan-grade JPEG. Whether this helps depends on how much of captureSample's
+// cost is encode/transfer versus sensor readout — the `probe` field in the
+// [scan] line now measures exactly that, so this constant can be tuned on
+// evidence rather than moved around hopefully.
+const NATIVE_PROBE_QUALITY   = 50
 const PENDING_KEY         = 'arcanevault_scan_basket'
 const SET_ICON_CACHE_KEY  = 'arcanevault_scan_set_icons'
 const CARD_LANGUAGES = [
@@ -587,6 +599,8 @@ export default function CardScanner({ onMatch, onClose }) {
   const canvasRef         = useRef(null)
   const mountedRef        = useRef(true)
   const autoScanRef = useRef(false)
+  // Probe-loop cost accumulated since the last scan; drained into the [scan] line.
+  const probeStatsRef = useRef({ count: 0, capMs: 0, detMs: 0 })
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
   const lastTitleRescueAtRef = useRef(0)
@@ -1421,10 +1435,10 @@ export default function CardScanner({ onMatch, onClose }) {
 
   // ── Capture + scan logic ───────────────────────────────────────────────────
 
-  const captureFrame = useCallback(async () => {
+  const captureFrame = useCallback(async ({ quality = NATIVE_CAPTURE_QUALITY } = {}) => {
     if (isNative) {
       await sleep(NATIVE_CAPTURE_SETTLE_MS)
-      const { value } = await CameraPreview.captureSample({ quality: NATIVE_CAPTURE_QUALITY })
+      const { value } = await CameraPreview.captureSample({ quality })
       // base64 → Blob → ImageBitmap: async decode off the main thread. Falls
       // back to the data-URL <img> path on WebViews without createImageBitmap.
       let source
@@ -1806,6 +1820,10 @@ export default function CardScanner({ onMatch, onClose }) {
           { capture: 0, detect: 0, warp: 0, hash: 0, match: 0 },
         )
         const r = Math.round
+        // Drain the probe accumulator: these are the probes that led up to THIS
+        // scan, and the next scan should start from zero.
+        const probeStats = { ...probeStatsRef.current }
+        probeStatsRef.current = { count: 0, capMs: 0, detMs: 0 }
         const line =
           // On a miss, name the candidate that was refused. Without it a ceiling
           // rejection is unattributable: "95 > 90" cannot distinguish the gate
@@ -1820,6 +1838,9 @@ export default function CardScanner({ onMatch, onClose }) {
           (rescueMs ? ` | rescue ${r(rescueMs)}` : '') +
           ` | src ${bestObservedSource ?? '-'}` +
           ` | broad ${BROAD_BUDGET_PER_SCAN - broadBudget.remaining}/${BROAD_BUDGET_PER_SCAN}` +
+          (probeStats.count
+            ? ` | probe ×${probeStats.count} cap ${r(probeStats.capMs)} det ${r(probeStats.detMs)}`
+            : '') +
           ` | mode ${isAutoScan ? 'auto' : 'manual'}`
         console.info(line)
         // Same string into the in-app buffer so the copied log and the console
@@ -1936,14 +1957,22 @@ export default function CardScanner({ onMatch, onClose }) {
       let delay = AUTOSCAN_PROBE_INTERVAL_MS
       if (!scanningRef.current) {
         try {
-          const frame = await captureFrame()
+          const probeT0 = performance.now()
+          const frame = await captureFrame({ quality: NATIVE_PROBE_QUALITY })
+          const probeCapMs = performance.now() - probeT0
           // Quick probe = detection pass 1 only. Once it has missed a few
           // times in a row, periodically escalate to the full 3-pass
           // detection so dark/low-contrast cards still trigger auto-scan
           // (costs ~one old-style full detection every ~270 ms while idle).
           const quick = !(missStreak >= AUTOSCAN_ESCALATE_AFTER &&
                           missStreak % AUTOSCAN_ESCALATE_EVERY === 0)
+          const detT0 = performance.now()
           const corners = frame ? await visionClient.detect(frame.smallImageData, { quick }) : null
+          // Accumulated until the next scan consumes it, so the [scan] line can
+          // attribute time spent waiting for the probe loop rather than scanning.
+          probeStatsRef.current.count++
+          probeStatsRef.current.capMs += probeCapMs
+          probeStatsRef.current.detMs += performance.now() - detT0
           if (corners) {
             missStreak = 0
             showQuad(mapQuadToViewport(corners, frame.sw, frame.sh))
