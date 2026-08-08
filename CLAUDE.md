@@ -626,7 +626,32 @@ Every scan attempt emits one `[scan]` line with a per-stage wall-clock breakdown
 
 Reading these off a phone used to need USB debugging and `chrome://inspect`. The same lines now also go to `src/scanner/scanLog.js`, a 40-entry in-memory ring buffer rendered at the bottom of **Scanner Settings for `admin_users` only**, with copy and clear. Memory only — never persisted or transmitted.
 
-**Start here for any "scans got slow" report.** `cap` is the term that usually dominates: `CameraPreview.captureSample()` costs ~250 ms and the stability loop runs up to `STABILITY_SAMPLES` (3) times, so ~750 ms is the floor on a scan that never reaches a decisive match. Matching is not the bottleneck — measured at **~9–11 ms against the full 111k-row pack**, because the LSH band index makes it near-independent of pack size. Stage sums well below `elapsed` mean worker queueing rather than compute.
+The auto-scan probe loop also reports itself every 2.5 s, but **only when a scan has not already drained the counters** — the "tracking frame flashes but nothing scans" state produces no `[scan]` line at all, so it was previously invisible:
+
+```
+[probe] ×5 over 2833ms (567ms/probe) | quad 0/5 (full 4) stable-max 0/1 | drift 0px (limit 10) darea 0% (limit 20) | cap 3037 det 935
+```
+
+`quad N/M` separates the failure modes: a low ratio **with a card in frame** means detection is intermittent; a high ratio with `drift` over the limit means the quad is moving between probes. Long runs of `quad 0/N` usually just mean an empty table — don't read them as a detection failure.
+
+**Measured per-stage costs on a real device (Samsung S24, Android 16), 2026-08-08:**
+
+| stage | cost | note |
+|---|---|---|
+| `CameraPreview.captureSample()` | **~400–500 ms** | the floor; a bridge round-trip of base64 JPEG. Lowering `quality` does *not* help — it is transfer, not encode |
+| detection, quick (pass 1) | ~50–60 ms | |
+| detection, full (3-pass) | ~120–180 ms | 5–10× cheaper than the frame it is given |
+| match, LSH-indexed | ~15–30 ms | near-independent of pack size |
+| match, broad re-rank | ~90 ms+ per call | full 111k linear scan |
+
+**Start here for any "scans got slow" report**, and note the tuning below was all derived from these logs — the constants are evidence, not preference:
+
+- `MATCH_ACCEPT_CEILING = 93` — no acceptance path may exceed it. Real matches measured 47–90, wrong ones 97–105. The bands **do overlap** (one correct read landed at 99), so this is a deliberate trade: a wrong card written into a collection is worse than a re-scan.
+- `BROAD_BUDGET_PER_SCAN = 1` — the broad re-rank has never produced a correct winning match in any logged session; it either contributed nothing or produced a false accept.
+- `AUTOSCAN_PROBE_STABLE = 1` — two consecutive detections were the binding constraint, not a safety net: `drift` measured 0–5 px against a 10 px limit, so quads were never *moving*, just not *found* every probe.
+- Probe capture quality must stay at `NATIVE_CAPTURE_QUALITY`. Dropping it to 50 made detection intermittent and the loop stopped reaching scans at all.
+
+Result: worst-case scan went 5863 ms → ~1600 ms, typical 41–216 ms, and wrong matches went 4-in-8 → 0-in-17 across two sessions.
 
 #### Hash database delivery — static hash pack
 
