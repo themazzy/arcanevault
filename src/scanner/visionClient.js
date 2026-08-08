@@ -68,12 +68,32 @@ class VisionClient {
     const id = this._seq++
     return new Promise((resolve, reject) => {
       this._pending.set(id, { resolve, reject })
-      worker.postMessage({ id, type, payload }, transfer)
+      try {
+        worker.postMessage({ id, type, payload }, transfer)
+      } catch (e) {
+        // A throwing postMessage (non-cloneable payload) rejects this promise
+        // anyway; without the delete the entry would sit in _pending forever.
+        this._pending.delete(id)
+        throw e
+      }
     })
   }
 
   static _frame(imageData) {
     return { data: imageData.data, width: imageData.width, height: imageData.height }
+  }
+
+  /**
+   * Whether a frame can still be processed on the main thread.
+   *
+   * Frames are posted to the worker with their pixel buffer in the transfer
+   * list, so by the time a call REJECTS the buffer may already be detached —
+   * running the fallback on it would silently process zero bytes. That only
+   * happens when the worker died mid-call; a worker that was never available
+   * rejects before postMessage and leaves the buffer intact.
+   */
+  static _usable(imageData) {
+    return imageData.data.byteLength > 0
   }
 
   /** Detect card corners on a (downscaled) frame. quick = pass 1 only. */
@@ -86,6 +106,7 @@ class VisionClient {
       )
       return corners
     } catch {
+      if (!VisionClient._usable(imageData)) return null
       return detectCardCorners(imageData, imageData.width, imageData.height, { maxPasses: quick ? 1 : 4 })
     }
   }
@@ -100,6 +121,7 @@ class VisionClient {
       )
       return ok
     } catch {
+      if (!VisionClient._usable(imageData)) return false
       this._localCard = warpCard(imageData, corners)
       this._localCard180 = null
       return !!this._localCard
@@ -116,6 +138,7 @@ class VisionClient {
       )
       return ok
     } catch {
+      if (!VisionClient._usable(imageData)) return false
       this._localCard = cropCardFromReticle(
         imageData, imageData.width, imageData.height, viewportWidth, viewportHeight,
       )

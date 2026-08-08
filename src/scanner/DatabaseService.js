@@ -30,6 +30,10 @@ import { hammingDistance } from './hashCore'
 export { hammingDistance }
 
 const LEGACY_CLEANUP_KEY = 'scanner_pack_migrated_v1'
+// Worker respawns allowed after an onerror before we settle into the
+// main-thread matcher for the rest of the session. See the handler for why
+// permanent failure is the expensive outcome here.
+const MATCH_WORKER_MAX_RESTARTS = 1
 
 class DatabaseService {
   _store       = new HashPackStore()
@@ -46,6 +50,7 @@ class DatabaseService {
   _workerSeq = 1
   _workerPending = new Map()
   _workerFailed = false
+  _workerRestarts = 0
   _status = {
     loadedCount: 0,
     totalCount: 0,
@@ -247,7 +252,14 @@ class DatabaseService {
         else pending.reject(new Error(error || 'Hash match worker failed'))
       }
       this._matchWorker.onerror = error => {
-        this._workerFailed = true
+        // Giving up permanently on the first error is expensive here in a way
+        // it is not elsewhere: the main-thread fallback matcher has to build
+        // its own LSH band index over every row (~14 MB, 111k × 16 bands) on
+        // the UI thread the first time it matches. One retry costs a worker
+        // spawn and a chunk replay; a genuinely broken worker fails again and
+        // then we settle into the fallback for good.
+        this._workerRestarts = (this._workerRestarts ?? 0) + 1
+        this._workerFailed = this._workerRestarts > MATCH_WORKER_MAX_RESTARTS
         for (const pending of this._workerPending.values()) {
           pending.reject(new Error(error?.message || 'Hash match worker failed'))
         }
@@ -272,7 +284,14 @@ class DatabaseService {
     const id = this._workerSeq++
     return new Promise((resolve, reject) => {
       this._workerPending.set(id, { resolve, reject })
-      worker.postMessage({ id, type, payload })
+      try {
+        worker.postMessage({ id, type, payload })
+      } catch (e) {
+        // The promise rejects either way; without this the entry would sit in
+        // _workerPending for the lifetime of the session.
+        this._workerPending.delete(id)
+        throw e
+      }
     })
   }
 

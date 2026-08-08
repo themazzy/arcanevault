@@ -619,7 +619,10 @@ export default function CardScanner({ onMatch, onClose }) {
   // Admin-only scan-log panel. The buffer always fills (it is a few KB of
   // strings); only the surface for reading it is gated.
   const [isAdmin, setIsAdmin] = useState(false)
-  const [scanLogEntries, setScanLogEntries] = useState(() => getScanLog())
+  // Copy: getScanLog() hands back the live ring buffer, which pushScanLog
+  // mutates in place — holding that array as state means rendering whatever it
+  // happens to contain, with no re-render to say so.
+  const [scanLogEntries, setScanLogEntries] = useState(() => [...getScanLog()])
   const [scanLogCopied, setScanLogCopied] = useState(false)
 
   useEffect(() => {
@@ -640,13 +643,15 @@ export default function CardScanner({ onMatch, onClose }) {
     return subscribeScanLog(list => setScanLogEntries([...list]))
   }, [isAdmin])
 
+  const scanLogCopiedTimerRef = useRef(null)
   const copyScanLog = useCallback(async () => {
     const text = formatScanLog()
     if (!text) return
     try {
       await navigator.clipboard.writeText(text)
       setScanLogCopied(true)
-      setTimeout(() => setScanLogCopied(false), 2000)
+      clearTimeout(scanLogCopiedTimerRef.current)
+      scanLogCopiedTimerRef.current = setTimeout(() => setScanLogCopied(false), 2000)
     } catch {
       // Clipboard is permission-gated in some WebViews; the <pre> below stays
       // selectable so the log is never unreachable.
@@ -683,7 +688,8 @@ export default function CardScanner({ onMatch, onClose }) {
   const sessionStatsRef = useRef({ attempts: 0, hits: 0, totalMs: 0, hitMs: 0, missMs: 0 })
   const [sessionStatsDisplay, setSessionStatsDisplay] = useState({ attempts: 0, hits: 0, totalMs: 0, hitMs: 0, missMs: 0 })
   const manualSearchRequestRef = useRef(0)
-  const setIconFetchesRef = useRef(new Set())
+  const setIconFetchesRef = useRef(new Set())   // set codes currently being fetched
+  const setIconMissesRef  = useRef(new Set())   // set codes Scryfall has no icon for
 
   // ── Scanner state ──────────────────────────────────────────────────────────
   const [dbReady, setDbReady]     = useState(false)
@@ -948,6 +954,14 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => { mountedRef.current = false }
   }, [])
 
+  // Timers that outlive their own state: both fire a setState on a component
+  // that may already be gone (closing the scanner mid-animation, or right
+  // after copying the log).
+  useEffect(() => () => {
+    clearTimeout(scanLogCopiedTimerRef.current)
+    clearTimeout(printingPickerTimerRef.current)
+  }, [])
+
   // ── Camera start/stop ──────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
@@ -1040,32 +1054,16 @@ export default function CardScanner({ onMatch, onClose }) {
     if (track) track.applyConstraints({ advanced: [{ torch: flashMode === 'torch' || flashMode === 'on' }] }).catch(() => {})
   }, [cameraStarted, flashMode, isNative])
 
-  useEffect(() => {
-    const missingSetCodes = [...new Set(pendingCards.map(card => card?.setCode).filter(Boolean))]
-      .filter(setCode => !setIcons[setCode] && !setIconFetchesRef.current.has(setCode))
-    if (!missingSetCodes.length) return
-    let cancelled = false
-    ;(async () => {
-      for (const setCode of missingSetCodes) {
-        setIconFetchesRef.current.add(setCode)
-        try {
-          const data = await sfGet(`/sets/${setCode}`)
-          if (cancelled) return
-          if (data?.icon_svg_uri) {
-            setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: { icon: data.icon_svg_uri, name: data.name || setCode } }))
-          }
-        } finally {
-          setIconFetchesRef.current.delete(setCode)
-        }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [pendingCards, setIcons])
-
-  useEffect(() => {
-    const missing = [...new Set((printingPickerResults || []).map(card => card?.set).filter(Boolean))]
-      .filter(setCode => !setIcons[setCode] && !setIconFetchesRef.current.has(setCode))
-    if (!missing.length) return
+  // Fetch icons for set codes we don't have yet. Skips codes already in
+  // flight, and codes Scryfall has already answered without an icon — only a
+  // SUCCESS lands in setIcons, so without the miss set those were re-requested
+  // every time the basket or the printing picker changed.
+  const fetchMissingSetIcons = useCallback((codes) => {
+    const missing = [...new Set(codes.filter(Boolean))].filter(code =>
+      !setIcons[code] &&
+      !setIconFetchesRef.current.has(code) &&
+      !setIconMissesRef.current.has(code))
+    if (!missing.length) return undefined
     let cancelled = false
     ;(async () => {
       for (const setCode of missing) {
@@ -1075,6 +1073,8 @@ export default function CardScanner({ onMatch, onClose }) {
           if (cancelled) return
           if (data?.icon_svg_uri) {
             setSetIcons(prev => (prev[setCode] ? prev : { ...prev, [setCode]: { icon: data.icon_svg_uri, name: data.name || setCode } }))
+          } else {
+            setIconMissesRef.current.add(setCode)
           }
         } finally {
           setIconFetchesRef.current.delete(setCode)
@@ -1082,7 +1082,17 @@ export default function CardScanner({ onMatch, onClose }) {
       }
     })()
     return () => { cancelled = true }
-  }, [printingPickerResults, setIcons])
+  }, [setIcons])
+
+  useEffect(
+    () => fetchMissingSetIcons(pendingCards.map(card => card?.setCode)),
+    [pendingCards, fetchMissingSetIcons],
+  )
+
+  useEffect(
+    () => fetchMissingSetIcons((printingPickerResults || []).map(card => card?.set)),
+    [printingPickerResults, fetchMissingSetIcons],
+  )
 
   useEffect(() => {
     const cardId = latestPending?.id
