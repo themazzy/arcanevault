@@ -836,7 +836,11 @@ export default function CardScanner({ onMatch, onClose }) {
     try { localStorage.setItem('arcanevault_scanner_autoscan', autoScan ? '1' : '0') } catch {}
     if (!autoScan) setAutoScanPaused(false)
   }, [autoScan])
-  useEffect(() => { scanningRef.current = scanning }, [scanning])
+  // NOTE: scanningRef is owned by handleScan, which sets it synchronously on
+  // entry and clears it in `finally`. It is deliberately NOT mirrored from the
+  // `scanning` state here: an effect writing it lands a render late, so it can
+  // re-assert `true` after the scan already finished, and it made the ref the
+  // less trustworthy of the two. The state exists only to render the UI.
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_prefer_foil', preferFoil ? '1' : '0') } catch {}
   }, [preferFoil])
@@ -1667,12 +1671,14 @@ export default function CardScanner({ onMatch, onClose }) {
   // `options.prefetched` comes from the auto-scan probe (frame + corners for
   // the first sample). The manual button passes a click event — ignored.
   const handleScan = useCallback(async (options) => {
-    // scanningRef, not just the `scanning` state: the ref is set synchronously
+    // scanningRef, never the `scanning` state: the ref is set synchronously
     // below, while the state only lands after React flushes. A manual tap in
     // that window would otherwise start a SECOND scan concurrently with the
     // auto-scan one — and both drive the vision worker's single current-card
     // slot, so one frame's hashes would be matched against the other's warp.
-    if (!isReady || scanning || scanningRef.current || !mountedRef.current) return
+    // Keeping `scanning` out of this callback's deps also keeps its identity
+    // stable across a scan; see the auto-scan effect for why that matters.
+    if (!isReady || scanningRef.current || !mountedRef.current) return
     const prefetched = options?.prefetched ?? null
     scanningRef.current = true  // block detection loop before any async work
     setScanning(true)
@@ -1906,7 +1912,7 @@ export default function CardScanner({ onMatch, onClose }) {
       scanningRef.current = false
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil])
+  }, [isReady, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil])
 
   // Manual override for the auto-scan duplicate guard: clears the remembered
   // name+foil so the next match is never treated as a repeat, even if it's the
@@ -1925,6 +1931,15 @@ export default function CardScanner({ onMatch, onClose }) {
   // An empty table costs one quick probe per tick — no 3-pass scans, no fixed
   // miss cooldowns. Pauses automatically when any overlay is open.
   // Must be defined after handleScan (useCallback const — TDZ applies).
+  //
+  // handleScan is a dependency, so anything that changes ITS identity restarts
+  // this whole effect: the probe timer, the rAF tracking loop, and every local
+  // below. While `scanning` was one of its deps that happened TWICE PER SCAN —
+  // the cleanup nulls probeTargetRef/displayQuadRef and drops trackLocked, so
+  // the lock-on frame was being destroyed and rebuilt around every scan (the
+  // "flashes green then red" report), and lastSig/stableCount/missStreak reset
+  // each time, which is why probe stability could never accumulate. Keep
+  // handleScan stable, and keep the props from Scanner.jsx stable with it.
   useEffect(() => {
     if (!autoScan || autoScanPaused || !isReady) return undefined
     if (addFlowOpen || basketExpanded || manualSearchOpen || settingsOpen || setPickerOpen || printingPickerFor !== null) return undefined
