@@ -405,6 +405,8 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `scripts/scanner-color-harness.js` | Per-channel RGB vs saturation A/B (verdict: not worth +11.5 MB; RGB only wins on white balance) |
 | `scripts/scanner-gate-harness.js` | Acceptance-gate A/B, fixed thresholds vs z-score; probes held-out cards so false accepts are measurable (verdict: affordable z variant loses 15 pts of true-accept) |
 | `scripts/scanner-degradation-preview.js` | Dumps the degradation scenarios as labelled PNG contact sheets (full frame + art crop) so the simulation can be judged against real captures |
+| `scripts/scanner-pipeline-harness.js` | Full scan path (synthetic frame → real `detectCardCorners` → warp/reticle → crop-variant ladder → stability vote → acceptance) against the **real 111k pack**. Detection numbers are trustworthy; hash-match difficulty is NOT (probes are self-matches) |
+| `src/scanner/scanLog.js` | In-memory ring buffer of the per-scan `[scan]` diagnostic lines, surfaced in the scanner's admin-only settings panel |
 | `src/scanner/CardScanner.jsx` | Full-screen scanner UI: camera, auto-scan loop, targeting reticle, stability buffer, settings panel, match basket |
 | `src/pages/Scanner.jsx` | Route wrapper for `CardScanner` at `/scanner` |
 | `scripts/generate-card-hashes.js` | Node.js seed script (pipeline v7): Scryfall bulk → hashes (art/color/full, incl. DFC back faces) → writes `public/scanner/hashpack/` directly. The pack is its own incremental state — no Supabase involved. Crash-safe checkpoints every 8k rows |
@@ -611,6 +613,20 @@ The one real effect: RGB is markedly more **white-balance robust** (margin p10 5
 Two findings from that run outlive the verdict:
 - **`MATCH_THRESHOLD = 122` looks loose.** Correct matches sit at bestDist p95 62.3; held-out cards bottom out at 92.0 (p05 99.3). There is an empty corridor 62→92 and the threshold sits above it. **Do not retune on this evidence alone** — see the fidelity limit below.
 - **The harnesses' probes are easier than reality.** Reference hash and degraded probe derive from the *same* Scryfall render, so there is no reproduction gap (no printing variation, camera colour science, paper texture, or real foil — Scryfall renders are non-foil and glare is simulated as additive radial blobs, not directional holo sweep). Motion blur, JPEG artifacts, illumination gradients, and warp edge-bleed are absent entirely. That is why the gate harness rejected 0 of 2596 correct matches — it could not reproduce the failure regime the rescue stack exists for, so absence of failure there is not evidence of absence in production. `scripts/scanner-degradation-preview.js` dumps the scenarios as PNGs for exactly this judgement. Settling either question needs real capture distances logged from the app.
+
+#### Diagnosing slow or failing scans
+
+Every scan attempt emits one `[scan]` line with a per-stage wall-clock breakdown — always on, not `DEBUG`-gated:
+
+```
+[scan] 940ms hit "Card" | frames 1:118/12 2:96/40 | cap 250 det 90 warp 40 hash 210 match 300 | src corners | mode manual
+```
+
+`src` names the winning path (`corners` / `reticle` / `+rot180` / `fused×N`), and `mode` separates auto-scan from manual — they differ materially, because auto-scan hands frame 1 a prefetched frame (skipping a capture and a detect pass) and never runs the reticle fallback.
+
+Reading these off a phone used to need USB debugging and `chrome://inspect`. The same lines now also go to `src/scanner/scanLog.js`, a 40-entry in-memory ring buffer rendered at the bottom of **Scanner Settings for `admin_users` only**, with copy and clear. Memory only — never persisted or transmitted.
+
+**Start here for any "scans got slow" report.** `cap` is the term that usually dominates: `CameraPreview.captureSample()` costs ~250 ms and the stability loop runs up to `STABILITY_SAMPLES` (3) times, so ~750 ms is the floor on a scan that never reaches a decisive match. Matching is not the bottleneck — measured at **~9–11 ms against the full 111k-row pack**, because the LSH band index makes it near-independent of pack size. Stage sums well below `elapsed` mean worker queueing rather than compute.
 
 #### Hash database delivery — static hash pack
 
