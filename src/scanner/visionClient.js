@@ -11,8 +11,6 @@
 import {
   detectCardCorners, warpCard, cropCardFromReticle, cropArtRegion,
   rotateCard180, computeAllHashes, computeFullCardHash, isUsableArtCrop,
-  extractCollectorStrip, extractCollectorStripFromCard,
-  extractTitleStrip, extractTitleStripFromCard,
 } from './ScannerEngine.js'
 import { flattenTileHashes } from './tileHash.js'
 
@@ -35,7 +33,6 @@ class VisionClient {
   _localCard = null
   _localCard180 = null
   _localSource = null   // { frame, corners } for lazy strip extraction
-  _localStripConsumed = { collector: false, title: false }
 
   _ensureWorker() {
     if (this._failed || typeof Worker === 'undefined') return null
@@ -107,7 +104,6 @@ class VisionClient {
       this._localCard = warpCard(imageData, corners)
       this._localCard180 = null
       this._localSource = this._localCard ? { frame: imageData, corners } : null
-      this._localStripConsumed = { collector: false, title: false }
       return !!this._localCard
     }
   }
@@ -127,44 +123,7 @@ class VisionClient {
       )
       this._localCard180 = null
       this._localSource = null
-      this._localStripConsumed = { collector: false, title: false }
       return !!this._localCard
-    }
-  }
-
-  _localStrip(kind) {
-    if (this._localStripConsumed[kind] || !this._localCard) return null
-    this._localStripConsumed[kind] = true
-    if (this._localSource) {
-      return kind === 'title'
-        ? extractTitleStrip(this._localSource.frame, this._localSource.corners)
-        : extractCollectorStrip(this._localSource.frame, this._localSource.corners)
-    }
-    return kind === 'title'
-      ? extractTitleStripFromCard(this._localCard)
-      : extractCollectorStripFromCard(this._localCard)
-  }
-
-  /**
-   * High-res collector-line strip from the most recent loadWarped/loadReticle
-   * frame, or null. Extracted lazily; consumed once.
-   */
-  async getCollectorStrip() {
-    try {
-      const { strip } = await this._post('getStrip', { kind: 'collector' })
-      return strip
-    } catch {
-      return this._localStrip('collector')
-    }
-  }
-
-  /** Title-bar strip from the same frame — name-rescue OCR. Consumed once. */
-  async getTitleStrip() {
-    try {
-      const { strip } = await this._post('getStrip', { kind: 'title' })
-      return strip
-    } catch {
-      return this._localStrip('title')
     }
   }
 

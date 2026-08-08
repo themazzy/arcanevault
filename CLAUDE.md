@@ -32,7 +32,7 @@ The cost of a 30-second clarification is always lower than building the wrong th
 
 ## Project Overview
 
-**DeckLoom** is a personal Magic: The Gathering collection tracker hosted at **https://deckloom.app/** (served via GitHub Pages with a custom domain). Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with camera OCR, view collection analytics, manage tournaments, and trade cards. Also packaged as a native Android app via Capacitor.
+**DeckLoom** is a personal Magic: The Gathering collection tracker hosted at **https://deckloom.app/** (served via GitHub Pages with a custom domain). Users catalog owned cards, organise them into binders/decks/wishlists, track prices and P&L, build decks, scan cards with the camera, view collection analytics, manage tournaments, and trade cards. Also packaged as a native Android app via Capacitor.
 
 **Stack:** React 19 + Vite + Supabase + IndexedDB + TanStack React Query
 
@@ -394,10 +394,8 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/scanner/prefetch.js` | Idle-time warmup (app shell): pack chunks → IDB; gated on prior scanner use |
 | `src/scanner/visionCore.js` | Pure-JS vision primitives (replaced OpenCV.js): Canny, contours, approxPolyDP, minAreaRect, perspective warp, INTER_AREA-equivalent resize |
 | `src/scanner/ScannerEngine.js` | Card pipeline over visionCore: 3-pass quad detection + scoring, warp, art/reticle crops, 180° rotation, pHash variants — pure, canvas-free |
-| `src/scanner/visionWorker.js` | Runs the whole vision pipeline off the main thread; holds the current warped card + collector strip between hash batches |
+| `src/scanner/visionWorker.js` | Runs the whole vision pipeline off the main thread; holds the current warped card between hash batches |
 | `src/scanner/visionClient.js` | Main-thread handle on visionWorker (transferable frames); synchronous main-thread fallback |
-| `src/scanner/collectorOcr.js` | Collector-line OCR (tesseract.js, self-hosted under `public/ocr/`): noise-tolerant parsing, set-candidate expansion; refines printing + language after a scan |
-| `src/scanner/nameMatch.js` | Fuzzy card-name matching for title-OCR rescue: banded prefix-Levenshtein over all pack names, uniqueness-margin gated |
 | `src/scanner/hashCore.js` | Pure-JS pHash core: precomputed DCT cosine table, CLAHE, percentileCap, Hamming distance — shared with seed script |
 | `src/scanner/constants.js` | Shared card/art dimensions: `CARD_W=500, CARD_H=700, ART_X=38, ART_Y=66, ART_W=424, ART_H=248` + `TILE_GRID` (0 = tiles off; see comment there for the harness verdict) |
 | `scripts/scanner-grid-harness.js` | Tile-grid A/B experiment: real Scryfall renders + simulated capture degradation → measures lookalike margins per grid (verdict: tiles regress; keep off). Frozen — keeps its own copy of the degradation helpers |
@@ -431,7 +429,7 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/components/ToastContext.jsx` | `ToastProvider` + `useToast()` — action toast notifications (success/error/info, auto-dismiss 3.2 s) |
 | `src/components/SetupWizard.jsx` | `SetupWizardProvider` + `useSetupWizard()` — first-time setup flow (fires once, gated by `user_metadata.setup_completed`) |
 | `src/components/Layout.jsx` | Main app shell: glass-pill floating navbar, desktop sidebar nav, mobile bottom tabs |
-| `src/components/AddCardModal.jsx` | Add card modal: scan (OCR) or manual search + queue |
+| `src/components/AddCardModal.jsx` | Add card modal: camera scan or manual search + queue |
 | `src/components/ImportModal.jsx` | Bulk import wizard: CSV / txt / paste, for binders/decks/wishlists |
 | `src/components/ExportModal.jsx` | Export collection/deck/binder as Manabox-compatible CSV |
 | `src/components/SettingsContext.jsx` | `SettingsProvider` + `useSettings()` + `THEMES` + `PREMIUM_THEMES` + `DEFAULT_BENTO_CONFIG` |
@@ -569,22 +567,13 @@ stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=20)
 
 **Foil fallback**: when standard hash distance > `MATCH_THRESHOLD`, `computePHash256Foil(artCrop)` re-hashes with `percentileCap(0.92)` (aggressive glare suppression). Does not affect stored DB hashes.
 
-#### Collector-line OCR (printing auto-correct)
+#### OCR — removed 2026-08-08
 
-After an accepted scan (`scanOcr` setting, default on), `refineScanWithOcr` OCRs the card's printed collector line (`0123/0281 R` / `SET • EN`, modern frames 2014+) and refines the basket entry. Same-art reprints are indistinguishable to the art hash — the printed set code is the only reliable signal.
+Collector-line OCR (printing auto-correct) and the title-OCR rescue are **gone**, along with `collectorOcr.js`, `nameMatch.js`, `DatabaseService.identifyByTitle`, the `scanOcr` setting, the `tesseract.js` dependency and ~6.7 MB of self-hosted assets in `public/ocr/`.
 
-- The strip is warped **from the full-res frame** at 3× card scale inside visionWorker (`extractCollectorStrip`; at 500×700 card scale the text is only ~17 px). The worker keeps it from the matched frame; `visionClient.getCollectorStrip()` hands it off once.
-- `collectorOcr.js`: tesseract.js (lazy-loaded on first accepted scan) with **self-hosted assets** in `public/ocr/` — `worker.min.js`, the SIMD LSTM core, and `eng.traineddata.gz` (4.0.0_best_int, ~3 MB; `fast` reads noticeably worse). No CDN at runtime; non-SIMD browsers silently get OCR disabled. SW runtime-caches `/ocr/` CacheFirst, never precaches (`globIgnores`).
-- Parsing is deliberately lenient (candidate lists for set + collector number, concatenated `MKMEN` splits, edit-distance-1 set recovery via `expandSetCandidates`) because validation happens downstream: `databaseService.lookupPrint(set, coll)` must hit the hash pack (exact or `p`-prefixed promo set), AND the resolved name must equal the matched card's name, AND the set family (set minus leading `p`) must differ from the match. Only then is the printing switched; within-family promo/showcase variants stay the hash's call. Language (`SET • DE` etc.) is applied whenever parsed.
-- A misread can therefore only produce a no-op, never a wrong card. Old frames (no printed set code) and borderless cards parse to nothing — silent no-op.
+Both were measured against real device logs and neither earned its place. The title rescue fired on seven logged scans and **every one still missed** — it never once converted a miss into a hit, at 97–516 ms a time. The collector-line refinement had been reported as *"has not worked well at all"* in practice since July. Meanwhile the scan path itself was tuned to 41–216 ms typical with zero wrong matches, so the fallbacks were paying a latency cost to rescue failures that had largely stopped happening.
 
-#### Title-OCR rescue (name identification when hashing fails)
-
-When a scan's hash result is rejected (glare, foils, low light) but a card was warped this scan (`cardLoaded` — a stale strip from a previous card is never used), `rescueByTitle` OCRs the **title bar** (extracted like the collector strip; works on every frame era, pre-2014 included) and fuzzy-matches the text against all pack names via `nameMatch.js`:
-
-- `matchTitle`: banded prefix-Levenshtein (trailing mana-cost junk is free), length-scaled edit budgets, names <5 chars must match exactly (the card "X" exists and would otherwise match garbage), leading ≤2-char junk tokens dropped and retried, and a hit needs the runner-up name ≥2 edits worse. Harness: 13/24 hash-failure scenarios rescued, 0 wrong.
-- Printing: the hash's best same-name observation wins; otherwise the newest printing of the identified name (pack order). Set locks are honored (`identifyByTitle({ allowedSets })`).
-- Known no-op limitations: flavor-named crossover cards (Marvel/Godzilla print a different title), non-English cards (pack has English names only — the art hash covers those), heavily stylized borderless titles, old-frame basics.
+Consequences to be aware of if this is ever revisited: **same-art reprints are once again indistinguishable** (the art hash carries no set information — that was the one thing collector OCR was genuinely for), and there is no name-based fallback when hashing fails. `visionClient.getCollectorStrip()`/`getTitleStrip()`, the vision worker's `getStrip` handler, and `ScannerEngine`'s strip extraction were removed with them.
 
 #### Hash algorithm — must match seed script exactly
 
@@ -598,7 +587,7 @@ When a scan's hash result is rejected (glare, foils, low light) but a card was w
 
 **If any step changes, run `generate-card-hashes.js --reseed`, bump `HASH_PIPELINE_VERSION` (seed script) and add the new version to `SUPPORTED_HASH_VERSIONS` (packLoader.js).** `computePHash256Foil` uses `percentileCap(0.92)` instead of 0.98 — client-side only, never changes stored hashes.
 
-**Pipeline v7 second signal** (format-v2 packs): `phash_full_hex` — whole-card luma pHash (`computeFullCardHash` client-side, once per warped orientation). `matchCore` combines: art 0.45 + color 0.20 + full 0.35×`FULL_SCALE`(1.14, harness-calibrated so random ≈ art's 126); without a full hash it collapses to the exact v6 formula (0.65/0.35), so v1 packs behave identically. A second LSH band index over full hashes rescues candidates whose art hash was destroyed by glare. v2 packs also carry **DFC back-face rows** (same scryfall id, face=1) and **flavor names** (indexed by the title-OCR rescue — Marvel/Godzilla cards print the flavor name).
+**Pipeline v7 second signal** (format-v2 packs): `phash_full_hex` — whole-card luma pHash (`computeFullCardHash` client-side, once per warped orientation). `matchCore` combines: art 0.45 + color 0.20 + full 0.35×`FULL_SCALE`(1.14, harness-calibrated so random ≈ art's 126); without a full hash it collapses to the exact v6 formula (0.65/0.35), so v1 packs behave identically. A second LSH band index over full hashes rescues candidates whose art hash was destroyed by glare. v2 packs also carry **DFC back-face rows** (same scryfall id, face=1) and **flavor names** (Marvel/Godzilla crossover cards print the flavor name; carried in the pack, no longer read by anything since OCR was removed).
 
 **Multi-frame fusion** (`hashFusion.js`, shipped): when no sampled frame passes the acceptance gates, CardScanner per-bit majority-votes the frames' primary hash sets (art/color/full/tiles) and tries one fused match labeled `fused` — glare flips different bits in different frames, so the majority hash is cleaner than any single capture. Rescue-only: it runs after the normal path failed and is judged by the same distance/gap/cluster gates.
 

@@ -11,8 +11,6 @@
 import {
   detectCardCorners, warpCard, cropCardFromReticle, cropArtRegion,
   rotateCard180, computeAllHashes, computeFullCardHash, isUsableArtCrop,
-  extractCollectorStrip, extractCollectorStripFromCard,
-  extractTitleStrip, extractTitleStripFromCard,
 } from './ScannerEngine.js'
 import { flattenTileHashes } from './tileHash.js'
 
@@ -22,7 +20,6 @@ import { flattenTileHashes } from './tileHash.js'
 let currentCard = null
 let currentCard180 = null
 let currentSource = null      // { frame, corners } (warp path) or null (reticle path)
-let stripConsumed = { collector: false, title: false }
 
 // Transferred frames arrive as Uint8ClampedArray views already — use them
 // directly (zero copy); only wrap raw ArrayBuffers.
@@ -60,7 +57,6 @@ self.onmessage = (event) => {
       currentCard = warpCard(frame, payload.corners)
       currentCard180 = null
       currentSource = currentCard ? { frame, corners: payload.corners } : null
-      stripConsumed = { collector: false, title: false }
       self.postMessage({ id, ok: true, result: { ok: !!currentCard } })
       return
     }
@@ -73,33 +69,7 @@ self.onmessage = (event) => {
       )
       currentCard180 = null
       currentSource = null   // reticle strips upscale from the cropped card
-      stripConsumed = { collector: false, title: false }
       self.postMessage({ id, ok: true, result: { ok: !!currentCard } })
-      return
-    }
-
-    if (type === 'getStrip') {
-      // Extract on demand, hand off (transfer) — at most once per scan/kind.
-      const kind = payload?.kind === 'title' ? 'title' : 'collector'
-      let strip = null
-      if (!stripConsumed[kind] && currentCard) {
-        stripConsumed[kind] = true
-        strip = currentSource
-          ? (kind === 'title'
-              ? extractTitleStrip(currentSource.frame, currentSource.corners)
-              : extractCollectorStrip(currentSource.frame, currentSource.corners))
-          : (kind === 'title'
-              ? extractTitleStripFromCard(currentCard)
-              : extractCollectorStripFromCard(currentCard))
-      }
-      if (!strip) {
-        self.postMessage({ id, ok: true, result: { strip: null } })
-        return
-      }
-      self.postMessage(
-        { id, ok: true, result: { strip } },
-        [strip.data.buffer],
-      )
       return
     }
 

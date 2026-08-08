@@ -161,7 +161,6 @@ const AUTOSCAN_AFTER_SCAN_MS      = 250
 // swapped card re-arms instantly via the signature comparison itself, so this
 // only throttles true no-ops.
 const AUTOSCAN_DUPLICATE_COOLDOWN_MS = 1500
-const AUTOSCAN_RESCUE_COOLDOWN_MS = 2500  // min gap between title-OCR rescues in auto-scan
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
   { xOffset: 0, yOffset: -10 },
@@ -661,7 +660,6 @@ export default function CardScanner({ onMatch, onClose }) {
   })
   const scanningRef = useRef(false)
   const lastAutoScanSignatureRef = useRef(null)
-  const lastTitleRescueAtRef = useRef(0)
   // While an unmoved card keeps re-matching as a duplicate, probing (and the
   // tracking frame) continue but scans are held off until this timestamp.
   // Quad movement, detection loss, and "Next Card" all clear the hold, so a
@@ -769,9 +767,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const [scanSounds, setScanSounds] = useState(() => {
     try { return localStorage.getItem('arcanevault_scanner_sounds') !== '0' } catch { return true }
   })
-  const [scanOcr, setScanOcr] = useState(() => {
-    try { return localStorage.getItem('arcanevault_scanner_ocr') !== '0' } catch { return true }
-  })
   const [minPriceThreshold, setMinPriceThreshold] = useState(() => {
     try { return parseFloat(localStorage.getItem('arcanevault_scanner_min_price') || '0') || 0 } catch { return 0 }
   })
@@ -818,16 +813,6 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => clearTimeout(timer)
   }, [startupDismissed, startupCanContinue])
 
-  // Pre-warm the OCR engine shortly after the scanner is usable, so the
-  // first printing-correct / title-rescue call doesn't pay the multi-second
-  // Tesseract init inside a scan.
-  useEffect(() => {
-    if (!isReady || !scanOcr) return undefined
-    const timer = setTimeout(() => {
-      import('./collectorOcr').then(m => m.prewarmOcr()).catch(() => {})
-    }, 2500)
-    return () => clearTimeout(timer)
-  }, [isReady, scanOcr])
 
   // Persist basket to localStorage whenever it changes
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
@@ -848,9 +833,6 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_sounds', scanSounds ? '1' : '0') } catch {}
   }, [scanSounds])
-  useEffect(() => {
-    try { localStorage.setItem('arcanevault_scanner_ocr', scanOcr ? '1' : '0') } catch {}
-  }, [scanOcr])
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_min_price', String(minPriceThreshold)) } catch {}
   }, [minPriceThreshold])
@@ -1231,58 +1213,7 @@ export default function CardScanner({ onMatch, onClose }) {
   }, [])
 
   // ── OCR printing refinement (fire-and-forget after an accepted scan) ──────
-  // Reads the collector line (`0123/0281 R` / `SET • EN`) from the high-res
-  // strip the vision worker kept from the matched frame. Used ONLY to
-  //  1. switch to the exact printing when OCR resolves a same-name card in a
-  //     DIFFERENT set family (same-art reprints are invisible to art hashing;
-  //     within-family promo/showcase variants stay the hash's call), and
-  //  2. auto-set the card language.
-  // Never changes the card name — a misread can't add a wrong card. Fails
-  // silently on old frames (no printed set code), borderless cards, glare.
-  const refineScanWithOcr = useCallback(async (match) => {
-    try {
-      const strip = await visionClient.getCollectorStrip()
-      if (!strip) return
-      // Lazy import: tesseract.js + its wasm only load on first accepted scan.
-      const { recognizeCollectorStrip, expandSetCandidates, isCollectorSuffixVariant } = await import('./collectorOcr')
-      const ocr = await recognizeCollectorStrip(strip)
-      if (!ocr || !mountedRef.current) return
 
-      const patch = {}
-      if (ocr.lang && ocr.lang !== 'en' && CARD_LANGUAGES.some(([value]) => value === ocr.lang)) {
-        patch.language = ocr.lang
-      }
-
-      if (ocr.setCandidates?.length && ocr.collCandidates?.length) {
-        const sets = expandSetCandidates(ocr.setCandidates, databaseService.knownSets)
-        let resolved = null
-        for (const set of sets) {
-          for (const coll of ocr.collCandidates) {
-            resolved = databaseService.lookupPrint(set, coll)
-            if (resolved) break
-          }
-          if (resolved) break
-        }
-        // First pack-validated candidate decides — weaker candidates are noise.
-        const matchFamily = String(match.setCode || '').toLowerCase().replace(/^p/, '')
-        const resolvedFamily = String(resolved?.setCode || '').toLowerCase().replace(/^p/, '')
-        const exactSuffixVariant = resolvedFamily === matchFamily &&
-          isCollectorSuffixVariant(match.collNum, resolved?.collNum)
-        if (resolved &&
-            normalizeName(resolved.name) === normalizeName(match.name) &&
-            (resolvedFamily !== matchFamily || exactSuffixVariant)) {
-          patch.id = resolved.id
-          patch.setCode = resolved.setCode
-          patch.collNum = resolved.collNum
-          patch.imageUri = resolved.imageUri
-        }
-      }
-
-      if (Object.keys(patch).length && mountedRef.current) {
-        correctPendingByCardId(match.id, patch)
-      }
-    } catch { /* best-effort — OCR must never break scanning */ }
-  }, [correctPendingByCardId])
 
   // ── Printing picker ────────────────────────────────────────────────────────
 
@@ -1700,30 +1631,6 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, [captureFrame])
 
-  // ── Title-OCR rescue (name identification when hashing comes up empty) ────
-  // The art hash fails on glare/foils/low light; the card NAME is usually
-  // still readable — and it exists on every frame era, unlike the collector
-  // line. OCR the title strip from the matched frame and fuzzy-match it
-  // against all pack names (unique-margin gated in nameMatch.js). The hash's
-  // best same-name observation picks the printing; otherwise the newest
-  // printing of the identified name is used.
-  const rescueByTitle = useCallback(async (bestObserved, allowedSets) => {
-    try {
-      const strip = await visionClient.getTitleStrip()
-      if (!strip) return null
-      const { recognizeTitleStrip } = await import('./collectorOcr')
-      const text = await recognizeTitleStrip(strip)
-      if (!text || !mountedRef.current) return null
-      const hit = databaseService.identifyByTitle(text, { allowedSets })
-      if (!hit) return null
-      if (bestObserved && normalizeName(bestObserved.name) === normalizeName(hit.card.name)) {
-        return bestObserved
-      }
-      return hit.card
-    } catch {
-      return null
-    }
-  }, [])
 
   // `options.prefetched` comes from the auto-scan probe (frame + corners for
   // the first sample). The manual button passes a click event — ignored.
@@ -1742,7 +1649,7 @@ export default function CardScanner({ onMatch, onClose }) {
       const fusionFrames = []
       const frameSummaries = []
       const frameTimings = []
-      let fusionMs = 0, rescueMs = 0
+      let fusionMs = 0
       const isAutoScan = autoScanRef.current
       const allowedSets = lockSet && lockedSets.size > 0
         ? new Set([...lockedSets].map(code => String(code).toLowerCase()))
@@ -1830,21 +1737,6 @@ export default function CardScanner({ onMatch, onClose }) {
         fusionMs = performance.now() - fusionStart
       }
 
-      // Hash came up empty but a card was in the worker this scan → try to
-      // identify it by NAME from the title bar (works on any printing/era).
-      // In auto-scan, throttle: OCR takes 0.3–1.5 s serialized, and the
-      // probe loop would otherwise pay it on EVERY miss of the same card.
-      if (!match && scanOcr && anyCardLoaded) {
-        const rescueDue = !isAutoScan ||
-          Date.now() - (lastTitleRescueAtRef.current || 0) >= AUTOSCAN_RESCUE_COOLDOWN_MS
-        if (rescueDue) {
-          lastTitleRescueAtRef.current = Date.now()
-          const rescueStart = performance.now()
-          match = await rescueByTitle(bestObserved, allowedSets).catch(() => null)
-          rescueMs = performance.now() - rescueStart
-        }
-      }
-
       if (DEBUG && mountedRef.current) {
         setDebugInfo({
           dist: bestObserved?.distance ?? '-',
@@ -1896,7 +1788,6 @@ export default function CardScanner({ onMatch, onClose }) {
           ` | frames ${frameSummaries.join(' ')}` +
           ` | cap ${r(stage.capture)} det ${r(stage.detect)} warp ${r(stage.warp)} hash ${r(stage.hash)} match ${r(stage.match)}` +
           (fusionMs ? ` | fusion ${r(fusionMs)}` : '') +
-          (rescueMs ? ` | rescue ${r(rescueMs)}` : '') +
           ` | src ${bestObservedSource ?? '-'}` +
           ` | broad ${BROAD_BUDGET_PER_SCAN - broadBudget.remaining}/${BROAD_BUDGET_PER_SCAN}` +
           (probeStats.count
@@ -1930,7 +1821,6 @@ export default function CardScanner({ onMatch, onClose }) {
       setSessionStatsDisplay({ ...sessionStatsRef.current })
       if (isAutoScan) lastAutoScanSignatureRef.current = autoScanSignature
       addToPending(match, { foil: preferFoil })
-      if (scanOcr) refineScanWithOcr(match)
       // In manual mode, close any open overlay — result shows in the bottom bar only
       if (!isAutoScan && basketTgl.on) basketTgl.hide()
       try { await Haptics.impact({ style: ImpactStyle.Medium }) } catch {}
@@ -1942,7 +1832,7 @@ export default function CardScanner({ onMatch, onClose }) {
       scanningRef.current = false
       if (mountedRef.current) setScanning(false)
     }
-  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil, scanOcr, refineScanWithOcr, rescueByTitle])
+  }, [isReady, scanning, scanSingleFrame, addToPending, onMatch, lockSet, lockedSets, preferFoil])
 
   // Manual override for the auto-scan duplicate guard: clears the remembered
   // name+foil so the next match is never treated as a repeat, even if it's the
@@ -2935,18 +2825,6 @@ export default function CardScanner({ onMatch, onClose }) {
             <button role="switch" aria-checked={scanSounds}
               className={`${styles.toggle} ${scanSounds ? styles.toggleOn : ''}`}
               onClick={() => setScanSounds(v => !v)}>
-              <span className={styles.toggleThumb} />
-            </button>
-          </div>
-
-          <div className={styles.settingsRow}>
-            <div className={styles.settingsRowLabel}>
-              <span className={styles.settingsRowTitle}>Auto-fix printing (OCR)</span>
-              <span className={styles.settingsRowDesc}>Read the printed set code and collector number to pick the exact printing and language (modern cards)</span>
-            </div>
-            <button role="switch" aria-checked={scanOcr}
-              className={`${styles.toggle} ${scanOcr ? styles.toggleOn : ''}`}
-              onClick={() => setScanOcr(v => !v)}>
               <span className={styles.toggleThumb} />
             </button>
           </div>

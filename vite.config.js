@@ -23,7 +23,7 @@ export default defineConfig({
         // scanner/hashpack (~11 MB of binary chunks) is cached in IndexedDB by
         // the scanner itself; ocr/** (~6 MB tesseract worker/core/traineddata)
         // is runtime-cached below on first OCR use.
-        globIgnores: ['rules/**', 'set-icons/**', 'scanner/**', 'ocr/**', '**/*.map'],
+        globIgnores: ['rules/**', 'set-icons/**', 'scanner/**', '**/*.map'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
@@ -51,17 +51,6 @@ export default defineConfig({
             options: {
               cacheName: 'local-statics',
               expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            },
-          },
-          {
-            // Self-hosted tesseract worker/core/traineddata (~6 MB). CacheFirst
-            // so the scanner's OCR works offline after the first use.
-            urlPattern: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith('/ocr/'),
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'scanner-ocr',
-              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 90 },
-              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],

@@ -23,7 +23,6 @@
 import { Capacitor } from '@capacitor/core'
 import { HashPackStore } from './hashPack'
 import { createMatcher } from './matchCore'
-import { buildNameIndex, matchTitle } from './nameMatch'
 import { loadManifest, loadChunkBuffer, prunePackChunks, MANIFEST_META_KEY } from './packLoader'
 import { clearPackChunks, getMeta, setMeta } from '../lib/db'
 import { hammingDistance } from './hashCore'
@@ -370,49 +369,6 @@ class DatabaseService {
   lookupPrint(setCode, collNum) {
     const idx = this._store.findByPrint(setCode, collNum)
     return idx >= 0 ? this._store.getCardPublic(idx, 0) : null
-  }
-
-  /** Set codes present in the loaded pack (OCR set-candidate validation). */
-  get knownSets() { return this._store.allSets() }
-
-  /**
-   * Identify a card from OCR'd title-bar text (name-rescue path). Returns
-   * { card, name, distance } or null when no name matches uniquely enough.
-   * `allowedSets` (lowercase Set) restricts the returned printing when the
-   * user has locked sets; printings are newest-first, so the first index is
-   * the newest printing of that name.
-   */
-  identifyByTitle(rawText, { allowedSets = null } = {}) {
-    if (!this._store.count) return null
-    if (!this._nameIndex || this._nameIndexCount !== this._store.count) {
-      const entries = []
-      const decoder = new TextDecoder()
-      let globalIdx = 0
-      for (const chunk of this._store.chunks) {
-        for (let i = 0; i < chunk.count; i++, globalIdx++) {
-          const [name, , flavorName] = HashPackStore.rowMeta(chunk, i, decoder)
-          entries.push({ name, idx: globalIdx })
-          // Crossover cards (Marvel, Godzilla…) print the FLAVOR name in the
-          // title bar — index it too so the title rescue can read them.
-          if (flavorName) entries.push({ name: flavorName, idx: globalIdx })
-        }
-      }
-      this._nameIndex = buildNameIndex(entries)
-      this._nameIndexCount = this._store.count
-    }
-
-    const hit = matchTitle(rawText, this._nameIndex)
-    if (!hit) return null
-
-    let idx = hit.idxs[0]
-    if (allowedSets?.size) {
-      idx = hit.idxs.find(i => {
-        const loc = this._store.locate(i)
-        return loc && allowedSets.has(loc.chunk.sets[loc.chunk.setIdx[loc.local]])
-      })
-      if (idx === undefined) return null   // locked out — no printing in the allowed sets
-    }
-    return { card: this._store.getCardPublic(idx, 0), name: hit.name, distance: hit.distance }
   }
 
   get cardCount()       { return this._store.count }
