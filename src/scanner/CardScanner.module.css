@@ -2268,6 +2268,32 @@
   padding: 2px 0;
 }
 
+/* Admin scan log. The lines are long and must stay readable verbatim, so the
+   box scrolls in both axes rather than wrapping — a wrapped stage breakdown is
+   much harder to scan by eye, and these get pasted into reports. */
+.scanLogBox {
+  margin: 6px 0 0;
+  max-height: 190px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--r1);
+  background: var(--s1);
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  white-space: pre;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.scanLogActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .scannerShell,
   .scannerShellClosing,

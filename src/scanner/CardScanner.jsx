@@ -35,6 +35,8 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics'
 import { databaseService } from './DatabaseService'
 import { visionClient } from './visionClient'
 import { fuseFrameHashes } from './hashFusion'
+import { pushScanLog, getScanLog, clearScanLog, subscribeScanLog, formatScanLog, SCAN_LOG_LIMIT } from './scanLog'
+import { isCurrentUserAdmin } from '../lib/admin'
 import { useAuth } from '../components/Auth'
 import { SearchInput } from '../components/UI'
 import { queryClient } from '../lib/queryClient'
@@ -499,6 +501,44 @@ export default function CardScanner({ onMatch, onClose }) {
   const { user } = useAuth()
   const { price_source } = useSettings()
   const isNative = Capacitor.isNativePlatform()
+
+  // Admin-only scan-log panel. The buffer always fills (it is a few KB of
+  // strings); only the surface for reading it is gated.
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [scanLogEntries, setScanLogEntries] = useState(() => getScanLog())
+  const [scanLogCopied, setScanLogCopied] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!user?.id) { setIsAdmin(false); return undefined }
+    isCurrentUserAdmin(user.id)
+      .then(ok => { if (!cancelled) setIsAdmin(!!ok) })
+      .catch(() => { if (!cancelled) setIsAdmin(false) })
+    return () => { cancelled = true }
+  }, [user?.id])
+
+  // Subscribe only while the panel can actually show the log — a scan pushes a
+  // line on every attempt and re-rendering the scanner for each one during
+  // auto-scan would be a real cost for a hidden panel.
+  useEffect(() => {
+    if (!isAdmin) return undefined
+    setScanLogEntries([...getScanLog()])
+    return subscribeScanLog(list => setScanLogEntries([...list]))
+  }, [isAdmin])
+
+  const copyScanLog = useCallback(async () => {
+    const text = formatScanLog()
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setScanLogCopied(true)
+      setTimeout(() => setScanLogCopied(false), 2000)
+    } catch {
+      // Clipboard is permission-gated in some WebViews; the <pre> below stays
+      // selectable so the log is never unreachable.
+      setScanLogCopied(false)
+    }
+  }, [])
 
   const videoRef          = useRef(null)
   const cameraStreamRef   = useRef(null)
@@ -1705,14 +1745,18 @@ export default function CardScanner({ onMatch, onClose }) {
           { capture: 0, detect: 0, warp: 0, hash: 0, match: 0 },
         )
         const r = Math.round
-        console.info(
+        const line =
           `[scan] ${elapsed}ms ${match ? `hit "${match.name}"${isDuplicate ? ' (dup)' : ''}` : `miss (${acceptance.reason})`}` +
           ` | frames ${frameSummaries.join(' ')}` +
           ` | cap ${r(stage.capture)} det ${r(stage.detect)} warp ${r(stage.warp)} hash ${r(stage.hash)} match ${r(stage.match)}` +
           (fusionMs ? ` | fusion ${r(fusionMs)}` : '') +
           (rescueMs ? ` | rescue ${r(rescueMs)}` : '') +
-          ` | src ${bestObservedSource ?? '-'}`,
-        )
+          ` | src ${bestObservedSource ?? '-'}` +
+          ` | mode ${isAutoScan ? 'auto' : 'manual'}`
+        console.info(line)
+        // Same string into the in-app buffer so the copied log and the console
+        // can never disagree. Admin-only surface; see the settings panel.
+        pushScanLog(line)
       }
 
       if (!match) {
@@ -2786,6 +2830,37 @@ export default function CardScanner({ onMatch, onClose }) {
               >
                 Reset stats
               </button>
+            </div>
+          )}
+
+          {/* Admin-only: the per-scan stage breakdown that otherwise needs USB
+              debugging to read. This is what slow-scan reports are diagnosed
+              from — cap/det/warp/hash/match plus per-frame distances. */}
+          {isAdmin && (
+            <div className={styles.sessionStats}>
+              <span className={styles.sessionStatsSectionLabel}>Scan log (admin)</span>
+              {scanLogEntries.length === 0 ? (
+                <div className={styles.sessionStatsRow}>
+                  <span>No scans recorded yet</span>
+                </div>
+              ) : (
+                <>
+                  <div className={styles.sessionStatsRow}>
+                    <span>{scanLogEntries.length} entries (last {SCAN_LOG_LIMIT})</span>
+                  </div>
+                  <pre className={styles.scanLogBox}>
+                    {scanLogEntries.map(e => e.line).join('\n')}
+                  </pre>
+                  <div className={styles.scanLogActions}>
+                    <button className={styles.settingsInlineBtn} onClick={copyScanLog}>
+                      {scanLogCopied ? 'Copied' : 'Copy log'}
+                    </button>
+                    <button className={styles.settingsInlineBtn} onClick={() => clearScanLog()}>
+                      Clear
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
