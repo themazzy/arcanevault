@@ -109,7 +109,8 @@ const BACKGROUNDS = {
   table: [78, 74, 70],      // mid-grey wood: clear luminance edge
   dark: [26, 24, 24],       // dark playmat: black border nearly vanishes
   colored: [96, 30, 30],    // red mat: low luma edge, strong chroma edge (pass 4)
-  pattern: [70, 68, 66],    // printed playmat — see patternAt(); strong competing edges
+  pattern: [70, 68, 66],    // GEOMETRIC mat — see patternAt(); adversarial worst case
+  artmat: [72, 66, 62],     // printed ART mat — see artMatAt(); the realistic case
 }
 
 /**
@@ -123,6 +124,21 @@ function patternAt(x, y) {
   const grid = ((x % 96 < 3) || (y % 96 < 3)) ? 22 : 0
   const blot = Math.sin(x * 0.011) * Math.cos(y * 0.013) * 18
   return diag + grid + blot
+}
+
+/**
+ * Printed ART playmat — the realistic case, and the one that decides whether
+ * the patterned-mat failure is a genuine product problem or an artefact of an
+ * adversarial fixture. Multi-octave organic variation with NO straight
+ * high-contrast lines: illustration produces soft gradients and curved forms,
+ * which give Canny far less to latch onto than a geometric grid does.
+ */
+function artMatAt(x, y) {
+  const a = Math.sin(x * 0.004 + Math.cos(y * 0.003) * 2.0) * 16
+  const b = Math.sin((x * 0.9 + y * 1.3) * 0.0026 + 1.1) * 12
+  const c = Math.cos(y * 0.0071 + Math.sin(x * 0.0045) * 1.7) * 9
+  const fine = Math.sin(x * 0.05) * Math.sin(y * 0.047) * 3   // paper texture
+  return a + b + c + fine
 }
 
 // ── Sleeve model ─────────────────────────────────────────────────────────────
@@ -209,7 +225,8 @@ function buildFrame(cardRGBA, rng, { bg = 'table', skew = 12, sleeve = false } =
       const i = (y * FRAME_W + x) * 4
       // Slight per-pixel noise keeps the background from being a perfectly flat
       // field, which would make edge detection unrealistically easy.
-      const n = (rng() * 2 - 1) * 4 + (bg === 'pattern' ? patternAt(x, y) : 0)
+      const n = (rng() * 2 - 1) * 4 +
+        (bg === 'pattern' ? patternAt(x, y) : bg === 'artmat' ? artMatAt(x, y) : 0)
       data[i] = br + n; data[i + 1] = bg_ + n; data[i + 2] = bb + n; data[i + 3] = 255
     }
   }
@@ -310,6 +327,8 @@ const SCENARIOS = [
   ['sleeve', { bg: 'table', skew: 12, sleeve: true, degrade: (f) => f }],
   ['sleeve+pattern', { bg: 'pattern', skew: 12, sleeve: true, degrade: (f) => f }],
   ['pattern-mat', { bg: 'pattern', skew: 12, degrade: (f) => f }],
+  ['artmat', { bg: 'artmat', skew: 12, degrade: (f) => f }],
+  ['sleeve+artmat', { bg: 'artmat', skew: 12, sleeve: true, degrade: (f) => f }],
   ['sleeve+dark', { bg: 'dark', skew: 12, sleeve: true, degrade: (f, rng) => ({ ...f, data: addNoise(f.data, rng, 10) }) }],
 ]
 
