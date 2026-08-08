@@ -109,20 +109,109 @@ const BACKGROUNDS = {
   table: [78, 74, 70],      // mid-grey wood: clear luminance edge
   dark: [26, 24, 24],       // dark playmat: black border nearly vanishes
   colored: [96, 30, 30],    // red mat: low luma edge, strong chroma edge (pass 4)
+  pattern: [70, 68, 66],    // printed playmat — see patternAt(); strong competing edges
+}
+
+/**
+ * Printed-playmat texture: diagonal banding plus a grid, at a contrast that
+ * produces real contours. A flat background makes contour detection
+ * unrealistically easy — a patterned mat gives findBestQuad plenty of rival
+ * quads to score, which is the actual failure mode people hit on art mats.
+ */
+function patternAt(x, y) {
+  const diag = Math.sin((x + y) * 0.055) * 26
+  const grid = ((x % 96 < 3) || (y % 96 < 3)) ? 22 : 0
+  const blot = Math.sin(x * 0.011) * Math.cos(y * 0.013) * 18
+  return diag + grid + blot
+}
+
+// ── Sleeve model ─────────────────────────────────────────────────────────────
+// A penny/perfect-fit sleeve is a few mm larger than the card on each side, so
+// it presents a SECOND quad slightly outside the real one. If the detector
+// locks onto the sleeve edge instead of the card edge, every downstream crop
+// shifts outward and the art hash degrades systematically — which is why this
+// harness measures corner error against the known card quad, not just whether
+// a quad was found at all.
+const SLEEVE_MARGIN = 0.035   // ~3 mm on a 63 mm card
+
+/** Expand a quad about its centroid by `f` (fraction of size). */
+function expandQuad(quad, f) {
+  const cx = quad.reduce((s, p) => s + p.x, 0) / 4
+  const cy = quad.reduce((s, p) => s + p.y, 0) / 4
+  return quad.map(p => ({ x: cx + (p.x - cx) * (1 + f), y: cy + (p.y - cy) * (1 + f) }))
+}
+
+function pointInQuad(q, px, py) {
+  let inside = false
+  for (let i = 0, j = 3; i < 4; j = i++) {
+    const xi = q[i].x, yi = q[i].y, xj = q[j].x, yj = q[j].y
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
+/**
+ * Specular streak off flat plastic. Unlike foil glare (localized radial
+ * hotspots) a sleeve reflects a light source or window as an ELONGATED band
+ * with a soft edge, often crossing most of the card.
+ */
+function sleeveGlare(data, w, h, rng, quad) {
+  const cx = quad.reduce((s, p) => s + p.x, 0) / 4
+  const cy = quad.reduce((s, p) => s + p.y, 0) / 4
+  const angle = (rng() * 0.8 - 0.4) + Math.PI / 3
+  const dx = Math.cos(angle), dy = Math.sin(angle)
+  const offset = (rng() * 2 - 1) * 180
+  const halfWidth = 55 + rng() * 70
+  const strength = 120 + rng() * 90
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!pointInQuad(quad, x, y)) continue
+      // Perpendicular distance to the streak's centre line.
+      const d = Math.abs((x - cx) * dy - (y - cy) * dx - offset)
+      if (d > halfWidth) continue
+      const t = 1 - d / halfWidth
+      const add = strength * t * t
+      const p = (y * w + x) * 4
+      data[p] = Math.min(255, data[p] + add)
+      data[p + 1] = Math.min(255, data[p + 1] + add)
+      data[p + 2] = Math.min(255, data[p + 2] + add)
+    }
+  }
+}
+
+/**
+ * Optical effect of the plastic itself: a slight haze (contrast pulled toward
+ * mid-grey), a faint cool tint, and a touch of softening. Individually small,
+ * but they shift every hash bit a little.
+ */
+function sleeveHaze(data, w, h, quad) {
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!pointInQuad(quad, x, y)) continue
+      const p = (y * w + x) * 4
+      for (let c = 0; c < 3; c++) {
+        const tint = c === 2 ? 6 : (c === 0 ? -4 : 0)   // faint cool cast
+        data[p + c] = 128 + (data[p + c] - 128) * 0.88 + 10 + tint
+      }
+    }
+  }
 }
 
 /**
  * Composite the card into a frame at a jittered quad, so the detector must
  * recover a genuinely rotated/skewed card rather than an axis-aligned paste.
  */
-function buildFrame(cardRGBA, rng, { bg = 'table', skew = 12 } = {}) {
+function buildFrame(cardRGBA, rng, { bg = 'table', skew = 12, sleeve = false } = {}) {
   const [br, bg_, bb] = BACKGROUNDS[bg]
   const data = new Uint8ClampedArray(FRAME_W * FRAME_H * 4)
-  for (let i = 0; i < data.length; i += 4) {
-    // Slight per-pixel noise keeps the background from being a perfectly flat
-    // field, which would make edge detection unrealistically easy.
-    const n = (rng() * 2 - 1) * 4
-    data[i] = br + n; data[i + 1] = bg_ + n; data[i + 2] = bb + n; data[i + 3] = 255
+  for (let y = 0; y < FRAME_H; y++) {
+    for (let x = 0; x < FRAME_W; x++) {
+      const i = (y * FRAME_W + x) * 4
+      // Slight per-pixel noise keeps the background from being a perfectly flat
+      // field, which would make edge detection unrealistically easy.
+      const n = (rng() * 2 - 1) * 4 + (bg === 'pattern' ? patternAt(x, y) : 0)
+      data[i] = br + n; data[i + 1] = bg_ + n; data[i + 2] = bb + n; data[i + 3] = 255
+    }
   }
   const cx = FRAME_W / 2, cy = FRAME_H / 2
   const hw = CARD_DRAW_W / 2, hh = CARD_DRAW_H / 2
@@ -133,6 +222,24 @@ function buildFrame(cardRGBA, rng, { bg = 'table', skew = 12 } = {}) {
     { x: cx + hw + j(), y: cy + hh + j() },
     { x: cx - hw + j(), y: cy + hh + j() },
   ]
+  // Sleeve first, UNDER the card: a slightly larger quad of clear plastic over
+  // the mat. It lifts the background a little and adds a faint specular edge,
+  // which is exactly the competing quad the detector may lock onto instead of
+  // the card.
+  const sleeveQuad = sleeve ? expandQuad(quad, SLEEVE_MARGIN) : null
+  if (sleeveQuad) {
+    const sxs = sleeveQuad.map(p => p.x), sys = sleeveQuad.map(p => p.y)
+    const sx0 = Math.max(0, Math.floor(Math.min(...sxs))), sx1 = Math.min(FRAME_W, Math.ceil(Math.max(...sxs)))
+    const sy0 = Math.max(0, Math.floor(Math.min(...sys))), sy1 = Math.min(FRAME_H, Math.ceil(Math.max(...sys)))
+    for (let y = sy0; y < sy1; y++) {
+      for (let x = sx0; x < sx1; x++) {
+        if (!pointInQuad(sleeveQuad, x, y)) continue
+        const p = (y * FRAME_W + x) * 4
+        for (let c = 0; c < 3; c++) data[p + c] = Math.min(255, data[p + c] * 0.92 + 26)
+      }
+    }
+  }
+
   // Inverse-map every pixel inside the quad's bounding box back to card space.
   const xs = quad.map(p => p.x), ys = quad.map(p => p.y)
   const x0 = Math.max(0, Math.floor(Math.min(...xs))), x1 = Math.min(FRAME_W, Math.ceil(Math.max(...xs)))
@@ -153,7 +260,11 @@ function buildFrame(cardRGBA, rng, { bg = 'table', skew = 12 } = {}) {
       data[di + 2] = cardRGBA[si + 2]; data[di + 3] = 255
     }
   }
-  return { data, width: FRAME_W, height: FRAME_H, quad }
+  if (sleeveQuad) {
+    sleeveHaze(data, FRAME_W, FRAME_H, sleeveQuad)
+    sleeveGlare(data, FRAME_W, FRAME_H, rng, sleeveQuad)
+  }
+  return { data, width: FRAME_W, height: FRAME_H, quad, sleeveQuad }
 }
 
 /** Newton solve for (u,v) in a bilinear quad. Converges in a few iterations. */
@@ -194,7 +305,28 @@ const SCENARIOS = [
   ['red-mat', { bg: 'colored', skew: 12, degrade: (f) => f }],
   ['blur', { bg: 'table', skew: 12, degrade: (f) => ({ ...f, data: blurFrame(f, 3) }) }],
   ['glare', { bg: 'table', skew: 12, degrade: (f, rng) => ({ ...f, data: glareFrame(f, rng, 3) }) }],
+  // Sleeved cards — the common real case. The sleeve adds a competing outer
+  // quad, a plastic haze, and an elongated specular streak.
+  ['sleeve', { bg: 'table', skew: 12, sleeve: true, degrade: (f) => f }],
+  ['sleeve+pattern', { bg: 'pattern', skew: 12, sleeve: true, degrade: (f) => f }],
+  ['pattern-mat', { bg: 'pattern', skew: 12, degrade: (f) => f }],
+  ['sleeve+dark', { bg: 'dark', skew: 12, sleeve: true, degrade: (f, rng) => ({ ...f, data: addNoise(f.data, rng, 10) }) }],
 ]
+
+/**
+ * Mean per-corner distance between the detected quad and the TRUE card quad,
+ * in frame px. This is the metric that exposes sleeve lock-on: finding "a"
+ * quad is not the same as finding the CARD, and a detector that latches onto
+ * the sleeve edge reports success while shifting every downstream crop
+ * outward. Corner order from detectCardCorners is [TL,TR,BR,BL], matching how
+ * buildFrame lays out its quad.
+ */
+function cornerError(detected, truth) {
+  if (!detected || detected.length !== 4) return null
+  let sum = 0
+  for (let i = 0; i < 4; i++) sum += Math.hypot(detected[i].x - truth[i].x, detected[i].y - truth[i].y)
+  return sum / 4
+}
 
 function blurFrame(frame, radius) {
   let src = new Float32Array(frame.data)
@@ -324,7 +456,7 @@ async function main() {
         scans: 0, detected: 0, reticleUsed: 0, reticleRerun: 0, decisiveFrame1: 0,
         accepted: 0, correctName: 0, correctPrint: 0,
         samples: [], variants: [], matches: [], detectMs: [], hashMs: [], matchMs: [], warpMs: [],
-        rungs: { fast: 0, primary: 0, marginal: 0, rot180: 0 }, unusableCrops: 0,
+        rungs: { fast: 0, primary: 0, marginal: 0, rot180: 0 }, unusableCrops: 0, cornerErrors: [],
       })
       const counters = {
         variantsHashed: 0, matchCalls: 0, hashMs: 0, matchMs: 0, detectMs: 0, warpMs: 0,
@@ -354,6 +486,10 @@ async function main() {
           detectedAny = true
           const sx = frame.width / small.width, sy = frame.height / small.height
           const corners = cornersSmall.map(p => ({ x: p.x * sx, y: p.y * sy }))
+          // Did it find the CARD, or the sleeve around it? Compared against the
+          // known card quad — the sleeve sits ~SLEEVE_MARGIN outside it.
+          const err = cornerError(corners, raw.quad)
+          if (err != null) cell.cornerErrors.push(err)
           const tw = performance.now()
           const card = warpCard(frame, corners)
           counters.warpMs += performance.now() - tw
@@ -432,36 +568,40 @@ async function main() {
   const pc = (a, b) => b ? `${(100 * a / b).toFixed(0)}%` : '—'
 
   console.log('\n══ DETECTION (the trustworthy half — not affected by self-match) ══')
-  console.log(`  ${'scenario'.padEnd(13)}${'quad found'.padEnd(12)}${'reticle used'.padEnd(14)}detect ms (median)`)
+  console.log('Corner error = mean px between the detected quad and the TRUE card quad.')
+  console.log(`A sleeve sits ~${(SLEEVE_MARGIN * 100).toFixed(1)}% outside the card — on a ${CARD_DRAW_H}px-tall card that is ~${Math.round(CARD_DRAW_H * SLEEVE_MARGIN / 2)}px per edge,`)
+  console.log('so a jump to roughly that magnitude means the detector locked onto the SLEEVE.')
+  console.log(`  ${'scenario'.padEnd(15)}${'quad found'.padEnd(12)}${'reticle'.padEnd(10)}${'corner err'.padEnd(12)}detect ms`)
   for (const [scen] of SCENARIOS) {
     const c = results[scen]; if (!c) continue
-    console.log(`  ${scen.padEnd(13)}${pc(c.detected, c.scans).padEnd(12)}${pc(c.reticleUsed, c.scans).padEnd(14)}${p50(c.detectMs).toFixed(0)}ms`)
+    const err = c.cornerErrors.length ? `${p50(c.cornerErrors).toFixed(1)}px` : '—'
+    console.log(`  ${scen.padEnd(15)}${pc(c.detected, c.scans).padEnd(12)}${pc(c.reticleUsed, c.scans).padEnd(10)}${err.padEnd(12)}${p50(c.detectMs).toFixed(0)}ms`)
   }
 
   console.log('\n══ WORK PER SCAN (real 111k pack) ══')
-  console.log(`  ${'scenario'.padEnd(13)}${'samples'.padEnd(9)}${'variants'.padEnd(10)}${'matches'.padEnd(9)}${'warp'.padEnd(8)}${'hash'.padEnd(8)}${'match'.padEnd(9)}decisive f1`)
+  console.log(`  ${'scenario'.padEnd(15)}${'samples'.padEnd(9)}${'variants'.padEnd(10)}${'matches'.padEnd(9)}${'warp'.padEnd(8)}${'hash'.padEnd(8)}${'match'.padEnd(9)}decisive f1`)
   for (const [scen] of SCENARIOS) {
     const c = results[scen]; if (!c) continue
-    console.log(`  ${scen.padEnd(13)}${p50(c.samples).toFixed(0).padEnd(9)}${p50(c.variants).toFixed(0).padEnd(10)}${p50(c.matches).toFixed(0).padEnd(9)}${`${p50(c.warpMs).toFixed(0)}ms`.padEnd(8)}${`${p50(c.hashMs).toFixed(0)}ms`.padEnd(8)}${`${p50(c.matchMs).toFixed(0)}ms`.padEnd(9)}${pc(c.decisiveFrame1, c.scans)}`)
+    console.log(`  ${scen.padEnd(15)}${p50(c.samples).toFixed(0).padEnd(9)}${p50(c.variants).toFixed(0).padEnd(10)}${p50(c.matches).toFixed(0).padEnd(9)}${`${p50(c.warpMs).toFixed(0)}ms`.padEnd(8)}${`${p50(c.hashMs).toFixed(0)}ms`.padEnd(8)}${`${p50(c.matchMs).toFixed(0)}ms`.padEnd(9)}${pc(c.decisiveFrame1, c.scans)}`)
   }
 
   console.log('\n══ REVIEW FINDING 1 — reticle ladder re-run after a SUCCESSFUL detect ══')
   for (const [scen] of SCENARIOS) {
     const c = results[scen]; if (!c) continue
-    console.log(`  ${scen.padEnd(13)}${pc(c.reticleRerun, c.scans)} of scans`)
+    console.log(`  ${scen.padEnd(15)}${pc(c.reticleRerun, c.scans)} of scans`)
   }
 
   console.log('\n══ ACCURACY — true value sits BETWEEN these columns (see code comment) ══')
-  console.log(`  ${'scenario'.padEnd(13)}${'accepted'.padEnd(11)}${'name (generous)'.padEnd(18)}exact print (strict)`)
+  console.log(`  ${'scenario'.padEnd(15)}${'accepted'.padEnd(11)}${'name (generous)'.padEnd(18)}exact print (strict)`)
   for (const [scen] of SCENARIOS) {
     const c = results[scen]; if (!c) continue
-    console.log(`  ${scen.padEnd(13)}${pc(c.accepted, c.scans).padEnd(11)}${pc(c.correctName, c.scans).padEnd(18)}${pc(c.correctPrint, c.scans)}`)
+    console.log(`  ${scen.padEnd(15)}${pc(c.accepted, c.scans).padEnd(11)}${pc(c.correctName, c.scans).padEnd(18)}${pc(c.correctPrint, c.scans)}`)
   }
 
   console.log('\n══ LADDER RUNGS ENTERED (summed) ══')
   for (const [scen] of SCENARIOS) {
     const c = results[scen]; if (!c) continue
-    console.log(`  ${scen.padEnd(13)}fast ${String(c.rungs.fast).padEnd(5)}primary ${String(c.rungs.primary).padEnd(5)}marginal ${String(c.rungs.marginal).padEnd(5)}rot180 ${String(c.rungs.rot180).padEnd(5)}unusable crops ${c.unusableCrops}`)
+    console.log(`  ${scen.padEnd(15)}fast ${String(c.rungs.fast).padEnd(5)}primary ${String(c.rungs.primary).padEnd(5)}marginal ${String(c.rungs.marginal).padEnd(5)}rot180 ${String(c.rungs.rot180).padEnd(5)}unusable crops ${c.unusableCrops}`)
   }
 
   console.log('\nReminder: hash-match difficulty here is NOT realistic (probes are self-matches')
