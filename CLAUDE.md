@@ -612,7 +612,7 @@ Two findings from that run outlive the verdict:
 Every scan attempt emits one `[scan]` line with a per-stage wall-clock breakdown — always on, not `DEBUG`-gated:
 
 ```
-[scan] 940ms hit "Card" | frames 1:118/12 2:96/40 | cap 250 det 90 warp 40 hash 210 match 300 | src corners | mode manual
+[scan] 940ms hit "Card" | frames 1:118/12 2:96/40 | cap 250 det 90 warp 40 hash 210 match 300 | ladder 5 | src corners | mode manual
 ```
 
 `src` names the winning path (`corners` / `reticle` / `+rot180` / `fused×N`), and `mode` separates auto-scan from manual — they differ materially, because auto-scan hands frame 1 a prefetched frame (skipping a capture and a detect pass) and never runs the reticle fallback.
@@ -640,6 +640,7 @@ The auto-scan probe loop also reports itself every 2.5 s, but **only when a scan
 **Start here for any "scans got slow" report**, and note the tuning below was all derived from these logs — the constants are evidence, not preference:
 
 - `MATCH_ACCEPT_CEILING = 93` — no acceptance path may exceed it. Real matches measured 47–90, wrong ones 97–105. The bands **do overlap** (one correct read landed at 99), so this is a deliberate trade: a wrong card written into a collection is worse than a re-scan.
+  - **No gate that decides whether to KEEP LOOKING may sit above it either.** `shouldExpand()` and `isDecisiveCandidate()` compared against `MATCH_THRESHOLD` (122) and `MATCH_STRONG_SINGLE` (108) until 2026-08-08, so a candidate at 99 with a clean gap counted as decisive: the ladder returned early, the 180° and reticle passes were skipped, the stability loop broke after one frame — and then the ceiling rejected it. The scan was refusing to look further at a guaranteed miss, which is what a device log of six consecutive `1:9x/8+` single-frame misses on one stationary card looks like. `ladder N` in the `[scan]` line counts the crop variants actually taken to the matcher, so the cost of expanding is measurable. `shouldTryMarginalVariants()` (the 6 expensive crops) deliberately stays on the old threshold.
 - `BROAD_BUDGET_PER_SCAN = 1` — the broad re-rank has never produced a correct winning match in any logged session; it either contributed nothing or produced a false accept.
 - `AUTOSCAN_PROBE_STABLE = 1` — two consecutive detections were the binding constraint, not a safety net: `drift` measured 0–5 px against a 10 px limit, so quads were never *moving*, just not *found* every probe.
 - Probe capture quality must stay at `NATIVE_CAPTURE_QUALITY`. Dropping it to 50 made detection intermittent and the loop stopped reaching scans at all.
