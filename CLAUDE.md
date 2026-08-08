@@ -561,6 +561,8 @@ stability voting (up to STABILITY_SAMPLES=3 frames, SAMPLE_DELAY_MS=20)
 
 **Auto-scan** runs a continuous cheap probe (`detect({ quick: true })`, ~10 Hz, `AUTOSCAN_PROBE_INTERVAL_MS`) and fires a full scan only after a card-like quad holds still for `AUTOSCAN_PROBE_STABLE` consecutive probes — an empty table never triggers 3-pass detection or hashing. There are no fixed miss/match cooldowns anymore; `AUTOSCAN_AFTER_SCAN_MS` paces attempts and the name+foil signature guard suppresses re-adding the card left in frame.
 
+**Only the card leaving frame re-arms the duplicate guard** (`src/scanner/autoScanGuard.js`) — a quad-less run of `AUTOSCAN_GUARD_RELEASE_MS` (2 s) of probes, or the "Next Card" button. **A failed scan must never re-arm it.** A card sitting at the edge of `MATCH_ACCEPT_CEILING` alternates hit/miss/hit while completely stationary, so clearing the guard on a miss made every other match look like a new card: a device log (2026-08-08) shows one physical Vivi Ornitier added 4× and one Command Tower 3×, each repeat separated by a ceiling rejection of that same card at 94–99. The grace period matters too — the quick probe drops the quad on ~40–60% of attempts with a card still in frame, so a single quad-less probe is noise, not a pickup.
+
 **Reticle fallback**: when no corners are found, `visionClient.loadReticle(fullImageData, vw, vh)` blind-crops the reticle region as the current card (manual scan only, not auto-scan).
 
 **180° rotation fallback**: after each warp/reticle pass, if no decisive match, `rotateCard180(warpedCard)` is tried — catches cards held upside-down.

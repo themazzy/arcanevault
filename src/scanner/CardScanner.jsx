@@ -45,6 +45,9 @@ import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
 import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
 import { filterPrintings } from '../lib/printingFilter'
 import { isCurrentManualSearchRequest } from './manualSearchRequest'
+import {
+  getAutoScanCardSignature, isAutoScanDuplicate, nextRememberedSignature, shouldReleaseGuard,
+} from './autoScanGuard'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
@@ -161,6 +164,13 @@ const AUTOSCAN_AFTER_SCAN_MS      = 250
 // swapped card re-arms instantly via the signature comparison itself, so this
 // only throttles true no-ops.
 const AUTOSCAN_DUPLICATE_COOLDOWN_MS = 1500
+// How long the probe loop must find NO quad before the duplicate guard forgets
+// the card it accepted and the same name may be added again. Generous on
+// purpose: the quick probe drops the quad on ~40-60% of attempts with a card
+// still sitting in frame, so anything short of ~4 quad-less probes in a row is
+// noise rather than "the card was picked up". Lifting one card and laying the
+// next one down comfortably exceeds this; "Next Card" skips the wait outright.
+const AUTOSCAN_GUARD_RELEASE_MS   = 2000
 const PRIMARY_CROP_VARIANTS = [
   { xOffset: 0, yOffset: 0 },
   { xOffset: 0, yOffset: -10 },
@@ -327,10 +337,6 @@ function roundedQuadPath(points, radius) {
   }
   parts.push('Z')
   return parts.join(' ')
-}
-
-function getAutoScanCardSignature(match, foil = false) {
-  return `${String(match?.name || '').trim().toLocaleLowerCase()}|${foil ? 1 : 0}`
 }
 
 const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG']
@@ -1754,12 +1760,16 @@ export default function CardScanner({ onMatch, onClose }) {
       const elapsed = Date.now() - scanStart
 
       // Same name+foil as the last accepted scan means the card is still
-      // sitting in frame — a silent no-op, not a new match. Deliberately loose
-      // (name-only): sets with near-identical prints, like basics, would
-      // otherwise get re-added on every printing wobble. The "Next Card"
-      // button resets this for a deliberate same-name rescan.
+      // sitting in frame — a silent no-op, not a new match. See autoScanGuard.js
+      // for why the signature is name-only and why a MISS must not re-arm it.
+      // The probe loop (card gone) and "Next Card" are what release the guard.
       const autoScanSignature = match ? getAutoScanCardSignature(match, preferFoil) : null
-      const isDuplicate = isAutoScan && !!match && autoScanSignature === lastAutoScanSignatureRef.current
+      const isDuplicate = isAutoScanDuplicate({
+        isAutoScan, signature: autoScanSignature, remembered: lastAutoScanSignatureRef.current,
+      })
+      lastAutoScanSignatureRef.current = nextRememberedSignature({
+        isAutoScan, signature: autoScanSignature, remembered: lastAutoScanSignatureRef.current,
+      })
 
       // One compact line per scan attempt, always on: per-stage wall-clock
       // breakdown. This is what "scans got slow" reports are diagnosed from —
@@ -1802,7 +1812,6 @@ export default function CardScanner({ onMatch, onClose }) {
       }
 
       if (!match) {
-        if (isAutoScan) lastAutoScanSignatureRef.current = null
         sessionStatsRef.current.attempts++
         sessionStatsRef.current.totalMs += elapsed
         sessionStatsRef.current.missMs += elapsed
@@ -1819,7 +1828,6 @@ export default function CardScanner({ onMatch, onClose }) {
       sessionStatsRef.current.totalMs += elapsed
       sessionStatsRef.current.hitMs += elapsed
       setSessionStatsDisplay({ ...sessionStatsRef.current })
-      if (isAutoScan) lastAutoScanSignatureRef.current = autoScanSignature
       addToPending(match, { foil: preferFoil })
       // In manual mode, close any open overlay — result shows in the bottom bar only
       if (!isAutoScan && basketTgl.on) basketTgl.hide()
@@ -1860,6 +1868,8 @@ export default function CardScanner({ onMatch, onClose }) {
     let lastSig = null
     let stableCount = 0
     let missStreak = 0
+    // When the current run of quad-less probes began (0 = a quad is showing).
+    let quadLostSince = 0
 
     // Publish the probe's latest sighting; the rAF loop below does the drawing.
     const showQuad = (quad) => {
@@ -1932,6 +1942,7 @@ export default function CardScanner({ onMatch, onClose }) {
           if (!quick) probeStatsRef.current.fulls++
           if (corners) {
             missStreak = 0
+            quadLostSince = 0
             showQuad(mapQuadToViewport(corners, frame.sw, frame.sh))
             const sig = quadSig(corners)
             const stable = quadSigRoughlyEqual(sig, lastSig, AUTOSCAN_PROBE_EPS_PX, AUTOSCAN_PROBE_AREA_TOL)
@@ -1973,6 +1984,14 @@ export default function CardScanner({ onMatch, onClose }) {
             stableCount = 0
             lastSig = null
             duplicateHoldUntilRef.current = 0
+            // Losing the quad for long enough is the ONE signal that the card
+            // was picked up, so it is the one thing that re-arms the duplicate
+            // guard. A failed scan says nothing about the card still being there.
+            const now = Date.now()
+            if (!quadLostSince) quadLostSince = now
+            if (shouldReleaseGuard({ quadLostSince, now, graceMs: AUTOSCAN_GUARD_RELEASE_MS })) {
+              lastAutoScanSignatureRef.current = null
+            }
             showQuad(null)
           }
         } catch { /* keep probing */ }
