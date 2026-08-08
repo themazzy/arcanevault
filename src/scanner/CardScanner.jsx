@@ -75,10 +75,18 @@ const MATCH_STRONG_SINGLE    = 108
 // at all and reached MATCH_STRONG_THRESHOLD (134). Those branches are still
 // needed — same-art reprints legitimately sit at gap ~0 — so rather than
 // removing them, every path is now subordinate to this ceiling.
-// Set at 100 rather than the ~90 the data would support, to leave headroom for
-// a genuinely hard capture (foil under bad light) that the 5-hit device sample
-// may not represent.
-const MATCH_ACCEPT_CEILING   = 100
+// Refined against a second device session (white background, 4 cards, 8 scans)
+// which produced four more wrong matches at 97/99/103/105. Combined real data:
+//   correct (n=9): 51 52 57 67 68 71 72 79 86   → max 86
+//   wrong   (n=5): 97 99 103 104 105            → min 97
+// A clean corridor at 86–97, and the gate harness agrees independently
+// (correct p95 62.3, held-out cards min 92.0). 100 was too generous — it caught
+// 103/104/105 but let two "Blood Sun" false accepts through at 97 and 99.
+// TRADE-OFF, deliberate: 90 leaves only ~4 points above the highest observed
+// true hit, so a genuinely hard capture may now miss. In a workflow where cards
+// are slid under the phone and added to a collection, a wrong card is worse
+// than a re-scan.
+const MATCH_ACCEPT_CEILING   = 90
 // Full-pool re-ranks allowed per scan attempt. `broadFallbackOnWeak` re-ranks
 // all ~111k rows when the LSH-indexed candidates look weak, and it was running
 // per hash query × per crop variant × per frame — about 90 full scans, which
