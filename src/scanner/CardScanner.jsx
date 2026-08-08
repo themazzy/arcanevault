@@ -547,13 +547,21 @@ export function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = fa
   return { accepted: false, reason: 'best candidate not confident enough' }
 }
 
-function isDecisiveCandidate(best, gap) {
+// "Decisive" has to mean ACCEPTABLE, or the scan stops looking at a candidate
+// the gate is certain to refuse. MATCH_STRONG_SINGLE (108) sits above
+// MATCH_ACCEPT_CEILING (93), so on its own it called a guaranteed rejection
+// decisive: the variant ladder returned early and the stability loop broke,
+// both on a distance that could never be accepted. Math.min keeps the two
+// constants honest if either is retuned later.
+const DECISIVE_DISTANCE = Math.min(MATCH_STRONG_SINGLE, MATCH_ACCEPT_CEILING)
+
+export function isDecisiveCandidate(best, gap) {
   if (!best) return false
-  return best.distance <= MATCH_STRONG_SINGLE && gap >= MATCH_MIN_GAP
+  return best.distance <= DECISIVE_DISTANCE && gap >= MATCH_MIN_GAP
 }
 
 
-function getStableVote(votes) {
+export function getStableVote(votes) {
   return [...votes.values()].sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count
     return a.best.distance - b.best.distance
@@ -1488,7 +1496,11 @@ export default function CardScanner({ onMatch, onClose }) {
     // a detection pass.
     // Per-stage wall-clock times (ms) — surfaced in the per-scan console
     // line so slow sessions can be attributed to a stage, not guessed at.
-    const timing = { capture: 0, detect: 0, warp: 0, hash: 0, match: 0 }
+    // `rounds` counts crop variants actually taken to the matcher — the depth
+    // the escalation ladder reached. Without it a slow scan cannot be split
+    // into "one slow round" and "twenty rounds", which is exactly the question
+    // the ceiling-bound shouldExpand() above raises.
+    const timing = { capture: 0, detect: 0, warp: 0, hash: 0, match: 0, rounds: 0 }
     let getFullImageData, w, h, sw, sh, cornersSmall
     if (prefetched) {
       ({ getFullImageData, w, h, sw, sh } = prefetched)
@@ -1530,7 +1542,20 @@ export default function CardScanner({ onMatch, onClose }) {
       return isDecisiveCandidate(best, bestGap)
     }
 
-    const shouldExpand = () => !best || best.distance > MATCH_THRESHOLD || bestGap < MATCH_MIN_GAP
+    // Keep escalating while what we have cannot be accepted. This used to
+    // compare against MATCH_THRESHOLD (122), which was never retuned when
+    // MATCH_ACCEPT_CEILING dropped to 93: a candidate at 99 with a clean gap
+    // stopped the ladder dead — no further crop variants, no 180° pass, no
+    // reticle — and was then rejected by the ceiling. The scan was declining
+    // to look any further at a guaranteed miss. Device log 2026-08-08 shows
+    // six of them on one stationary card, each a single frame at `1:9x/8+`.
+    // Hits are unaffected: a candidate at or under the ceiling with a real gap
+    // exits exactly as early as before.
+    const shouldExpand = () => !best || best.distance > MATCH_ACCEPT_CEILING || bestGap < MATCH_MIN_GAP
+    // The 6 marginal crops are the expensive tier and stay on the old, looser
+    // threshold on purpose: widening this one too would put a true miss back
+    // near the ~1.6 s worst case that the device tuning bought down. Revisit
+    // only with a device log that shows the cheap tier above still missing.
     const shouldTryMarginalVariants = () => !best || best.distance > MATCH_STRONG_THRESHOLD || bestGap < MATCH_MIN_GAP
     const matchOpts = {
       allowedSets,
@@ -1584,6 +1609,7 @@ export default function CardScanner({ onMatch, onClose }) {
         const { best: c, second: r, diffGap, candidateCount, totalCount, fallback, bestLabel } =
           await databaseService.findBestTwoWithStatsAsyncAll(queries, hs.colorHash ?? null, fullHash, opts)
         timing.match += performance.now() - t0
+        timing.rounds++
         const label = bestLabel && bestLabel !== 'standard' ? `${sourceLabel}+${bestLabel}` : sourceLabel
         if (updateBest(c, r, diffGap, candidateCount, totalCount, variants[i], label, fallback)) return
       }
@@ -1684,17 +1710,31 @@ export default function CardScanner({ onMatch, onClose }) {
         frameSummaries.push(result.best ? `${i+1}:${result.best.distance}/${result.gap??'?'}` : `${i+1}:${result.stage}`)
         if (result.best && (!bestObserved || result.best.distance < bestObserved.distance)) {
           bestObserved = result.best
-          bestObservedGap = result.second ? result.second.distance - result.best.distance : 256
+          // The DIFFERENT-NAME gap the pipeline already computed, not the raw
+          // runner-up distance. matchCore returns diffGap precisely because a
+          // same-art reprint sits at raw gap ~0, and recomputing it from
+          // `second` here handed the acceptance gate a gap of roughly zero on
+          // every reprinted card — which forced acceptance down the no-gap
+          // sameNameCluster branch, the one that let "Sentinel's Eyes" in at
+          // distance 104.
+          bestObservedGap = result.gap ?? 0
           bestObservedCandidates = result.candidateCount
           bestObservedVariant = result.variant
           bestObservedSource = result.source
           bestObservedSameNameCluster = !!result.sameNameCluster
         }
         if (result.status === 'found' && result.best) {
-          const prev = votes.get(result.best.id) ?? { count: 0, best: result.best }
+          // Gap and cluster travel WITH the candidate. They used to be read off
+          // bestObserved while `best` came from the vote, so the gate could
+          // judge one card using another card's evidence whenever the most-voted
+          // and the lowest-distance candidates differed.
+          const prev = votes.get(result.best.id)
+          const closer = !prev || result.best.distance < prev.best.distance
           votes.set(result.best.id, {
-            count: prev.count + 1,
-            best: result.best.distance < prev.best.distance ? result.best : prev.best,
+            count: (prev?.count ?? 0) + 1,
+            best: closer ? result.best : prev.best,
+            gap: closer ? (result.gap ?? 0) : prev.gap,
+            sameNameCluster: closer ? !!result.sameNameCluster : prev.sameNameCluster,
           })
         }
         const stableVote = getStableVote(votes)
@@ -1704,13 +1744,21 @@ export default function CardScanner({ onMatch, onClose }) {
       }
 
       const stableVote = getStableVote(votes)
-      const acceptance = shouldAcceptMatch({
-        best: stableVote?.best ?? bestObserved,
+      // One candidate, judged on its own evidence. The voted candidate carries
+      // the gap and cluster flag of the frame that produced it; only when no
+      // frame reached "found" does the gate fall back to the best observed.
+      const candidate = stableVote ?? {
+        best: bestObserved,
         gap: bestObservedGap ?? 0,
-        stableCount: stableVote?.count ?? 0,
         sameNameCluster: bestObservedSameNameCluster,
+      }
+      const acceptance = shouldAcceptMatch({
+        best: candidate.best,
+        gap: candidate.gap ?? 0,
+        stableCount: stableVote?.count ?? 0,
+        sameNameCluster: !!candidate.sameNameCluster,
       })
-      let match = acceptance.accepted ? (stableVote?.best ?? bestObserved) : null
+      let match = acceptance.accepted ? candidate.best : null
 
       // Multi-frame fusion rescue: no single frame passed the gates, but a
       // per-bit majority vote across the sampled frames often reconstructs a
@@ -1794,7 +1842,7 @@ export default function CardScanner({ onMatch, onClose }) {
       {
         const stage = frameTimings.reduce(
           (acc, t) => { for (const k in acc) acc[k] += t[k] || 0; return acc },
-          { capture: 0, detect: 0, warp: 0, hash: 0, match: 0 },
+          { capture: 0, detect: 0, warp: 0, hash: 0, match: 0, rounds: 0 },
         )
         const r = Math.round
         // Drain the probe accumulator: these are the probes that led up to THIS
@@ -1814,6 +1862,7 @@ export default function CardScanner({ onMatch, onClose }) {
             : `miss (${acceptance.reason})${bestObserved ? ` rejected "${bestObserved.name}"` : ''}`}` +
           ` | frames ${frameSummaries.join(' ')}` +
           ` | cap ${r(stage.capture)} det ${r(stage.detect)} warp ${r(stage.warp)} hash ${r(stage.hash)} match ${r(stage.match)}` +
+          ` | ladder ${stage.rounds}` +
           (fusionMs ? ` | fusion ${r(fusionMs)}` : '') +
           ` | src ${bestObservedSource ?? '-'}` +
           ` | broad ${BROAD_BUDGET_PER_SCAN - broadBudget.remaining}/${BROAD_BUDGET_PER_SCAN}` +
