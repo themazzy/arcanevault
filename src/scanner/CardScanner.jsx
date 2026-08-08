@@ -103,7 +103,17 @@ const MATCH_ACCEPT_CEILING   = 93
 const BROAD_BUDGET_PER_SCAN  = 3
 // Continuous auto-scan: cheap corner probes at this cadence gate full scans.
 const AUTOSCAN_PROBE_INTERVAL_MS  = 60
-const AUTOSCAN_PROBE_STABLE       = 2     // consecutive stable probes before scanning
+// Consecutive stable probes before scanning. Was 2, which measurement showed
+// was the binding constraint rather than a safety net: with a card in frame the
+// probe finds a quad on only ~40-60% of attempts, so two CONSECUTIVE hits are
+// rare, and `stable-max` never got past 1/2 across a whole session. Meanwhile
+// `drift` read 0-5px whenever it could be measured, against a 10px limit — the
+// quad is not moving between probes, it is simply not being FOUND every probe.
+// So the second probe was not confirming stability, it was just costing another
+// ~600-700ms round trip.
+// Safe to drop now that a wrong scan is cheap and non-destructive: misses run
+// 57-260ms, and MATCH_ACCEPT_CEILING stops a bad frame being accepted.
+const AUTOSCAN_PROBE_STABLE       = 1
 const AUTOSCAN_PROBE_EPS_PX       = 10    // max centroid drift between probes (small-frame px)
 const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change between probes
 // After this many consecutive quick-probe misses, every Nth probe escalates to
@@ -122,6 +132,13 @@ const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change betwe
 // ladder once it has actually lost the card.
 const AUTOSCAN_ESCALATE_AFTER     = 1
 const AUTOSCAN_ESCALATE_EVERY     = 1
+// ...but stop escalating once the miss streak says the scene is simply EMPTY.
+// A device log showed 13 consecutive [probe] lines of `quad 0/4 (full 4)` while
+// nothing was in frame — 35 seconds of running the full 3-pass ladder to
+// confirm an empty table, which pushed probe cost from ~525ms to ~700ms for no
+// benefit. Escalation should buy responsiveness when a card is present, not
+// pay a premium to keep discovering there is nothing there.
+const AUTOSCAN_ESCALATE_MAX_MISSES = 6
 // Pause after a full scan attempt before probing resumes. Kept short — the
 // name+foil signature guard already suppresses re-adding the card left in
 // frame, so this only needs to cover the beep/haptic moment, not the swap.
@@ -1996,7 +2013,10 @@ export default function CardScanner({ onMatch, onClose }) {
           // times in a row, periodically escalate to the full 3-pass
           // detection so dark/low-contrast cards still trigger auto-scan
           // (costs ~one old-style full detection every ~270 ms while idle).
+          // Full detection while we have plausibly just lost a card; back to
+          // the cheap pass once the streak says the frame is simply empty.
           const quick = !(missStreak >= AUTOSCAN_ESCALATE_AFTER &&
+                          missStreak <= AUTOSCAN_ESCALATE_MAX_MISSES &&
                           missStreak % AUTOSCAN_ESCALATE_EVERY === 0)
           const detT0 = performance.now()
           const corners = frame ? await visionClient.detect(frame.smallImageData, { quick }) : null
