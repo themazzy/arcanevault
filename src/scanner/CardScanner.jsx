@@ -82,11 +82,17 @@ const MATCH_STRONG_SINGLE    = 108
 // A clean corridor at 86–97, and the gate harness agrees independently
 // (correct p95 62.3, held-out cards min 92.0). 100 was too generous — it caught
 // 103/104/105 but let two "Blood Sun" false accepts through at 97 and 99.
-// TRADE-OFF, deliberate: 90 leaves only ~4 points above the highest observed
-// true hit, so a genuinely hard capture may now miss. In a workflow where cards
-// are slid under the phone and added to a collection, a wrong card is worse
-// than a re-scan.
-const MATCH_ACCEPT_CEILING   = 90
+// A third session (white background, poor light) showed 90 was too tight in
+// practice: "Mayhem Devil" (SLP 0028) was correctly identified at distance
+// exactly 90 — one point from rejection — after two attempts at 95 were
+// refused. So real cards genuinely reach 90, and the observed corridor is now
+// correct ≤ 90 / wrong ≥ 97. 93 sits mid-corridor: three points of headroom
+// above the worst true hit, four below the best false one.
+// The trade-off direction still stands — a wrong card written into a collection
+// is worse than a re-scan — but 90 was buying safety that the data does not
+// show is needed. Misses now log the rejected candidate's name, so the next
+// session can attribute a ceiling rejection instead of guessing at it.
+const MATCH_ACCEPT_CEILING   = 93
 // Full-pool re-ranks allowed per scan attempt. `broadFallbackOnWeak` re-ranks
 // all ~111k rows when the LSH-indexed candidates look weak, and it was running
 // per hash query × per crop variant × per frame — about 90 full scans, which
@@ -1801,7 +1807,13 @@ export default function CardScanner({ onMatch, onClose }) {
         )
         const r = Math.round
         const line =
-          `[scan] ${elapsed}ms ${match ? `hit "${match.name}"${isDuplicate ? ' (dup)' : ''}` : `miss (${acceptance.reason})`}` +
+          // On a miss, name the candidate that was refused. Without it a ceiling
+          // rejection is unattributable: "95 > 90" cannot distinguish the gate
+          // correctly blocking a wrong card from it squeezing out a real one,
+          // which is exactly the evidence needed to tune MATCH_ACCEPT_CEILING.
+          `[scan] ${elapsed}ms ${match
+            ? `hit "${match.name}"${isDuplicate ? ' (dup)' : ''}`
+            : `miss (${acceptance.reason})${bestObserved ? ` rejected "${bestObserved.name}"` : ''}`}` +
           ` | frames ${frameSummaries.join(' ')}` +
           ` | cap ${r(stage.capture)} det ${r(stage.detect)} warp ${r(stage.warp)} hash ${r(stage.hash)} match ${r(stage.match)}` +
           (fusionMs ? ` | fusion ${r(fusionMs)}` : '') +

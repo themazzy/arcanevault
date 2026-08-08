@@ -37,8 +37,13 @@ describe('shouldAcceptMatch — ceiling', () => {
   })
 
   it('still accepts every distance observed as a real hit on device', () => {
-    // Both sessions: 51/52/57/67/68/71/72/79/86, all with healthy gaps.
-    const realHits = [[51, 56], [52, 56], [57, 46], [67, 43], [68, 43], [71, 31], [72, 22], [79, 29], [86, 16]]
+    // Across three sessions. The last entry is "Mayhem Devil" at 90 — a
+    // correctly identified card that landed one point under a ceiling of 90,
+    // which is why the ceiling moved to 93.
+    const realHits = [
+      [47, 58], [48, 57], [51, 56], [52, 56], [57, 46], [67, 43], [68, 43],
+      [71, 31], [72, 22], [73, 31], [79, 29], [86, 16], [90, 20],
+    ]
     for (const [distance, gap] of realHits) {
       const r = shouldAcceptMatch({ best: card(distance), gap, stableCount: 1 })
       expect(r.accepted, `distance ${distance} gap ${gap} should still accept`).toBe(true)
@@ -56,11 +61,15 @@ describe('shouldAcceptMatch — ceiling', () => {
     }
   })
 
-  it('leaves a little headroom above the highest observed real hit', () => {
-    // 86 was the worst true hit. The margin is deliberately thin (86 -> 90);
-    // if real cards start missing, this constant is the first thing to revisit.
-    expect(shouldAcceptMatch({ best: card(88), gap: 20, stableCount: 2 }).accepted).toBe(true)
-    expect(shouldAcceptMatch({ best: card(91), gap: 20, stableCount: 2 }).accepted).toBe(false)
+  it('sits inside the observed corridor between real and wrong matches', () => {
+    // Worst true hit 90 ("Mayhem Devil"), best false one 97 ("Blood Sun").
+    // The ceiling must accept the former and reject the latter, with the two
+    // unattributed 95s left deliberately on the reject side until a logged
+    // rejection says which they were.
+    expect(shouldAcceptMatch({ best: card(90), gap: 20, stableCount: 2 }).accepted).toBe(true)
+    expect(shouldAcceptMatch({ best: card(93), gap: 20, stableCount: 2 }).accepted).toBe(true)
+    expect(shouldAcceptMatch({ best: card(95), gap: 11, stableCount: 2 }).accepted).toBe(false)
+    expect(shouldAcceptMatch({ best: card(97), gap: 7, stableCount: 2 }).accepted).toBe(false)
   })
 
   it('still accepts a genuine same-art reprint cluster below the ceiling', () => {
@@ -72,7 +81,7 @@ describe('shouldAcceptMatch — ceiling', () => {
   it('returns a reason naming the distance and the ceiling', () => {
     const r = shouldAcceptMatch({ best: card(140), gap: 30, stableCount: 3 })
     expect(r.reason).toContain('140')
-    expect(r.reason).toContain('90')
+    expect(r.reason).toContain('93')
   })
 
   it('handles a missing candidate', () => {
