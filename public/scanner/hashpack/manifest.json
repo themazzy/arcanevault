@@ -1,9 +1,15 @@
 {
   "formatVersion": 2,
   "hashVersion": 7,
-  "generatedAt": "2026-07-29T19:15:37.115Z",
-  "totalCount": 110677,
+  "generatedAt": "2026-08-07T09:56:08.263Z",
+  "totalCount": 111107,
   "chunks": [
+    {
+      "file": "pack-v7-006-193d0cf13e.bin",
+      "count": 430,
+      "bytes": 60975,
+      "sha256": "193d0cf13e9331c59e3a1ed94479827223fab47938e3f9d80f6a44cf678189b8"
+    },
     {
       "file": "pack-v7-005-8d89d564f9.bin",
       "count": 629,
