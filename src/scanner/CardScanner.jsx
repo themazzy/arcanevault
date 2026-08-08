@@ -100,7 +100,20 @@ const MATCH_ACCEPT_CEILING   = 93
 // real (it saved one scan in that log), but repeating it across ten nearly
 // identical crops of the same image is not: if the index missed the true row on
 // the primary crop, an 8px-shifted crop will not change that.
-const BROAD_BUDGET_PER_SCAN  = 3
+// Cut 3 -> 1 on device evidence. Across every logged session, the broad
+// re-rank has NEVER produced a correct winning match:
+//   - when `src` ended `:indexed+broad`, the result was a false accept
+//     ("Sentinel's Eyes" at distance 104, "Blood Sun" at 97/99)
+//   - on the three slow scans of the latest session (1620/2840/1386ms) it
+//     consumed its full budget for 724/1392/748ms of matching, and `src` was
+//     plain `:indexed` every time — the winning match came from the LSH index
+//     on a LATER FRAME, not from the re-rank
+// That is what a full-pool re-rank does when the indexed candidates are weak:
+// with 111k rows something lands closer by chance, which is a false-positive
+// generator rather than a rescue. Kept at 1 rather than 0 so the mechanism
+// still exists for the case it was written for (the index genuinely missing a
+// true row), but it can no longer dominate a scan.
+const BROAD_BUDGET_PER_SCAN  = 1
 // Continuous auto-scan: cheap corner probes at this cadence gate full scans.
 const AUTOSCAN_PROBE_INTERVAL_MS  = 60
 // Consecutive stable probes before scanning. Was 2, which measurement showed
