@@ -1,6 +1,17 @@
-// Standin nickname generator — used by the Setup Wizard to pre-fill an editable
-// default and to assign a fallback when a user finishes/skips setup without
-// picking their own. Format: <Adjective><Noun><two digits>, e.g. "MysticGoblin47".
+// Standin nickname generator. Format: <Adjective><Noun><two digits>, e.g.
+// "MysticGoblin47".
+//
+// NOTE: nothing imports this at runtime. Assignment happens server-side in the
+// `generate_nickname` / `assign_default_user_settings` Postgres functions (see
+// supabase/migrations/20260808120000_assign_default_user_settings_on_signup.sql),
+// which fire from a trigger on auth.users so every signup path is covered.
+// The word lists below are mirrored there and pinned by nicknameSqlParity.test.js.
+// This module is kept for a future client-side "reroll my handle" control; if
+// that never lands, it can be deleted along with its two test files.
+//
+// It was previously the live implementation: the Setup Wizard used it to
+// pre-fill an editable default and to assign a fallback when a user skipped
+// setup, until commit c3bf67e (2026-07-20) removed the wizard's Profile step.
 //
 // The nickname doubles as the public profile username (see Profile.jsx), which is
 // only constrained to be case-insensitively unique (is_username_available RPC).
