@@ -64,6 +64,29 @@ const MATCH_THRESHOLD        = 122
 const MATCH_MIN_GAP          = 8
 const MATCH_STRONG_THRESHOLD = 134
 const MATCH_STRONG_SINGLE    = 108
+// Hard ceiling on ANY acceptance path. Two independent sources put real
+// matches well below this and garbage above it:
+//   - scripts/scanner-gate-harness.js: correct matches p95 distance 62.3,
+//     while cards deliberately held OUT of the pack bottomed out at 92.0.
+//   - A real device log (2026-08-08): five true hits at 57/71/72/79/86, three
+//     misses at 103-107, and one FALSE ACCEPT of a card that does not exist in
+//     that collection at 104.
+// The false accept got in via a sameNameCluster branch, which requires no gap
+// at all and reached MATCH_STRONG_THRESHOLD (134). Those branches are still
+// needed — same-art reprints legitimately sit at gap ~0 — so rather than
+// removing them, every path is now subordinate to this ceiling.
+// Set at 100 rather than the ~90 the data would support, to leave headroom for
+// a genuinely hard capture (foil under bad light) that the 5-hit device sample
+// may not represent.
+const MATCH_ACCEPT_CEILING   = 100
+// Full-pool re-ranks allowed per scan attempt. `broadFallbackOnWeak` re-ranks
+// all ~111k rows when the LSH-indexed candidates look weak, and it was running
+// per hash query × per crop variant × per frame — about 90 full scans, which
+// the device log showed costing 2.6-4.1s (69% of a failing scan). The rescue is
+// real (it saved one scan in that log), but repeating it across ten nearly
+// identical crops of the same image is not: if the index missed the true row on
+// the primary crop, an 8px-shifted crop will not change that.
+const BROAD_BUDGET_PER_SCAN  = 3
 // Continuous auto-scan: cheap corner probes at this cadence gate full scans.
 const AUTOSCAN_PROBE_INTERVAL_MS  = 60
 const AUTOSCAN_PROBE_STABLE       = 2     // consecutive stable probes before scanning
@@ -423,8 +446,13 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
 const normalizeName = (value = '') =>
   value.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
 
-function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = false }) {
+export function shouldAcceptMatch({ best, gap, stableCount, sameNameCluster = false }) {
   if (!best) return { accepted: false, reason: 'no best candidate' }
+  // Ceiling first: above it there is no evidence any acceptance path is
+  // reporting a real card, so no combination of votes or name clustering
+  // should be able to talk its way past.
+  if (best.distance > MATCH_ACCEPT_CEILING)
+    return { accepted: false, reason: `distance above ceiling (${best.distance} > ${MATCH_ACCEPT_CEILING})` }
   if (stableCount >= STABILITY_REQUIRED && best.distance <= MATCH_THRESHOLD && gap >= MATCH_MIN_GAP)
     return { accepted: true, reason: 'stable threshold match' }
   if (stableCount >= STABILITY_REQUIRED && sameNameCluster && best.distance <= MATCH_THRESHOLD)
@@ -1431,7 +1459,7 @@ export default function CardScanner({ onMatch, onClose }) {
     }
   }, [isNative])
 
-  const scanSingleFrame = useCallback(async ({ cornersOnly = false, allowedSets = null, prefetched = null } = {}) => {
+  const scanSingleFrame = useCallback(async ({ cornersOnly = false, allowedSets = null, prefetched = null, broadBudget = null } = {}) => {
     // The auto-scan probe hands over its frame + detected corners so the
     // first sample skips a capture (native captureSample costs ~250 ms) and
     // a detection pass.
@@ -1488,6 +1516,15 @@ export default function CardScanner({ onMatch, onClose }) {
       weakDistance: MATCH_THRESHOLD,
       weakGap: MATCH_MIN_GAP,
     }
+    // Spend from the per-attempt budget. Consumed on every call that is ALLOWED
+    // a broad re-rank, not only ones where it fires — the point is to bound the
+    // worst case, and a call that stayed cheap exits the ladder early anyway.
+    const takeBroad = () => {
+      if (!broadBudget) return true            // no budget passed → previous behaviour
+      if (broadBudget.remaining <= 0) return false
+      broadBudget.remaining--
+      return true
+    }
 
     // Hash a batch of crop variants in the vision worker, then rank each
     // against the match worker, stopping early on a decisive match. The
@@ -1515,7 +1552,11 @@ export default function CardScanner({ onMatch, onClose }) {
           ...(hs.foilHash ? [{ hash: hs.foilHash, label: 'foil' }] : []),
           ...(hs.darkHash ? [{ hash: hs.darkHash, label: 'dark' }] : []),
         ]
-        const opts = hs.tileHashes ? { ...matchOpts, tileQuery: hs.tileHashes } : matchOpts
+        const opts = {
+          ...matchOpts,
+          broadFallbackOnWeak: takeBroad(),
+          ...(hs.tileHashes ? { tileQuery: hs.tileHashes } : {}),
+        }
         t0 = performance.now()
         const { best: c, second: r, diffGap, candidateCount, totalCount, fallback, bestLabel } =
           await databaseService.findBestTwoWithStatsAsyncAll(queries, hs.colorHash ?? null, fullHash, opts)
@@ -1621,11 +1662,17 @@ export default function CardScanner({ onMatch, onClose }) {
         ? new Set([...lockedSets].map(code => String(code).toLowerCase()))
         : null
 
+      // One budget for the whole attempt, shared across all stability samples —
+      // three frames of the same card produce near-identical hashes, so a broad
+      // re-rank that failed on frame 1 has no new information on frame 3.
+      const broadBudget = { remaining: BROAD_BUDGET_PER_SCAN }
+
       for (let i = 0; i < STABILITY_SAMPLES; i++) {
         const result = await scanSingleFrame({
           cornersOnly: isAutoScan,
           allowedSets,
           prefetched: i === 0 ? prefetched : null,
+          broadBudget,
         })
         anyCardLoaded ||= !!result.cardLoaded
         if (result.timing) frameTimings.push(result.timing)
@@ -1752,6 +1799,7 @@ export default function CardScanner({ onMatch, onClose }) {
           (fusionMs ? ` | fusion ${r(fusionMs)}` : '') +
           (rescueMs ? ` | rescue ${r(rescueMs)}` : '') +
           ` | src ${bestObservedSource ?? '-'}` +
+          ` | broad ${BROAD_BUDGET_PER_SCAN - broadBudget.remaining}/${BROAD_BUDGET_PER_SCAN}` +
           ` | mode ${isAutoScan ? 'auto' : 'manual'}`
         console.info(line)
         // Same string into the in-app buffer so the copied log and the console
