@@ -109,8 +109,19 @@ const AUTOSCAN_PROBE_AREA_TOL     = 0.2   // max relative bbox-area change betwe
 // After this many consecutive quick-probe misses, every Nth probe escalates to
 // the full 3-pass detection — pass 1 alone misses dark/low-contrast cards that
 // manual scanning (all passes + reticle) still finds.
-const AUTOSCAN_ESCALATE_AFTER     = 3
-const AUTOSCAN_ESCALATE_EVERY     = 3
+// Escalate to full 3-pass detection after a SINGLE miss, on every probe until a
+// quad is found again. Was 3/3, which was economising on the wrong thing: a
+// device log measured probe capture at ~430-660ms against detection at only
+// ~50-105ms, so detection is 5-10x cheaper than the frame it is given. Being
+// stingy with it produced quad rates of 0-2 out of 5 probes in poor light on a
+// textured mat, and since two CONSECUTIVE detections are required before a scan
+// can fire, a ~30% per-probe rate is ~9% per pair — the loop flashes the
+// tracking frame for many seconds without ever scanning.
+// Tracking stays cheap while it is working (missStreak resets to 0 on any
+// detection, so the next probe is quick again) and only pays for the full
+// ladder once it has actually lost the card.
+const AUTOSCAN_ESCALATE_AFTER     = 1
+const AUTOSCAN_ESCALATE_EVERY     = 1
 // Pause after a full scan attempt before probing resumes. Kept short — the
 // name+foil signature guard already suppresses re-adding the card left in
 // frame, so this only needs to cover the beep/haptic moment, not the swap.
@@ -612,6 +623,7 @@ export default function CardScanner({ onMatch, onClose }) {
   const probeStatsRef = useRef({
     count: 0, capMs: 0, detMs: 0,
     quads: 0,        // probes that found a quad at all
+    fulls: 0,        // probes that escalated to full 3-pass detection
     maxStable: 0,    // best consecutive-stable run reached
     maxDcx: 0,       // largest centroid move between consecutive probes (px)
     maxDarea: 0,     // largest area change between consecutive probes (fraction)
@@ -1840,7 +1852,7 @@ export default function CardScanner({ onMatch, onClose }) {
         // scan, and the next scan should start from zero.
         const probeStats = { ...probeStatsRef.current }
         probeStatsRef.current = {
-          count: 0, capMs: 0, detMs: 0, quads: 0, maxStable: 0,
+          count: 0, capMs: 0, detMs: 0, quads: 0, fulls: 0, maxStable: 0,
           maxDcx: 0, maxDarea: 0, lastEmit: performance.now(),
         }
         const line =
@@ -1994,6 +2006,7 @@ export default function CardScanner({ onMatch, onClose }) {
           probeStatsRef.current.capMs += probeCapMs
           probeStatsRef.current.detMs += performance.now() - detT0
           if (corners) probeStatsRef.current.quads++
+          if (!quick) probeStatsRef.current.fulls++
           if (corners) {
             missStreak = 0
             showQuad(mapQuadToViewport(corners, frame.sw, frame.sh))
@@ -2052,13 +2065,13 @@ export default function CardScanner({ onMatch, onClose }) {
           const per = r((now - ps.lastEmit) / ps.count)
           pushScanLog(
             `[probe] ×${ps.count} over ${r(now - ps.lastEmit)}ms (${per}ms/probe)` +
-            ` | quad ${ps.quads}/${ps.count} stable-max ${ps.maxStable}/${AUTOSCAN_PROBE_STABLE}` +
+            ` | quad ${ps.quads}/${ps.count} (full ${ps.fulls}) stable-max ${ps.maxStable}/${AUTOSCAN_PROBE_STABLE}` +
             ` | drift ${r(ps.maxDcx)}px (limit ${AUTOSCAN_PROBE_EPS_PX})` +
             ` darea ${r(ps.maxDarea * 100)}% (limit ${r(AUTOSCAN_PROBE_AREA_TOL * 100)})` +
             ` | cap ${r(ps.capMs)} det ${r(ps.detMs)}`,
           )
           probeStatsRef.current = {
-            count: 0, capMs: 0, detMs: 0, quads: 0, maxStable: 0,
+            count: 0, capMs: 0, detMs: 0, quads: 0, fulls: 0, maxStable: 0,
             maxDcx: 0, maxDarea: 0, lastEmit: now,
           }
         }
