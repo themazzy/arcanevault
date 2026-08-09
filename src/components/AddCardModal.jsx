@@ -202,7 +202,18 @@ export default function AddCardModal({
 
   return (
     <>
-      <Modal onClose={requestClose} initialFocusRef={searchInputRef}>
+      <Modal
+        onClose={requestClose}
+        initialFocusRef={searchInputRef}
+        // Search view is short, configure view is tall, and the queue grows as
+        // you go — content-measured height meant the dialog jumped on every one
+        // of those. A floor rather than a fixed height: unlike the import and
+        // art dialogs there is no single region here that can absorb the slack,
+        // so tall views still grow (and the overlay still scrolls) — this only
+        // stops the dialog collapsing to a sliver between them.
+        autoHeight={false}
+        className={styles.modalShell}
+      >
         {prefillCard?.id
           ? <EditForm card={prefillCard} onClose={onClose} onSaved={onSaved} />
           : <AddFlow userId={userId} onClose={requestClose} onSaved={onSaved}

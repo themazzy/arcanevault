@@ -1,3 +1,10 @@
+/* Floor for the dialog, so it stops resizing between the search, configure and
+   queue views. Deliberately min-height, not height — see the note at the
+   <Modal> call site. */
+.modalShell {
+  min-height: min(540px, calc(100dvh - 96px));
+}
+
 /* Modal header + edit-form headings. These were dropped by mistake in a
    scan-flow removal (ea49060) — the JSX kept referencing them, so the title,
    card name, and set line rendered unstyled until this was restored. */

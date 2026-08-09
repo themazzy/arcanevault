@@ -78,7 +78,14 @@ export default function CardArtPicker({
   const visible = results.filter(art => !deadArt.has(art.url))
 
   return (
-    <Modal onClose={onClose}>
+    <Modal
+      onClose={onClose}
+      // Content-measured height made this jump from ~90px to ~550px the moment
+      // the third character was typed. Fixed from CSS; the grid takes the slack.
+      autoHeight={false}
+      className={styles.modal}
+      contentClassName={styles.body}
+    >
       <h2 className={styles.title}>{title}</h2>
 
       <div className={styles.searchRow}>
@@ -99,12 +106,17 @@ export default function CardArtPicker({
         {loading && <span className={styles.loading}>…</span>}
       </div>
 
-      {tooShort && (
-        <p className={styles.hint}>Type at least {MIN_ART_SEARCH_LENGTH} characters.</p>
-      )}
-      {!loading && !tooShort && error && <ErrorBox>{error}</ErrorBox>}
-
-      {visible.length > 0 && (
+      {visible.length === 0 ? (
+        <div className={styles.empty}>
+          {tooShort
+            ? <p className={styles.hint}>Type at least {MIN_ART_SEARCH_LENGTH} characters.</p>
+            : loading
+              ? <p className={styles.hint}>Searching…</p>
+              : error
+                ? <ErrorBox>{error}</ErrorBox>
+                : <p className={styles.hint}>Search for a card to use its artwork.</p>}
+        </div>
+      ) : (
         <div className={styles.grid}>
           {visible.map(art => (
             <button

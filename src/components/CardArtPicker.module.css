@@ -1,3 +1,18 @@
+/* Fixed size, set here rather than measured from content (Modal's
+   `autoHeight={false}`). The dialog opens at ~90px and jumped to ~550px on the
+   third keystroke; now the grid takes the slack and scrolls. */
+.modal {
+  width: min(760px, 96vw);
+  height: min(680px, calc(100dvh - 40px));
+}
+
+.body {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .title {
   font-family: var(--font-display);
   font-size: 1rem;
@@ -25,8 +40,9 @@
   font-size: 0.88rem;
   padding: 8px 12px;
 }
-.input:focus {
-  outline: none;
+/* No `outline: none` — that is (0,1,0) and silently defeats index.css's
+   zero-specificity :focus-visible baseline. DESIGN.md §7. */
+.input:focus-visible {
   border-color: var(--border-hi);
 }
 
@@ -44,10 +60,23 @@
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-auto-rows: min-content;
   gap: 10px;
-  max-height: 440px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   margin-top: 12px;
+}
+
+/* An empty screen is an invitation to act, not a void. Fills the same slot the
+   grid would, so the dialog reads the same before and after a search. */
+.empty {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 20px;
 }
 
 .item {
@@ -100,9 +129,9 @@
   font-size: var(--label-size-sm);
   letter-spacing: var(--label-tracking);
   text-transform: uppercase;
+  line-height: 1;
   color: var(--gold);
   background: var(--s-subtle);
-  border: 1px solid var(--s-border);
-  border-radius: 3px;
-  padding: 1px 4px;
+  border-radius: var(--radius-pill);
+  padding: 3px 7px;
 }
