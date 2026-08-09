@@ -30,6 +30,7 @@ import {
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Auth.module.css'
 import { AppBootSkeleton } from './Skeletons'
+import { PAYMENTS_ENABLED } from '../lib/premiumCheckout'
 
 const AuthContext = createContext(null)
 export const useAuth = () => useContext(AuthContext)
@@ -401,7 +402,7 @@ export function LoginPage({ forcedMode = null }) {
     : mode === 'forgot'
       ? 'We will email you a secure recovery link.'
       : mode === 'register'
-        ? 'Every feature is free. No paywalls—donations are optional.'
+        ? `Every feature is free. No paywalls${PAYMENTS_ENABLED ? '—donations are optional.' : '.'}`
         : 'Sign in to continue to your collection.'
 
   const authForm = (
@@ -630,7 +631,9 @@ export function LoginPage({ forcedMode = null }) {
               </button>
               <a className={styles.secondaryCta} href="#build-assist">Explore Build Assist</a>
             </div>
-            <p className={styles.heroNote}>Every feature is free · No paywalls · Donations are optional</p>
+            <p className={styles.heroNote}>
+              Every feature is free · No paywalls{PAYMENTS_ENABLED ? ' · Donations are optional' : ''}
+            </p>
           </div>
           <aside className={styles.heroForm} aria-label="DeckLoom account">{authForm}</aside>
         </section>

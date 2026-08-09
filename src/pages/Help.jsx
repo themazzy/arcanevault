@@ -1,6 +1,7 @@
 import { SectionHeader } from '../components/UI'
 import { InfoIcon, WarningIcon, StarIcon } from '../icons'
 import styles from './Help.module.css'
+import { PAYMENTS_ENABLED } from '../lib/premiumCheckout'
 
 const TOC = [
   { id: 'faq', label: 'Common Questions' },
@@ -76,7 +77,9 @@ const FAQS = [
   },
   {
     q: 'How do I unlock the premium themes?',
-    a: 'Premium themes are part of DeckLoom premium. The flag is set on the server after checkout, not from the app, so once your purchase is confirmed the premium themes become selectable in Settings.',
+    a: PAYMENTS_ENABLED
+      ? 'Premium themes are part of DeckLoom premium. The flag is set on the server after checkout, not from the app, so once your purchase is confirmed the premium themes become selectable in Settings.'
+      : 'Not yet — supporter themes are coming soon. Donations are not open at the moment, and every other feature of DeckLoom is free and unaffected.',
   },
 ]
 
@@ -1157,11 +1160,18 @@ export default function HelpPage() {
             </article>
           </div>
 
-          <Callout kind="note" title="If a premium theme is not showing yet">
-            Premium is granted on the server side after purchase, so there can be a short delay while
-            the app confirms it. Once confirmed, the premium themes appear in the theme picker
-            automatically — there is nothing to toggle on manually.
-          </Callout>
+          {PAYMENTS_ENABLED ? (
+            <Callout kind="note" title="If a premium theme is not showing yet">
+              Premium is granted on the server side after purchase, so there can be a short delay while
+              the app confirms it. Once confirmed, the premium themes appear in the theme picker
+              automatically — there is nothing to toggle on manually.
+            </Callout>
+          ) : (
+            <Callout kind="note" title="Premium is not on sale yet">
+              Supporter themes are coming soon and cannot be purchased at the moment. Everything else
+              in DeckLoom is free and works exactly as documented here.
+            </Callout>
+          )}
         </section>
 
         <section id="settings-sync" className={styles.section}>

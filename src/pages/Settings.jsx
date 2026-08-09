@@ -11,6 +11,13 @@ import { deleteLocalFoldersAndPlacements, getDbStats } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { downloadCollectionBackup, restoreCollectionBackup, validateBackupFile, summarizeBackup } from '../lib/backup'
 import { Button, SectionHeader, Select as UISelect, SearchInput } from '../components/UI'
+import {
+  PAYMENTS_ENABLED,
+  SUPPORT_COMING_SOON_TITLE,
+  SUPPORT_COMING_SOON_TEXT,
+  SUPPORT_COMING_SOON_SHORT,
+  startPremiumCheckout,
+} from '../lib/premiumCheckout'
 import { SearchIcon, CloseIcon, CheckIcon } from '../icons'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Settings.module.css'
@@ -417,17 +424,6 @@ function ArchiveThemeControls({ settings, set }) {
   )
 }
 
-async function getFunctionErrorMessage(error, fallback) {
-  try {
-    const response = error?.context
-    if (response && typeof response.json === 'function') {
-      const body = await response.clone().json()
-      return body?.details || body?.error || error?.message || fallback
-    }
-  } catch {}
-  return error?.message || fallback
-}
-
 function ThemePicker({ value, onChange, premium }) {
   const grouped = THEME_TIERS.map(tier => ({
     ...tier,
@@ -467,7 +463,9 @@ function ThemePicker({ value, onChange, premium }) {
               '--swatch-name-color': active ? accent : text,
             }}
             onClick={() => !isLocked && onChange(id)}
-            title={isLocked ? `${theme.name} — cosmetic supporter theme available after donating` : theme.name}
+            title={isLocked
+              ? `${theme.name} — cosmetic supporter theme${PAYMENTS_ENABLED ? ' available after donating' : ', coming soon'}`
+              : theme.name}
           >
             <div className={styles.swatchPreview} style={{ background: bg }}>
               <div className={styles.swatchNav} style={{ borderColor: `${accent}30` }}>
@@ -994,25 +992,19 @@ export default function SettingsPage() {
 
   const handleUnlockPremium = async () => {
     setCheckoutError('')
-    if (!user) {
-      setCheckoutError('Sign in before donating for supporter themes.')
+    if (!PAYMENTS_ENABLED) return
+    setCheckoutBusy(true)
+    const result = await startPremiumCheckout({
+      user,
+      successUrl: `${window.location.origin}${import.meta.env.BASE_URL}settings?premium_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${window.location.origin}${import.meta.env.BASE_URL}settings?premium_checkout=cancelled`,
+    })
+    if (result.ok) {
+      window.location.assign(result.url)
       return
     }
-    setCheckoutBusy(true)
-    try {
-      const { data, error } = await sb.functions.invoke('stripe-create-checkout', {
-        body: {
-          successUrl: `${window.location.origin}${import.meta.env.BASE_URL}settings?premium_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-          cancelUrl: `${window.location.origin}${import.meta.env.BASE_URL}settings?premium_checkout=cancelled`,
-        },
-      })
-      if (error) throw new Error(await getFunctionErrorMessage(error, 'Could not start Stripe Checkout.'))
-      if (!data?.url) throw new Error('Stripe did not return a checkout URL.')
-      window.location.assign(data.url)
-    } catch (err) {
-      setCheckoutError(err?.message || 'Could not start Stripe Checkout.')
-      setCheckoutBusy(false)
-    }
+    setCheckoutError(result.error)
+    setCheckoutBusy(false)
   }
 
   const handleChangePassword = async () => {
@@ -1102,10 +1094,16 @@ export default function SettingsPage() {
             <div className={styles.rowDesc}>Choose the colour palette for the entire app. Saved to your account and synced across devices.</div>
             {!settings.premium && (
               <div className={styles.themeSupportPrompt}>
-                Supporter themes are cosmetic rewards for donors.
-                <button type="button" onClick={handleUnlockPremium} disabled={checkoutBusy}>
-                  {checkoutBusy ? 'Opening Stripe...' : 'Donate for themes'}
-                </button>
+                {PAYMENTS_ENABLED ? (
+                  <>
+                    Supporter themes are cosmetic rewards for donors.
+                    <button type="button" onClick={handleUnlockPremium} disabled={checkoutBusy}>
+                      {checkoutBusy ? 'Opening Stripe...' : 'Donate for themes'}
+                    </button>
+                  </>
+                ) : (
+                  <>Supporter themes are cosmetic rewards for donors. {SUPPORT_COMING_SOON_SHORT}</>
+                )}
               </div>
             )}
           </div>
@@ -1508,9 +1506,13 @@ export default function SettingsPage() {
       <SettingsSection id="support" title="Support" keywords={KW_SUPPORT} query={search}>
         <div className={styles.supportCard}>
           <div className={styles.supportEyebrow}>Keep DeckLoom growing</div>
-          <div className={styles.supportTitle}>Support DeckLoom</div>
+          <div className={styles.supportTitle}>
+            {PAYMENTS_ENABLED ? 'Support DeckLoom' : SUPPORT_COMING_SOON_TITLE}
+          </div>
           <div className={styles.supportText}>
-            Every product feature is free. If you choose to donate, you will receive cosmetic supporter themes—including Obsidian Night, Crimson Court, Verdant Realm, and Arcane Archive—as a thank-you. One donation, yours forever.
+            {PAYMENTS_ENABLED
+              ? 'Every product feature is free. If you choose to donate, you will receive cosmetic supporter themes—including Obsidian Night, Crimson Court, Verdant Realm, and Arcane Archive—as a thank-you. One donation, yours forever.'
+              : SUPPORT_COMING_SOON_TEXT}
           </div>
 
           {settings.premium ? (
@@ -1519,6 +1521,16 @@ export default function SettingsPage() {
               <div>
                 <div className={styles.premiumUnlockedTitle}>Supporter Themes Unlocked</div>
                 <div className={styles.premiumUnlockedSub}>Obsidian Night · Crimson Court · Verdant Realm · Arcane Archive are available in the theme picker above.</div>
+              </div>
+            </div>
+          ) : !PAYMENTS_ENABLED ? (
+            <div className={styles.stripeWrap}>
+              <div className={styles.supportSoonBadge}>
+                <span className={styles.stripeBtnStar}>✦</span>
+                Coming soon
+              </div>
+              <div className={styles.stripeNote}>
+                Nothing to pay, nothing to sign up for — the app stays fully usable in the meantime.
               </div>
             </div>
           ) : (

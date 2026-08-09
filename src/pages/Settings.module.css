@@ -1504,6 +1504,21 @@
   opacity: 0.85;
 }
 
+/* Static "coming soon" stand-in shown while donations are switched off */
+.supportSoonBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 9px;
+  background: var(--s-medium);
+  border: 1px dashed var(--s-border2);
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 0.84rem;
+  letter-spacing: 0.06em;
+}
+
 .stripeNote {
   font-size: 0.72rem;
   color: var(--text-faint);

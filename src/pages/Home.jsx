@@ -21,6 +21,7 @@ import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
 import { getHomeMode, selectUpcomingSets } from '../lib/homeLayout'
 import { loadHomeMode } from '../lib/homeMode'
 import { shouldOfferCardScanner } from '../lib/scannerAvailability'
+import { PAYMENTS_ENABLED } from '../lib/premiumCheckout'
 import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { enrichDecksWithCommanderArt, useDeckArt } from '../lib/deckArt'
 import {
@@ -964,7 +965,9 @@ export function EmptyAccountStart({ premium }) {
           <strong>Every product feature is free.</strong>{' '}
           {premium
             ? 'Thanks for supporting DeckLoom—your cosmetic supporter themes are available in Settings.'
-            : 'Optional donations support development and unlock cosmetic themes as a thank-you.'}
+            : PAYMENTS_ENABLED
+              ? 'Optional donations support development and unlock cosmetic themes as a thank-you.'
+              : 'Optional donations and the cosmetic supporter themes are coming soon.'}
         </span>
         <ChevronRightIcon size={13} />
       </button>

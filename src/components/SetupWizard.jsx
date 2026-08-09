@@ -4,6 +4,7 @@ import { PRICE_SOURCES, sfGet } from '../lib/scryfall'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './SetupWizard.module.css'
 import { CheckIcon } from '../icons'
+import { PAYMENTS_ENABLED } from '../lib/premiumCheckout'
 
 const SetupWizardContext = createContext({ open: () => {} })
 export const useSetupWizard = () => useContext(SetupWizardContext)
@@ -159,7 +160,9 @@ function ThemeStep({ settings }) {
               className={`${styles.themeSwatch}${active ? ' ' + styles.themeSwatchActive : ''}${locked ? ' ' + styles.themeSwatchLocked : ''}`}
               onClick={() => !locked && settings.save({ theme: id })}
               style={{ '--sw-bg': bg, '--sw-accent': accent, '--sw-hi': hi, '--sw-text': text }}
-              title={locked ? `${theme.name} — cosmetic supporter theme available after donating` : theme.name}
+              title={locked
+                ? `${theme.name} — cosmetic supporter theme${PAYMENTS_ENABLED ? ' available after donating' : ', coming soon'}`
+                : theme.name}
             >
               <div className={styles.swatchBar}>
                 <div style={{ flex: 2, background: accent, borderRadius: '2px 0 0 2px' }} />
