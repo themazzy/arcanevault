@@ -15,7 +15,7 @@
 // roles the assistant already reasons about — they are NOT a second, competing
 // taxonomy, and nothing here feeds deck grouping or stats.
 
-import { stripReminders } from './oracleText'
+import { stripReminders, allFacesOracleText } from './oracleText'
 import {
   ROLE_RAMP,
   ROLE_DRAW,
@@ -45,16 +45,10 @@ export const ENGINE_ROLES = [
 // in that file.
 export { stripReminders }
 
-// Whole-card text: front face plus every card_faces entry, reminder-stripped
-// and lowercased. A back-face Armageddon or an MDFC's land half is part of what
-// the card does, so it must be in scope.
-export function roleText(sfCard, card) {
-  const parts = []
-  const top = sfCard?.oracle_text ?? card?.oracle_text
-  if (top) parts.push(top)
-  for (const f of sfCard?.card_faces || []) if (f?.oracle_text) parts.push(f.oracle_text)
-  return stripReminders(parts.join('\n')).toLowerCase()
-}
+// Whole-card text. The implementation moved to oracleText.js so the deck-list
+// search can share it without importing this Build-Assistant-scoped module (and
+// dragging the role constants into the filter path).
+export const roleText = allFacesOracleText
 
 export function roleTypeLine(sfCard, card) {
   const parts = []

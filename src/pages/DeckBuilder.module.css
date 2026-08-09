@@ -4287,6 +4287,55 @@
   .emptyDeckStateMobile { display: inline; }
 }
 
+/* ── Desktop inline filter row ────────────────────────────────────────────────
+   Lives inside .deckToolbar as one flex child so it wraps to its own line when
+   the toolbar runs out of width (right panel open, narrow window) instead of
+   squeezing the View/Sort/Group pills. Hidden ≤900px via .deskOnly — the mobile
+   funnel owns the same controls there. */
+.deckInlineFilters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 340px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Two classes so this beats UI.module.css's .searchWrap without relying on
+   stylesheet order — the modules build into separate chunks. */
+.deckInlineFilters .deckInlineSearchWrap {
+  flex: 1 1 180px;
+  min-width: 150px;
+  max-width: 280px;
+}
+
+.deckInlineClearBtn {
+  min-height: var(--control-height);
+  background: transparent;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-pill);
+  color: var(--text-faint);
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  padding: 0 12px;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .deckInlineClearBtn:hover {
+    color: var(--text);
+    border-color: var(--border-hi);
+  }
+}
+
+.deckInlineClearBtn:focus-visible {
+  outline: 1px solid var(--border-hi);
+  outline-offset: 2px;
+}
+
 /* Progressive filter menu surfaced through the mobile action bar. */
 .deckFilterMenuBody {
   display: flex;

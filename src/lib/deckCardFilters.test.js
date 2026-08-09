@@ -14,9 +14,15 @@ import {
   EMPTY_DECK_CARD_FILTERS,
   DECK_CARD_TYPE_OPTIONS,
   matchesDeckCardFilters,
+  matchesDeckCardSearch,
   countActiveCardFilters,
+  countAdvancedCardFilters,
   computeDeckFilterPresence,
   availableFilterOptions,
+  deckBoardFilterOptions,
+  DECK_FILTER_PARTS,
+  DECK_FILTER_INLINE_PARTS,
+  DECK_FILTER_MENU_PARTS,
   manaValueGroupKey,
   colorGroupKey,
   MANA_VALUE_GROUP_ORDER,
@@ -116,6 +122,137 @@ describe('availableFilterOptions', () => {
 
   it('returns all options when presence is unknown', () => {
     expect(availableFilterOptions(['W', 'U'], null)).toEqual(['W', 'U'])
+  })
+})
+
+describe('matchesDeckCardSearch', () => {
+  const bolt = { name: 'Lightning Bolt', type_line: 'Instant', mana_cost: '{R}', set_code: 'LEA', collector_number: '161' }
+  const boltSf = { oracle_text: 'Lightning Bolt deals 3 damage to any target.' }
+  const scales = { name: 'Hardened Scales', type_line: 'Enchantment', mana_cost: '{G}' }
+  const scalesSf = { oracle_text: 'If one or more +1/+1 counters would be put on a creature you control, that many plus one are put on it instead.' }
+
+  it('matches everything on an empty or whitespace query', () => {
+    expect(matchesDeckCardSearch(bolt, boltSf, '')).toBe(true)
+    expect(matchesDeckCardSearch(bolt, boltSf, '   ')).toBe(true)
+    expect(matchesDeckCardSearch(bolt, boltSf, null)).toBe(true)
+  })
+
+  it('matches rules text, not just the printed identity', () => {
+    // The reported case: "counter" should surface everything that interacts
+    // with counters, not only a card named Counterspell.
+    expect(matchesDeckCardSearch(scales, scalesSf, 'counter')).toBe(true)
+    expect(matchesDeckCardSearch(scales, scalesSf, 'COUNTER')).toBe(true)
+  })
+
+  it('still matches name, type, mana cost, set and collector number', () => {
+    for (const q of ['lightning', 'instant', '{r}', 'lea', '161']) {
+      expect(matchesDeckCardSearch(bolt, boltSf, q)).toBe(true)
+    }
+  })
+
+  it('reads the back face of a double-faced card', () => {
+    // An MDFC's land half is part of what the card does.
+    const dfc = { name: 'Agadeem\'s Awakening', type_line: 'Sorcery // Land' }
+    const dfcSf = {
+      card_faces: [
+        { oracle_text: 'Return from your graveyard to the battlefield any number of target creature cards.' },
+        { oracle_text: 'As Agadeem, the Undercrypt enters, you may pay 3 life.' },
+      ],
+    }
+    expect(matchesDeckCardSearch(dfc, dfcSf, 'undercrypt')).toBe(true)
+  })
+
+  it('ignores parenthetical reminder text', () => {
+    // Reminder text restates rules the card already spells out, so matching it
+    // only widens false positives.
+    const treasure = { name: 'Ancient Copper Dragon', type_line: 'Creature — Dragon' }
+    const sf = { oracle_text: 'Create that many Treasure tokens. (It\'s an artifact with "{T}, Sacrifice this token: Add one mana of any color.")' }
+    expect(matchesDeckCardSearch(treasure, sf, 'treasure')).toBe(true)
+    expect(matchesDeckCardSearch(treasure, sf, 'sacrifice this token')).toBe(false)
+  })
+
+  it('falls back to the row when the printing has not resolved yet', () => {
+    // builderSfMap is populated asynchronously; until it lands the row still
+    // has to be findable by name.
+    expect(matchesDeckCardSearch(bolt, undefined, 'lightning')).toBe(true)
+    expect(matchesDeckCardSearch(bolt, undefined, 'damage')).toBe(false)
+    expect(matchesDeckCardSearch({ ...bolt, oracle_text: boltSf.oracle_text }, undefined, 'damage')).toBe(true)
+  })
+
+  it('excludes a card that matches on neither identity nor text', () => {
+    expect(matchesDeckCardSearch(bolt, boltSf, 'counter')).toBe(false)
+    expect(matchesDeckCardSearch(scales, scalesSf, 'lightning')).toBe(false)
+  })
+})
+
+describe('deckBoardFilterOptions', () => {
+  const presence = boards => ({ boards: new Set(boards) })
+
+  it('offers All plus only the boards the deck actually uses', () => {
+    expect(deckBoardFilterOptions(presence(['main', 'side']), 'all').map(f => f.id))
+      .toEqual(['all', 'main', 'side'])
+  })
+
+  it('collapses to a single option for a deck with one board', () => {
+    // The inline bar hides the board group below two real choices, so a plain
+    // 100-card deck shows search + colors and nothing else.
+    expect(deckBoardFilterOptions(presence(['main']), 'all').map(f => f.id))
+      .toEqual(['all', 'main'])
+  })
+
+  it('keeps a stale selection listed so it can still be cleared', () => {
+    // Last maybeboard card removed while the maybe filter was active.
+    expect(deckBoardFilterOptions(presence(['main']), 'maybe').map(f => f.id))
+      .toEqual(['all', 'main', 'maybe'])
+  })
+
+  it('returns every board when presence is unknown', () => {
+    expect(deckBoardFilterOptions(null, 'all').map(f => f.id))
+      .toEqual(['all', 'main', 'attraction', 'side', 'maybe'])
+  })
+})
+
+describe('deck filter surface split', () => {
+  it('splits every section across the inline bar and the More filters menu', () => {
+    // Desktop renders only these two lists. Anything in neither would be
+    // reachable on mobile but silently unreachable on desktop.
+    expect([...DECK_FILTER_INLINE_PARTS, ...DECK_FILTER_MENU_PARTS].sort())
+      .toEqual([...DECK_FILTER_PARTS].sort())
+  })
+
+  it('assigns each section to exactly one desktop surface', () => {
+    const overlap = DECK_FILTER_INLINE_PARTS.filter(p => DECK_FILTER_MENU_PARTS.includes(p))
+    expect(overlap).toEqual([])
+  })
+})
+
+describe('countAdvancedCardFilters', () => {
+  it('counts only the sections the More filters menu owns', () => {
+    expect(countAdvancedCardFilters(EMPTY_DECK_CARD_FILTERS)).toBe(0)
+    expect(countAdvancedCardFilters({
+      ...EMPTY_DECK_CARD_FILTERS, types: ['Creatures'], rarities: ['mythic'], cmcMin: '2', cmcMax: '5',
+    })).toBe(4)
+  })
+
+  it('ignores filters the inline bar owns, so they never badge the menu', () => {
+    // A color pip is visible and clearable in the toolbar; badging "More"
+    // for it would point at a menu that cannot clear it.
+    const colored = { ...EMPTY_DECK_CARD_FILTERS, colors: ['R', 'G'] }
+    expect(countAdvancedCardFilters(colored)).toBe(0)
+    expect(countActiveCardFilters(colored)).toBe(1)
+  })
+
+  it('counts a multi-select section once, unlike a mana-value range', () => {
+    expect(countAdvancedCardFilters({ ...EMPTY_DECK_CARD_FILTERS, types: ['Creatures', 'Lands'] })).toBe(1)
+    expect(countAdvancedCardFilters({ ...EMPTY_DECK_CARD_FILTERS, cmcMin: '2', cmcMax: '5' })).toBe(2)
+  })
+
+  it('treats a zero mana-value bound as set, not empty', () => {
+    expect(countAdvancedCardFilters({ ...EMPTY_DECK_CARD_FILTERS, cmcMax: '0' })).toBe(1)
+  })
+
+  it('tolerates a null filter object', () => {
+    expect(countAdvancedCardFilters(null)).toBe(0)
   })
 })
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, memo, startTransition } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
@@ -126,6 +126,7 @@ import {
   LockIcon,
   GlobeIcon,
 } from '../icons'
+import DeckFilterSearchInput from '../components/deckBuilder/DeckFilterSearchInput'
 import { lastInputWasTouch } from '../lib/inputType'
 import { bindTouchContextMenu } from '../lib/touchContextMenu'
 import {
@@ -133,9 +134,15 @@ import {
   DECK_CARD_TYPE_OPTIONS,
   DECK_CARD_RARITY_OPTIONS,
   countActiveCardFilters,
+  countAdvancedCardFilters,
   matchesDeckCardFilters,
+  matchesDeckCardSearch,
   computeDeckFilterPresence,
   availableFilterOptions,
+  deckBoardFilterOptions,
+  DECK_FILTER_PARTS,
+  DECK_FILTER_INLINE_PARTS,
+  DECK_FILTER_MENU_PARTS,
   manaValueGroupKey,
   colorGroupKey,
   MANA_VALUE_GROUP_ORDER,
@@ -151,7 +158,6 @@ import {
   RARITY_COLORS,
   BOARD_ORDER,
   BOARD_LABELS,
-  BOARD_FILTERS,
   UNCATEGORIZED,
   DEFAULT_LIST_COLUMNS,
   DEFAULT_COMPACT_COLUMNS,
@@ -282,9 +288,12 @@ function areSearchResultRowPropsEqual(prev, next) {
 }
 
 // ── Deck filter panel ─────────────────────────────────────────────────────────
-// Shared body for every "filter the deck list" surface (toolbar menu, filter-bar
-// funnel, mobile sheet): board + color/type/rarity/CMC filters. Search stays in
-// the host UI when it already has an input (showSearch=false).
+// Shared body for every "filter the deck list" surface: board + color/type/
+// rarity/CMC filters. `parts` selects which sections a host renders, because
+// the desktop toolbar splits them across two surfaces — search/board/colors sit
+// inline in the toolbar (used on essentially every visit; a menu click each
+// time was pure tax) and only type/advanced stay behind the funnel. The mobile
+// sheet has no room for that and keeps the whole panel.
 const GROUPBY_STORE_KEY = 'deckloom_deckbuilder_groupby_v1'
 const DECK_GROUP_MODES = ['none', 'type', 'category', 'cmc', 'color', 'rarity', 'set']
 const VIEW_STORE_KEY = 'deckloom_deckbuilder_view_v1'
@@ -304,69 +313,71 @@ const DECK_FILTER_COLOR_LABELS = {
   C: 'Colorless',
 }
 
-const DECK_FILTER_SEARCH_DELAY_MS = 160
 // Stable empty order for cards opened without a browsable list behind them.
 const EMPTY_NAV_ORDER = []
 
-/**
- * Keep raw keystrokes out of DeckBuilder's state. Updating the page-level
- * search on every input event synchronously re-rendered the entire builder,
- * including every deck view. The local draft stays instant; the actual filter
- * is committed once typing pauses and runs as an interruptible transition.
- */
-function DeckFilterSearchInput({ value, onCommit }) {
-  const [draft, setDraft] = useState(value || '')
-  const timerRef = useRef(null)
-  const latestDraftRef = useRef(value || '')
-  const lastCommitRef = useRef(value || '')
+// Bare buttons — the host supplies the wrapper (menu grid vs inline segmented
+// group), so the two surfaces can't drift on markup or active styling.
+function DeckBoardFilterButtons({ options, boardFilter, setBoardFilter }) {
+  return options.map(filter => (
+    <button
+      key={filter.id}
+      type="button"
+      className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
+      aria-pressed={boardFilter === filter.id}
+      onClick={() => setBoardFilter(filter.id)}
+    >
+      {filter.label}
+    </button>
+  ))
+}
 
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  // Reflect clears initiated elsewhere (for example, revealing a warning).
-  useEffect(() => {
-    const next = value || ''
-    if (next === lastCommitRef.current) return
-    lastCommitRef.current = next
-    latestDraftRef.current = next
-    setDraft(next)
-  }, [value])
-
-  const commit = useCallback((next) => {
-    clearTimeout(timerRef.current)
-    timerRef.current = null
-    lastCommitRef.current = next
-    startTransition(() => onCommit(next))
-  }, [onCommit])
-
-  const schedule = useCallback((next) => {
-    latestDraftRef.current = next
-    setDraft(next)
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => commit(next), DECK_FILTER_SEARCH_DELAY_MS)
-  }, [commit])
-
-  const flush = useCallback(() => {
-    if (timerRef.current) commit(latestDraftRef.current)
-  }, [commit])
-
+function DeckColorFilterPips({ options, filters, setFilters }) {
+  const toggleColor = c => setFilters(f => ({
+    ...f,
+    colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c],
+  }))
   return (
-    <SearchInput
-      className={styles.deckSearchInput}
-      value={draft}
-      onChange={e => schedule(e.target.value)}
-      onClear={() => commit('')}
-      onBlur={flush}
-      placeholder="Search cards in this deck..."
-    />
+    <>
+      {options.map(c => (
+        <button
+          key={c}
+          type="button"
+          className={`${styles.deckFilterPip}${filters.colors.includes(c) ? ' ' + styles.deckFilterPipActive : ''}`}
+          aria-label={DECK_FILTER_COLOR_LABELS[c]}
+          aria-pressed={filters.colors.includes(c)}
+          title={DECK_FILTER_COLOR_LABELS[c]}
+          onClick={() => toggleColor(c)}
+        >
+          <img src={manaSymbolUrl(c)} alt="" aria-hidden="true" />
+        </button>
+      ))}
+      {filters.colors.length > 0 && (
+        <button
+          type="button"
+          className={styles.deckFilterModeBtn}
+          onClick={() => setFilters(f => ({ ...f, colorMode: cycleColorMode(f.colorMode) }))}
+          aria-label={`Color matching mode: ${COLOR_MODE_LABELS[filters.colorMode] || 'Includes'}`}
+          title="Change how selected colors match a card's color identity"
+        >
+          Match: {COLOR_MODE_LABELS[filters.colorMode] || 'Includes'}
+        </button>
+      )}
+    </>
   )
 }
 
-function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, showSearch, deckSearch, setDeckSearch, available }) {
+function DeckFilterPanel({
+  filters, setFilters, boardFilter, setBoardFilter, deckSearch, setDeckSearch, available,
+  parts = DECK_FILTER_PARTS, showClear = true,
+}) {
   const set = patch => setFilters(f => ({ ...f, ...patch }))
   const toggleIn = (key, v) => setFilters(f => ({
     ...f,
     [key]: f[key].includes(v) ? f[key].filter(x => x !== v) : [...f[key], v],
   }))
+  const has = part => parts.includes(part)
+  const showSearch = has('search')
   const typeFilterCount = filters.types.length
   const manaValueActive = filters.cmcMin !== '' || filters.cmcMax !== ''
   const advancedFilterCount = filters.rarities.length + (manaValueActive ? 1 : 0)
@@ -375,19 +386,19 @@ function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, sho
     || Boolean(showSearch && deckSearch?.trim())
   // Only offer options the deck actually contains; a section whose options
   // can't split the deck (one board, one type, …) disappears entirely.
-  const boardOptions = BOARD_FILTERS.filter(f =>
-    f.id === 'all' || !available || available.boards.has(f.id) || boardFilter === f.id)
-  const showBoards = boardOptions.length > 2 || boardFilter !== 'all'
+  const boardOptions = deckBoardFilterOptions(available, boardFilter)
+  const showBoards = has('board') && (boardOptions.length > 2 || boardFilter !== 'all')
   const colorOptions = availableFilterOptions(['W', 'U', 'B', 'R', 'G', 'C'], available?.colors, filters.colors)
-  const showColors = colorOptions.length > 1 || filters.colors.length > 0
+  const showColors = has('colors') && (colorOptions.length > 1 || filters.colors.length > 0)
   const typeOptions = availableFilterOptions(DECK_CARD_TYPE_OPTIONS, available?.types, filters.types)
-  const showTypes = typeOptions.length > 1 || typeFilterCount > 0
+  const showTypes = has('types') && (typeOptions.length > 1 || typeFilterCount > 0)
   const rarityOptions = availableFilterOptions(DECK_CARD_RARITY_OPTIONS, available?.rarities, filters.rarities)
   const showRarities = rarityOptions.length > 1 || filters.rarities.length > 0
   return (
     <div className={styles.deckFilterMenuBody}>
       {showSearch && (
         <DeckFilterSearchInput
+          className={styles.deckSearchInput}
           value={deckSearch}
           onCommit={setDeckSearch}
         />
@@ -396,17 +407,11 @@ function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, sho
       <div className={styles.deckFilterSection}>
         <div className={styles.deckFilterMenuBoardLabel}>Board</div>
         <div className={styles.deckFilterBoardGrid} role="group" aria-label="Filter deck by board">
-          {boardOptions.map(filter => (
-            <button
-              key={filter.id}
-              type="button"
-              className={`${styles.boardFilterBtn}${boardFilter === filter.id ? ' ' + styles.boardFilterBtnActive : ''}`}
-              aria-pressed={boardFilter === filter.id}
-              onClick={() => setBoardFilter(filter.id)}
-            >
-              {filter.label}
-            </button>
-          ))}
+          <DeckBoardFilterButtons
+            options={boardOptions}
+            boardFilter={boardFilter}
+            setBoardFilter={setBoardFilter}
+          />
         </div>
       </div>
       )}
@@ -415,30 +420,7 @@ function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, sho
       <div className={styles.deckFilterSection}>
         <div className={styles.deckFilterMenuBoardLabel}>Colors</div>
         <div className={styles.deckFilterPips} role="group" aria-label="Filter by color identity">
-          {colorOptions.map(c => (
-            <button
-              key={c}
-              type="button"
-              className={`${styles.deckFilterPip}${filters.colors.includes(c) ? ' ' + styles.deckFilterPipActive : ''}`}
-              aria-label={DECK_FILTER_COLOR_LABELS[c]}
-              aria-pressed={filters.colors.includes(c)}
-              title={DECK_FILTER_COLOR_LABELS[c]}
-              onClick={() => toggleIn('colors', c)}
-            >
-              <img src={manaSymbolUrl(c)} alt="" aria-hidden="true" />
-            </button>
-          ))}
-          {filters.colors.length > 0 && (
-            <button
-              type="button"
-              className={styles.deckFilterModeBtn}
-              onClick={() => set({ colorMode: cycleColorMode(filters.colorMode) })}
-              aria-label={`Color matching mode: ${COLOR_MODE_LABELS[filters.colorMode] || 'Includes'}`}
-              title="Change how selected colors match a card's color identity"
-            >
-              Match: {COLOR_MODE_LABELS[filters.colorMode] || 'Includes'}
-            </button>
-          )}
+          <DeckColorFilterPips options={colorOptions} filters={filters} setFilters={setFilters} />
         </div>
       </div>
       )}
@@ -471,6 +453,7 @@ function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, sho
         </div>
       </details>
       )}
+      {has('advanced') && (
       <details
         className={`${styles.deckFilterDisclosure}${advancedFilterCount > 0 ? ` ${styles.deckFilterDisclosureActive}` : ''}`}
         open={advancedFilterCount > 0}
@@ -525,7 +508,8 @@ function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, sho
           )}
         </div>
       </details>
-      {anythingActive && (
+      )}
+      {showClear && anythingActive && (
         <button
           type="button"
           className={styles.deckFilterClearBtn}
@@ -536,6 +520,99 @@ function DeckFilterPanel({ filters, setFilters, boardFilter, setBoardFilter, sho
           }}
         >
           Clear all filters
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Desktop inline filter row ─────────────────────────────────────────────────
+// Search, board and colors live directly in the toolbar rather than behind the
+// funnel: they're the controls reached on essentially every visit, and a menu
+// click each time was a tax on the app's most-used surface. Everything else
+// stays in "More filters". Sections that can't split this deck hide themselves,
+// exactly as in the menu, so a 100-card mono-colour deck shows only the search.
+function DeckInlineFilterBar({
+  filters, setFilters, boardFilter, setBoardFilter, deckSearch, setDeckSearch, available,
+}) {
+  const has = part => DECK_FILTER_INLINE_PARTS.includes(part)
+  const boardOptions = deckBoardFilterOptions(available, boardFilter)
+  const showBoards = has('board') && (boardOptions.length > 2 || boardFilter !== 'all')
+  const colorOptions = availableFilterOptions(['W', 'U', 'B', 'R', 'G', 'C'], available?.colors, filters.colors)
+  const showColors = has('colors') && (colorOptions.length > 1 || filters.colors.length > 0)
+  const advancedCount = countAdvancedCardFilters(filters)
+  const anythingActive = countActiveCardFilters(filters) > 0
+    || boardFilter !== 'all'
+    || Boolean(deckSearch.trim())
+  return (
+    <div className={`${styles.deckInlineFilters} ${styles.deskOnly}`}>
+      {has('search') && (
+        <DeckFilterSearchInput
+          className={styles.deckSearchInput}
+          value={deckSearch}
+          onCommit={setDeckSearch}
+          wrapClassName={styles.deckInlineSearchWrap}
+          leadingIcon={<SearchIcon size={13} />}
+          placeholder="Search name or text..."
+        />
+      )}
+      {showBoards && (
+        <div className={styles.boardFilterGroup} role="group" aria-label="Filter deck by board">
+          <DeckBoardFilterButtons
+            options={boardOptions}
+            boardFilter={boardFilter}
+            setBoardFilter={setBoardFilter}
+          />
+        </div>
+      )}
+      {showColors && (
+        <div className={styles.deckFilterPips} role="group" aria-label="Filter by color identity">
+          <DeckColorFilterPips options={colorOptions} filters={filters} setFilters={setFilters} />
+        </div>
+      )}
+      <ResponsiveMenu
+        title="More Filters"
+        wrapClassName={styles.columnMenuWrap}
+        portal
+        trigger={({ toggle }) => (
+          <button
+            className={`${styles.groupToggle} ${styles.groupToggleIcon}${advancedCount ? ' ' + styles.groupToggleActive : ''}`}
+            onClick={toggle}
+            title="Card type, mana value and rarity filters"
+            aria-label="More filters"
+          >
+            <FilterIcon size={15} />
+            <span className={styles.toggleLabel}>More</span>
+            {advancedCount > 0 && <span className={styles.filterCountBadge}>{advancedCount}</span>}
+          </button>
+        )}
+      >
+        {() => (
+          <DeckFilterPanel
+            filters={filters}
+            setFilters={setFilters}
+            boardFilter={boardFilter}
+            setBoardFilter={setBoardFilter}
+            deckSearch={deckSearch}
+            setDeckSearch={setDeckSearch}
+            available={available}
+            parts={DECK_FILTER_MENU_PARTS}
+            showClear={false}
+          />
+        )}
+      </ResponsiveMenu>
+      {anythingActive && (
+        <button
+          type="button"
+          className={styles.deckInlineClearBtn}
+          onClick={() => {
+            setFilters({ ...EMPTY_DECK_CARD_FILTERS })
+            setBoardFilter('all')
+            setDeckSearch('')
+          }}
+          title="Clear search and all filters"
+        >
+          Clear
         </button>
       )}
     </div>
@@ -2294,18 +2371,11 @@ export default function DeckBuilderPage() {
   )
 
   const visibleDeckCards = useMemo(() => {
-    const q = deckSearch.trim().toLowerCase()
     return deckCards.filter(dc => {
       if (boardFilter !== 'all' && normalizeBoard(dc.board) !== boardFilter) return false
-      if (!matchesDeckCardFilters(dc, builderSfMap[getScryfallKey(dc)], deckFilters)) return false
-      if (!q) return true
-      return [
-        dc.name,
-        dc.type_line,
-        dc.mana_cost,
-        dc.set_code,
-        dc.collector_number,
-      ].some(value => String(value || '').toLowerCase().includes(q))
+      const sf = builderSfMap[getScryfallKey(dc)]
+      if (!matchesDeckCardFilters(dc, sf, deckFilters)) return false
+      return matchesDeckCardSearch(dc, sf, deckSearch)
     })
   }, [deckCards, deckSearch, boardFilter, deckFilters, builderSfMap])
 
@@ -6492,40 +6562,6 @@ export default function DeckBuilderPage() {
                     </div>
                   )}
                 </ResponsiveMenu>
-                <ResponsiveMenu
-                  title="Filter Deck"
-                  wrapClassName={`${styles.columnMenuWrap} ${styles.deskOnly}`}
-                  portal
-                  trigger={({ toggle }) => {
-                    const activeCount = countActiveCardFilters(deckFilters)
-                      + (deckSearch.trim() ? 1 : 0) + (boardFilter !== 'all' ? 1 : 0)
-                    return (
-                      <button
-                        className={`${styles.groupToggle} ${styles.groupToggleIcon}${activeCount ? ' '+styles.groupToggleActive : ''}`}
-                        onClick={toggle}
-                        title="Filter deck"
-                        aria-label="Filter deck"
-                      >
-                        <SearchIcon size={15} />
-                        <span className={styles.toggleLabel}>Filter</span>
-                        {activeCount > 0 && <span className={styles.filterCountBadge}>{activeCount}</span>}
-                      </button>
-                    )
-                  }}
-                >
-                  {() => (
-                    <DeckFilterPanel
-                      filters={deckFilters}
-                      setFilters={setDeckFilters}
-                      boardFilter={boardFilter}
-                      setBoardFilter={setBoardFilter}
-                      showSearch
-                      deckSearch={deckSearch}
-                      setDeckSearch={setDeckSearch}
-                      available={deckFilterPresence}
-                    />
-                  )}
-                </ResponsiveMenu>
                 {(deckView === 'list' || deckView === 'compact') && (
                   <ResponsiveMenu
                     title="Visible Columns"
@@ -6572,6 +6608,18 @@ export default function DeckBuilderPage() {
                     )}
                   </ResponsiveMenu>
                 )}
+
+                {/* Desktop: filters sit in the toolbar, not behind a menu. */}
+                <DeckInlineFilterBar
+                  filters={deckFilters}
+                  setFilters={setDeckFilters}
+                  boardFilter={boardFilter}
+                  setBoardFilter={setBoardFilter}
+                  deckSearch={deckSearch}
+                  setDeckSearch={setDeckSearch}
+                  available={deckFilterPresence}
+                />
+
                 {/* Mobile-only: four focused actions. The primary action leads the row. */}
                 {isEDH && (
                   <button
@@ -6622,7 +6670,6 @@ export default function DeckBuilderPage() {
                       setFilters={setDeckFilters}
                       boardFilter={boardFilter}
                       setBoardFilter={setBoardFilter}
-                      showSearch
                       deckSearch={deckSearch}
                       setDeckSearch={setDeckSearch}
                       available={deckFilterPresence}

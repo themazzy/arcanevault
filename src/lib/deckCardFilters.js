@@ -4,6 +4,8 @@
 import { classifyCardType } from './deckBuilderApi'
 import { matchColorIdentity } from './deckIndexFilters'
 import { normalizeBoard } from './deckBuilderHelpers'
+import { BOARD_FILTERS } from './deckBuilderConstants'
+import { allFacesOracleText } from './oracleText'
 
 export const EMPTY_DECK_CARD_FILTERS = {
   colors: [],            // subset of W U B R G C
@@ -32,6 +34,26 @@ export function countActiveCardFilters(filters) {
   if (hasCmcBound(f.cmcMin)) n++
   if (hasCmcBound(f.cmcMax)) n++
   return n
+}
+
+// ── Where each filter section is surfaced ────────────────────────────────────
+// Desktop splits the panel across two surfaces: search/board/colors sit inline
+// in the deck toolbar (reached on essentially every visit — a menu click each
+// time was pure tax) and the rest stays behind the "More filters" funnel. The
+// mobile sheet has no toolbar room and renders DECK_FILTER_PARTS whole.
+// INLINE ∪ MENU must stay === PARTS, or a section silently vanishes on desktop.
+export const DECK_FILTER_PARTS = ['search', 'board', 'colors', 'types', 'advanced']
+export const DECK_FILTER_INLINE_PARTS = ['search', 'board', 'colors']
+export const DECK_FILTER_MENU_PARTS = ['types', 'advanced']
+
+// Badge for the "More filters" trigger: only the sections that menu owns, so an
+// inline color pip never badges a menu that couldn't clear it.
+export function countAdvancedCardFilters(filters) {
+  const f = filters || EMPTY_DECK_CARD_FILTERS
+  return (f.types?.length ? 1 : 0)
+    + (f.rarities?.length ? 1 : 0)
+    + (hasCmcBound(f.cmcMin) ? 1 : 0)
+    + (hasCmcBound(f.cmcMax) ? 1 : 0)
 }
 
 const WUBRG = new Set(['W', 'U', 'B', 'R', 'G'])
@@ -66,6 +88,13 @@ export function availableFilterOptions(options, present, selected = []) {
   return options.filter(o => present.has(o) || selected.includes(o))
 }
 
+// Board options this deck can actually be split by: 'all' plus every board that
+// holds a card. A stale selection stays listed so it can still be cleared.
+export function deckBoardFilterOptions(available, boardFilter) {
+  return BOARD_FILTERS.filter(f =>
+    f.id === 'all' || !available || available.boards.has(f.id) || boardFilter === f.id)
+}
+
 export function matchesDeckCardFilters(dc, sf, filters) {
   const f = filters || EMPTY_DECK_CARD_FILTERS
   if (f.colors?.length && !matchColorIdentity(dc.color_identity, f.colors, f.colorMode)) return false
@@ -78,6 +107,23 @@ export function matchesDeckCardFilters(dc, sf, filters) {
   if (hasCmcBound(f.cmcMin) && !(cmc >= Number(f.cmcMin))) return false
   if (hasCmcBound(f.cmcMax) && !(cmc <= Number(f.cmcMax))) return false
   return true
+}
+
+// ── Deck list search ─────────────────────────────────────────────────────────
+// Printing identity first (name/type/mana cost/set/collector number), then the
+// card's rules text. Text matching is always on: in a ~100-card deck "counter"
+// meaning "everything that interacts with counters" is the useful reading far
+// more often than "the card literally named Counterspell", and the result count
+// sits right next to the box. `sf` is the cached print entry — a row whose
+// printing hasn't resolved yet still matches on its own columns, it just can't
+// match on text.
+const DECK_SEARCH_FIELDS = ['name', 'type_line', 'mana_cost', 'set_code', 'collector_number']
+
+export function matchesDeckCardSearch(dc, sf, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return true
+  if (DECK_SEARCH_FIELDS.some(k => String(dc?.[k] || '').toLowerCase().includes(q))) return true
+  return allFacesOracleText(sf, dc).includes(q)
 }
 
 // ── Extra group-by modes ─────────────────────────────────────────────────────
