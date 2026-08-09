@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { sb } from '../../lib/supabase'
 import {
-  MATCH_NOTE_LABELS,
-  MATCH_NOTE_SHORT_LABELS,
   normalizeImportedDeckCards,
   parseImportText,
   resolveImportEntries,
@@ -14,15 +12,29 @@ import { normalizeBoard } from '../../lib/deckBuilderHelpers'
 import { boardForCard } from '../../lib/attractions'
 import { toDeckCardRow, requireCardPrintIds } from '../../lib/deckBuilderWrites'
 import { putDeckCards } from '../../lib/db'
-import { CheckIcon, WarningIcon } from '../../icons'
-import { Modal } from '../UI'
+import { CheckIcon } from '../../icons'
+import { Modal, ConfirmModal } from '../UI'
+import { getImportDiscardModel } from '../../lib/importDiscard'
+import { describeReviewRows, reviewHeadline, uniformValue } from '../../lib/importReview'
+import ImportReviewList from '../import/ImportReviewList'
+import ImportSourceStep from '../import/ImportSourceStep'
 import styles from './DeckImportModal.module.css'
+import uiStyles from '../UI.module.css'
 
-const TABS = [
-  ['text', 'Paste List'],
-  ['file', 'Upload File'],
-  ['url',  'From URL'],
-]
+// Shared button primitive (DESIGN.md §3) — variants only remap --btn-*.
+const BTN = `${uiStyles.btn} ${uiStyles.sm}`
+const BTN_PRIMARY = `${BTN} ${uiStyles.primary}`
+const BTN_SECONDARY = `${BTN} ${uiStyles.secondary}`
+
+const REVIEW_PAGE_SIZE = 100
+
+// Section headers (Commander:, Sideboard:, Maybeboard:, Attractions:) are still
+// parsed — they just don't need explaining. Anyone pasting an export already has
+// them, and everyone else is pasting a plain list.
+const TEXT_PLACEHOLDER = `1 Myra the Magnificent
+1 Sol Ring
+4 Lightning Bolt (M10) 155
+1 Storybook Ride`
 
 /**
  * Bulk deck import modal. Owns its own UI state — the parent only needs to
@@ -52,8 +64,8 @@ export default function DeckImportModal({
   const [importing,  setImporting]  = useState(false)
   const [importError, setImportError] = useState(null)
   const [importDone,  setImportDone]  = useState(null) // summary string
+  const [discardPrompt, setDiscardPrompt] = useState(null)
 
-  const importFileRef = useRef(null)
   const importingRef  = useRef(false)
   useEffect(() => () => { importingRef.current = false }, [])
 
@@ -68,24 +80,47 @@ export default function DeckImportModal({
     }
   }, [open])
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  // Escape is `Modal`'s job (DESIGN.md §6). It keeps a stack so only the
+  // topmost dialog reacts; a second document-level listener here bypassed that
+  // and fired alongside it.
 
   const importSummary = importRows.length ? summarizeImportRows(importRows) : null
   const importMatchedRows = useMemo(
     () => importRows.filter(row => row.status === 'matched' && row.sfCard),
     [importRows],
   )
-  const importMissingRows = useMemo(
-    () => importRows.filter(row => row.status !== 'matched'),
-    [importRows],
+
+  const reviewStatus = useMemo(() => reviewHeadline(describeReviewRows(importRows)), [importRows])
+  // A column whose value is identical on every row tells you nothing and was
+  // costing the card name ~40% of the width. Demote both to a footnote and only
+  // chip the rows that break the pattern.
+  const uniformBoard = useMemo(
+    () => uniformValue(importMatchedRows, row => normalizeBoard(row.board)),
+    [importMatchedRows],
+  )
+  const allExactPrints = useMemo(
+    () => importMatchedRows.length > 0 && importMatchedRows.every(row => row.exactPrinting && !row.matchNote),
+    [importMatchedRows],
   )
 
   const canReview = importTab === 'url' ? !!importUrl.trim() : !!importText.trim()
+  // Only the write phase is unsafe to abandon. Bailing out of a long Scryfall
+  // resolve is fine and should stay possible.
+  const committing = importing && importStep === 'review'
+
+  // Overlay clicks, Escape and Cancel all land here. A pasted decklist is
+  // expensive input, so an accidental click outside must not silently bin it.
+  function requestClose() {
+    if (committing) return
+    if (importDone) { onClose(); return }
+    const model = getImportDiscardModel({
+      reviewing: importStep === 'review',
+      rowCount: importRows.length,
+      hasText: !!(importText.trim() || importUrl.trim()),
+    })
+    if (!model.needsConfirm) { onClose(); return }
+    setDiscardPrompt(model)
+  }
 
   async function prepareImportReview() {
     if (importingRef.current) return
@@ -251,145 +286,79 @@ export default function DeckImportModal({
   if (!open) return null
 
   return (
-    <Modal onClose={onClose} className={styles.modal}>
+    <>
+    <Modal
+      onClose={requestClose}
+      // Content-driven height means the dialog resizes on every step, status
+      // line and expanded row. Fixed from CSS; the body scrolls instead.
+      autoHeight={false}
+      className={styles.modal}
+      // The gap that spaces header / tabs / pane / footer has to live on the
+      // CONTENT element. On `className` it lands on Modal's outer box, whose
+      // only in-flow child is .modalContent (the close button is absolute), so
+      // it silently did nothing and the footer sat flush against the pane.
+      contentClassName={styles.modalBody}
+      showClose={!committing}
+      closeOnEscape={!committing}
+      closeOnOverlay={!committing}
+    >
       <>
         <div className={styles.header}>
           <span className={styles.title}>Import Deck</span>
         </div>
 
-        {importStep === 'input' && <>
-          <div className={styles.tabs}>
-            {TABS.map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className={`${styles.tab}${importTab === id ? ' ' + styles.tabActive : ''}`}
-                onClick={() => { setImportTab(id); setImportError(null); setImportDone(null) }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {importTab === 'text' && (
-            <div className={styles.pane}>
+        {importStep === 'input' && (
+          <ImportSourceStep
+            sources={['text', 'file', 'url']}
+            tab={importTab}
+            onTabChange={id => { setImportTab(id); setImportError(null); setImportDone(null) }}
+            text={importText}
+            onTextChange={value => { setImportText(value); setImportError(null); setImportDone(null) }}
+            url={importUrl}
+            onUrlChange={value => { setImportUrl(value); setImportError(null); setImportDone(null) }}
+            onUrlSubmit={prepareImportReview}
+            busy={importing}
+            textPlaceholder={TEXT_PLACEHOLDER}
+            textHint={
               <p className={styles.hint}>
-                Paste a decklist in standard format. Supports <code>Commander:</code>, <code>Attractions:</code>, <code>Sideboard:</code>, and <code>Maybeboard:</code> sections.
+                One card per line. Quantity, set code and collector number are all optional.<br />
+                <span className={styles.hintFormats}>
+                  <code>Sol Ring</code> / <code>4 Lightning Bolt</code> / <code>1 Sol Ring (LTC) 273</code> / <code>4 *F* Sol Ring</code>
+                </span>
               </p>
-              <textarea
-                autoFocus
-                className={styles.textarea}
-                value={importText}
-                onChange={e => setImportText(e.target.value)}
-                placeholder={"Commander:\n1 Myra the Magnificent\n\nDeck:\n1 Sol Ring\n1 Island\n\nAttractions:\n1 Balloon Stand (UNF) 200d\n\nMaybeboard:\n1 Storybook Ride"}
-                rows={10}
-              />
-            </div>
-          )}
-
-          {importTab === 'file' && (
-            <div className={styles.pane}>
-              <p className={styles.hint}>
-                Upload a <code>.txt</code> decklist or <code>.csv</code> Manabox export.
-              </p>
-              <input
-                ref={importFileRef}
-                type="file"
-                accept=".csv,.txt"
-                style={{ display: 'none' }}
-                onChange={async e => {
-                  const file = e.target.files[0]
-                  if (!file) return
-                  const text = await file.text()
-                  setImportText(text)
-                  setImportError(null)
-                  setImportDone(null)
-                  e.target.value = ''
-                }}
-              />
-              <button type="button" className={styles.fileBtn} onClick={() => importFileRef.current?.click()}>
-                {importText
-                  ? <><span className={styles.fileLoadedIcon}><CheckIcon size={14} /></span> File loaded — {importText.split('\n').filter(Boolean).length} lines</>
-                  : 'Choose file…'}
-              </button>
-              {importText && (
-                <textarea readOnly className={styles.filePreview} value={importText} rows={6} />
-              )}
-            </div>
-          )}
-
-          {importTab === 'url' && (
-            <div className={styles.pane}>
+            }
+            urlPlaceholder="https://archidekt.com/decks/123456/my-deck"
+            urlHint={
               <p className={styles.hint}>
                 Paste a public deck link from <code>Archidekt</code> or <code>Moxfield</code>.
                 MTGGoldfish blocks automated imports — paste its decklist text instead.
               </p>
-              <input
-                autoFocus
-                type="url"
-                className={styles.urlInput}
-                value={importUrl}
-                onChange={e => { setImportUrl(e.target.value); setImportError(null); setImportDone(null) }}
-                onKeyDown={e => { if (e.key === 'Enter' && importUrl.trim() && !importing) prepareImportReview() }}
-                placeholder="https://archidekt.com/decks/123456/my-deck"
-              />
-            </div>
-          )}
-        </>}
+            }
+          />
+        )}
 
         {importStep === 'review' && (
           <div className={styles.pane}>
-            <div className={styles.statGrid}>
-              {[
-                ['Unique Cards', importSummary?.totalRows || 0, false],
-                ['Matched', importSummary?.matchedRows || 0, false],
-                ['Cards', importSummary?.matchedCopies || 0, false],
-                ['Unresolved', importSummary?.missingRows || 0, !!importSummary?.missingRows],
-              ].map(([label, value, bad]) => (
-                <div key={label} className={styles.statCard}>
-                  <div className={`${styles.statValue}${bad ? ' ' + styles.statValueBad : ''}`}>{value}</div>
-                  <div className={styles.statLabel}>{label}</div>
-                </div>
-              ))}
-            </div>
-            <div className={`${styles.statusLine}${importMissingRows.length ? ' ' + styles.statusLineWarn : ''}`}>
-              {importMissingRows.length
-                ? `${importMissingRows.length} row${importMissingRows.length === 1 ? '' : 's'} will be skipped unless corrected.`
-                : 'All rows resolved and are ready to import.'}
-            </div>
-            <div className={styles.reviewList}>
-              {importRows.map((row, index) => (
-                <div
-                  key={`${row.name}-${index}`}
-                  className={`${styles.reviewRow}${row.status !== 'matched' ? ' ' + styles.reviewRowMiss : ''}`}
-                >
-                  <span
-                    className={row.status !== 'matched' ? styles.statusMiss : row.matchNote ? styles.statusNote : styles.statusOk}
-                    aria-label={row.status === 'matched' ? (row.matchNote ? MATCH_NOTE_LABELS[row.matchNote] : 'Matched') : 'Unresolved'}
-                  >
-                    {row.status === 'matched' && !row.matchNote ? <CheckIcon size={14} /> : <WarningIcon size={14} />}
-                  </span>
-                  <span className={styles.rowName}>
-                    {row.qty}x {row.matchNote && <><span className={styles.rowTypedName}>{row.name}</span> → </>}
-                    {row.resolvedName || row.name}
-                    {row.foil && <span className={styles.rowTag}>Foil</span>}
-                    {row.isCommander && <span className={styles.rowTag}>Commander</span>}
-                  </span>
-                  <span className={styles.rowDim}>{row.board ? BOARD_LABELS[normalizeBoard(row.board)] : 'Mainboard'}</span>
-                  <span className={styles.rowDim}>{row.resolvedSetCode ? `${String(row.resolvedSetCode).toUpperCase()} #${row.resolvedCollectorNumber || '–'}` : '–'}</span>
-                  <span
-                    className={row.matchNote ? styles.rowMatchNote : row.exactPrinting ? styles.rowMatchExact : styles.rowDim}
-                    title={row.matchNote ? MATCH_NOTE_LABELS[row.matchNote] : undefined}
-                  >
-                    {row.status !== 'matched'
-                      ? row.reason || 'Missing'
-                      : row.matchNote
-                        ? MATCH_NOTE_SHORT_LABELS[row.matchNote]
-                        : row.exactPrinting ? 'Exact print' : 'Name match'}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <ImportReviewList
+              rows={importRows}
+              status={reviewStatus}
+              pageSize={REVIEW_PAGE_SIZE}
+              footnoteParts={[
+                uniformBoard ? BOARD_LABELS[uniformBoard] : null,
+                allExactPrints ? 'exact prints' : null,
+              ]}
+              renderRowTags={row => <>
+                {row.isCommander && <span className={styles.rowTagCommander}>Commander</span>}
+                {!uniformBoard && <span className={styles.rowTagBoard}>{BOARD_LABELS[normalizeBoard(row.board)]}</span>}
+                {!allExactPrints && !row.exactPrinting && !row.matchNote && (
+                  <span className={styles.rowTagBoard}>Name match</span>
+                )}
+              </>}
+              onRowChange={(index, nextRow) =>
+                setImportRows(prev => prev.map((row, i) => (i === index ? nextRow : row)))}
+              editDisabled={importing}
+              editDisabledTitle="Available once matching finishes"
+            />
           </div>
         )}
 
@@ -399,13 +368,20 @@ export default function DeckImportModal({
         )}
 
         <div className={styles.footer}>
-          <button type="button" className={styles.btn} onClick={() => { onClose(); setImportStep('input'); setImportRows([]) }}>
-            {importDone ? 'Close' : 'Cancel'}
-          </button>
+          {(importDone || importStep === 'input') && (
+            <button
+              type="button"
+              className={BTN_SECONDARY}
+              disabled={committing}
+              onClick={requestClose}
+            >
+              {importDone ? 'Close' : 'Cancel'}
+            </button>
+          )}
           {!importDone && importStep === 'review' && (
             <button
               type="button"
-              className={styles.btn}
+              className={BTN_SECONDARY}
               disabled={importing}
               onClick={() => { setImportStep('input'); setImportError(null); setImportDone(null) }}
             >
@@ -415,17 +391,34 @@ export default function DeckImportModal({
           {!importDone && (
             <button
               type="button"
-              className={styles.btnPrimary}
+              className={BTN_PRIMARY}
               onClick={importStep === 'review' ? confirmImportReview : prepareImportReview}
               disabled={importing || (importStep === 'review' ? importMatchedRows.length === 0 : !canReview)}
             >
               {importing
                 ? (importStep === 'review' ? 'Importing…' : importTab === 'url' ? 'Fetching…' : 'Resolving…')
-                : (importStep === 'review' ? `Import ${importSummary?.matchedCopies || 0}` : 'Review Import')}
+                : (importStep === 'review'
+                    ? `Import ${importSummary?.matchedCopies || 0} card${importSummary?.matchedCopies === 1 ? '' : 's'}`
+                    : 'Review Import')}
             </button>
           )}
         </div>
       </>
     </Modal>
+
+    {/* Sits on top of this component's own <Modal>. Modal keeps a stack so
+        Escape only reaches the topmost one — see UI.jsx. */}
+    {discardPrompt && (
+      <ConfirmModal
+        title={null}
+        message={discardPrompt.message}
+        cancelLabel={discardPrompt.keepLabel}
+        confirmLabel={discardPrompt.discardLabel}
+        variant={discardPrompt.discardVariant}
+        onConfirm={() => { setDiscardPrompt(null); onClose(); setImportStep('input'); setImportRows([]) }}
+        onClose={() => setDiscardPrompt(null)}
+      />
+    )}
+    </>
   )
 }

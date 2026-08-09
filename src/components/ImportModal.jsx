@@ -1,21 +1,37 @@
-import { Fragment, useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { sb } from '../lib/supabase'
-import { Modal, ResponsiveMenu } from './UI'
-import { fetchPaperPrintings } from '../lib/deckBuilderApi'
+import { Modal, ConfirmModal, ResponsiveMenu } from './UI'
+import { getImportDiscardModel } from '../lib/importDiscard'
+import { importDeckFromUrl } from '../lib/deckBuilderApi'
 import {
-  MATCH_NOTE_LABELS,
   aggregateResolvedRows,
+  normalizeImportedDeckCards,
   parseImportText,
   resolveImportEntries,
-  summarizeImportRows,
 } from '../lib/importFlow'
+import {
+  REVIEW_ISSUE,
+  clearResolution,
+  describeReviewRows,
+  reviewHeadline,
+  reviewRowIssue,
+  uniformValue,
+} from '../lib/importReview'
+import ImportReviewList from './import/ImportReviewList'
+import ImportSourceStep from './import/ImportSourceStep'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
 import { toOwnedCardRow, toListItemRow, toDeckCardRow, mergeNonNull } from '../lib/deckBuilderWrites'
 import { removeAcquiredFromWishlists, findOwnedCardNames } from '../lib/wishlistSync'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, WarningIcon } from '../icons'
+import { ChevronDownIcon, ChevronUpIcon } from '../icons'
 import styles from './ImportModal.module.css'
 import uiStyles from './UI.module.css'
+
+// Buttons come from the shared primitive (DESIGN.md §3) — variants only remap
+// --btn-*, so hover/focus-visible/disabled arrive for free.
+const BTN = `${uiStyles.btn} ${uiStyles.sm}`
+const BTN_PRIMARY = `${BTN} ${uiStyles.primary}`
+const BTN_SECONDARY = `${BTN} ${uiStyles.secondary}`
 
 const NOUN = { binder: 'Binder', deck: 'Deck', list: 'Wishlist' }
 const TYPE_OPTIONS = [
@@ -24,6 +40,12 @@ const TYPE_OPTIONS = [
   { id: 'list', label: 'Wishlist' },
 ]
 const PAGE_SIZE = 100
+
+const TEXT_PLACEHOLDER = `4 Forest
+1 Sol Ring
+4 Lightning Bolt (M10) 155
+// comments are ignored`
+const SUB_PHASE_LABELS = { lookup: 'checking what we already have', insert: 'adding new prints' }
 const IMPORT_WRITE_BATCH = 500
 const IMPORT_LOOKUP_BATCH = 75
 const PLACEMENT_SELECTS = {
@@ -109,7 +131,7 @@ async function upsertInBatches(table, rows, options, selectColumns = '*', onBatc
         }
       }
     }
-    onBatchDone?.({ batchIndex: i + 1, batchCount: batches.length, rowsDone: Math.min((i + 1) * IMPORT_WRITE_BATCH, rows.length), rowCount: rows.length })
+    onBatchDone?.({ batchIndex: i + 1, batchCount: batches.length })
   }
   return saved
 }
@@ -154,17 +176,10 @@ async function additiveUpsertInBatches(table, rows, keyFields, options, selectCo
 
     const batchSaved = await upsertInBatches(table, rowsToSave, options, selectColumns)
     if (batchSaved?.length) saved.push(...batchSaved)
-    onBatchDone?.({ batchIndex: i + 1, batchCount: batches.length, rowsDone: Math.min((i + 1) * IMPORT_WRITE_BATCH, rows.length), rowCount: rows.length })
+    onBatchDone?.({ batchIndex: i + 1, batchCount: batches.length })
   }
 
   return saved
-}
-
-function formatSet(row) {
-  const setCode = row.resolvedSetCode || row.setCode
-  const collectorNumber = row.resolvedCollectorNumber || row.collectorNumber
-  if (!setCode) return ''
-  return `${setCode.toUpperCase()}${collectorNumber ? ` ${collectorNumber}` : ''}`
 }
 
 function missingLabel(row) {
@@ -186,6 +201,9 @@ export default function ImportModal({
   const initialEntries = initialImport.entries
   const [step, setStep] = useState(initialText ? 'preview' : 'input')
   const [text, setText] = useState(initialText || '')
+  const [url, setUrl] = useState('')
+  const [sourceTab, setSourceTab] = useState('text')
+  const [fetchingUrl, setFetchingUrl] = useState(false)
   const [parsed, setParsed] = useState(initialEntries)
   const [sourceFolders, setSourceFolders] = useState(initialImport.folders || {})
   const [resolvedRows, setResolvedRows] = useState([])
@@ -203,26 +221,19 @@ export default function ImportModal({
   const [missed, setMissed] = useState([])
   const [imported, setImported] = useState(0)
   const [skippedOwnedCount, setSkippedOwnedCount] = useState(0)
-  const [editingIndex, setEditingIndex] = useState(null)
-  const [editPrintings, setEditPrintings] = useState([])
-  const [editPrintingsLoading, setEditPrintingsLoading] = useState(false)
-  const [editSelectedPrinting, setEditSelectedPrinting] = useState(null)
-  const [editFoil, setEditFoil] = useState(false)
-  const [previewPage, setPreviewPage] = useState(0)
-  const [previewPageEditing, setPreviewPageEditing] = useState(false)
-  const [previewPageInput, setPreviewPageInput] = useState('')
-  const fileRef = useRef(null)
+  const [inputError, setInputError] = useState('')
+  const [discardPrompt, setDiscardPrompt] = useState(null)
+  // Invalidates in-flight resolves so a superseded run can't overwrite newer
+  // rows (a re-parse, or a printing the user edited by hand).
+  const resolveSeq = useRef(0)
 
   const previewRows = resolvedRows.length ? resolvedRows : parsed
-  const previewSummary = summarizeImportRows(previewRows)
+  const reviewDesc = describeReviewRows(previewRows)
   const hasSourceFolders = Object.keys(sourceFolders || {}).length > 0
   const destinationFolders = hasSourceFolders
     ? folders.filter(folder => !isGroupFolder(folder))
     : folders.filter(f => f.type === activeFolderType && !isGroupFolder(f))
   const selectedFolderName = destinationFolders.find(f => f.id === folderId)?.name || ''
-  const destinationCount = hasSourceFolders
-    ? new Set(previewRows.map(row => row.sourceLocation).filter(location => sourceFolders[location])).size
-    : (folderId ? 1 : 0)
   const destinationLabel = noun.toLowerCase()
   const matchedPreviewRows = resolvedRows.filter(row => row.status === 'matched')
   const canImport = !resolving && matchedPreviewRows.length > 0 && (hasSourceFolders || !!folderId)
@@ -246,57 +257,50 @@ export default function ImportModal({
     ? null
     : folders.find(folder => folder.id === folderId) || null
   const selectedDestinationType = selectedDestinationFolder?.type || activeFolderType
-  const importCardCount = previewSummary.matchedCopies || previewSummary.totalCopies
+  const importCardCount = reviewDesc.matchedCopies || reviewDesc.copies
+  // A column identical on every row carries no information — it belongs under
+  // the list, not competing with the card name for width.
+  const matchedForShape = previewRows.filter(row => reviewRowIssue(row) !== REVIEW_ISSUE.MISSING)
+  const uniformLocation = uniformValue(previewRows, row => row.sourceLocation)
+  const uniformLocationLabel = uniformLocation
+    ? `${getFolderTypeLabel(sourceFolders[uniformLocation]?.type)}: ${sourceFolders[uniformLocation]?.name || uniformLocation}`
+    : null
+  const allExactPrints = matchedForShape.length > 0 && matchedForShape.every(row => row.exactPrinting && !row.matchNote)
   const importButtonLabel = locationSummary
     ? `Import ${importCardCount} cards into ${locationSummary}`
     : `Import ${importCardCount} cards`
   const parseStatus = resolving
     ? {
         tone: 'busy',
-        text: `Parsing data${resolveProgress.total ? ` (${resolveProgress.done}/${resolveProgress.total})` : ''}...`,
+        text: `Matching cards${resolveProgress.total ? ` (${resolveProgress.done}/${resolveProgress.total})` : ''}…`,
       }
     : resolveError
       ? { tone: 'error', text: resolveError }
       : resolvedRows.length
-        ? {
-            tone: previewSummary.missingRows ? 'error' : 'success',
-            text: previewSummary.missingRows
-              ? `Parsing finished with ${previewSummary.missingRows} unresolved row${previewSummary.missingRows === 1 ? '' : 's'}.`
-              : `Parsing complete: ${previewSummary.matchedCopies} card${previewSummary.matchedCopies === 1 ? '' : 's'} matched.`,
-          }
+        ? reviewHeadline(reviewDesc)
         : null
-  const previewPageCount = Math.max(1, Math.ceil(previewRows.length / PAGE_SIZE))
-  const safePreviewPage = Math.min(previewPage, previewPageCount - 1)
-  const previewStart = safePreviewPage * PAGE_SIZE
-  const previewSlice = previewRows.slice(previewStart, previewStart + PAGE_SIZE)
 
   const destinationFixed = !!defaultFolderId && destinationFolders.length <= 1
-
-  const startPreviewPageEdit = () => {
-    setPreviewPageInput(String(safePreviewPage + 1))
-    setPreviewPageEditing(true)
-  }
-
-  const applyPreviewPageInput = () => {
-    const nextPage = Number.parseInt(previewPageInput, 10)
-    if (Number.isFinite(nextPage)) {
-      setPreviewPage(Math.max(0, Math.min(previewPageCount - 1, nextPage - 1)))
-    }
-    setPreviewPageEditing(false)
-  }
+  const canParse = sourceTab === 'url' ? !!url.trim() : !!text.trim()
 
   const resolvePreview = useCallback(async (entries) => {
+    const seq = ++resolveSeq.current
+    const isCurrent = () => seq === resolveSeq.current
     setResolving(true)
     setResolveError('')
     setResolvedRows([])
     setResolveProgress({ done: 0, total: 0 })
     try {
-      const rows = await resolveImportEntries(entries, (done, total) => setResolveProgress({ done, total }))
+      const rows = await resolveImportEntries(entries, (done, total) => {
+        if (isCurrent()) setResolveProgress({ done, total })
+      })
+      if (!isCurrent()) return
       setResolvedRows(rows)
     } catch (e) {
+      if (!isCurrent()) return
       setResolveError(e.message || 'Could not resolve cards.')
     }
-    setResolving(false)
+    if (isCurrent()) setResolving(false)
   }, [])
 
   useEffect(() => {
@@ -305,28 +309,45 @@ export default function ImportModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const handleFile = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
-      setText(ev.target.result)
-      setResolvedRows([])
-      setSourceFolders({})
-      setResolveError('')
-      setPreviewPage(0)
-    }
-    reader.readAsText(file)
-    e.target.value = ''
+  const handleTextChange = (value) => {
+    setText(value)
+    setResolvedRows([])
+    setSourceFolders({})
+    setResolveError('')
+    setInputError('')
   }
 
-  const handleParse = () => {
-    const result = parseImportText(text)
-    if (!result.entries.length) return
+  const handleParse = async () => {
+    let result
+    if (sourceTab === 'url') {
+      if (!url.trim()) return
+      setFetchingUrl(true)
+      setInputError('')
+      try {
+        const fetched = await importDeckFromUrl(url.trim())
+        result = { entries: normalizeImportedDeckCards(fetched.cards), folders: {} }
+      } catch (e) {
+        setInputError(e.message || 'Could not fetch that deck.')
+        setFetchingUrl(false)
+        return
+      }
+      setFetchingUrl(false)
+    } else {
+      result = parseImportText(text)
+    }
+
+    if (!result.entries.length) {
+      // Silently doing nothing here reads as a dead button — the input almost
+      // always looks plausible to the person who pasted it.
+      setInputError(sourceTab === 'url'
+        ? 'That link resolved, but the deck came back empty.'
+        : 'No cards found. Each line needs a quantity and a name, like "4 Lightning Bolt". A CSV needs a "Name" column in its header row.')
+      return
+    }
+    setInputError('')
     setParsed(result.entries)
     setSourceFolders(result.folders || {})
     setFolderId(defaultFolderId || '')
-    setPreviewPage(0)
     setStep('preview')
     resolvePreview(result.entries)
   }
@@ -345,113 +366,31 @@ export default function ImportModal({
     }
   }
 
-  const editHasFoil = !!(
-    editSelectedPrinting?.finishes?.includes('foil') ||
-    editSelectedPrinting?.finishes?.includes('etched') ||
-    editSelectedPrinting?.prices?.eur_foil ||
-    editSelectedPrinting?.prices?.usd_foil
-  )
-
-  const getPrintingImage = (printing) =>
-    printing?.image_uris?.small || printing?.card_faces?.[0]?.image_uris?.small || null
-
-  const handleStartEdit = async (row, index) => {
-    setEditingIndex(index)
-    setEditPrintings([])
-    setEditSelectedPrinting(row.sfCard || null)
-    setEditFoil(!!row.foil)
-    setEditPrintingsLoading(true)
+  // `parsed` keeps the hand-picked print coordinates so a later re-resolve
+  // starts from the printing the user chose, not the one they typed.
+  const handleRowChange = (index, nextRow) => {
     setResolveError('')
-    try {
-      const printings = await fetchPaperPrintings(row.resolvedName || row.name)
-      const selected = printings.find(printing => printing.id === row.sfCard?.id)
-        || printings.find(printing => printing.set === (row.resolvedSetCode || row.setCode) && printing.collector_number === (row.resolvedCollectorNumber || row.collectorNumber))
-        || row.sfCard
-        || printings[0]
-        || null
-      setEditPrintings(printings)
-      setEditSelectedPrinting(selected)
-      const selectedHasFoil = !!(
-        selected?.finishes?.includes('foil') ||
-        selected?.finishes?.includes('etched') ||
-        selected?.prices?.eur_foil ||
-        selected?.prices?.usd_foil
-      )
-      setEditFoil(!!row.foil && selectedHasFoil)
-    } catch (e) {
-      setResolveError(e.message || 'Could not load printings.')
-    }
-    setEditPrintingsLoading(false)
+    setParsed(prev => prev.map((row, i) => (i === index ? clearResolution(nextRow) : row)))
+    setResolvedRows(prev => {
+      const base = prev.length ? prev : previewRows
+      return base.map((row, i) => (i === index ? nextRow : row))
+    })
   }
 
-  const handleCancelEdit = () => {
-    setEditingIndex(null)
-    setEditPrintings([])
-    setEditSelectedPrinting(null)
-    setEditFoil(false)
-  }
-
-  const handleApplyEdit = async (index) => {
-    const current = previewRows[index]
-    if (!current || !editSelectedPrinting) return
-    const selectedHasFoil = !!(
-      editSelectedPrinting.finishes?.includes('foil') ||
-      editSelectedPrinting.finishes?.includes('etched') ||
-      editSelectedPrinting.prices?.eur_foil ||
-      editSelectedPrinting.prices?.usd_foil
-    )
-
-    const nextEntry = {
-      ...current,
-      setCode: editSelectedPrinting.set || null,
-      collectorNumber: editSelectedPrinting.collector_number || null,
-      foil: !!editFoil && selectedHasFoil,
-      sfCard: undefined,
-      status: undefined,
-      reason: undefined,
-      resolvedName: undefined,
-      resolvedSetCode: undefined,
-      resolvedCollectorNumber: undefined,
-      exactPrinting: undefined,
-      matchNote: undefined,
-    }
-
-    setResolving(true)
-    setResolveError('')
-    try {
-      const resolved = {
-        ...nextEntry,
-        sfCard: editSelectedPrinting,
-        resolvedName: editSelectedPrinting.name || nextEntry.name,
-        resolvedSetCode: editSelectedPrinting.set || nextEntry.setCode || null,
-        resolvedCollectorNumber: editSelectedPrinting.collector_number || nextEntry.collectorNumber || null,
-        exactPrinting: true,
-        status: 'matched',
-        reason: null,
-        matchNote: null,
-      }
-      setParsed(prev => prev.map((row, rowIndex) => rowIndex === index ? nextEntry : row))
-      setResolvedRows(prev => {
-        const base = prev.length ? prev : previewRows
-        return base.map((row, rowIndex) => rowIndex === index ? resolved : row)
-      })
-      handleCancelEdit()
-    } catch (e) {
-      setResolveError(e.message || 'Could not apply edited printing.')
-    }
-    setResolving(false)
-  }
-
-  const beginImportProgress = useCallback((phase, rowCount) => {
+  const beginImportProgress = useCallback((phase) => {
     setProgressPhase(phase)
-    setTotal(Math.max(1, Math.ceil((rowCount || 0) / IMPORT_WRITE_BATCH)))
+    setTotal(1)
     setProgress(0)
   }, [])
 
-  const trackImportBatch = useCallback((phase) => ({ batchIndex, batchCount }) => {
-    setProgressPhase(phase)
-    setTotal(batchCount)
-    setProgress(batchIndex)
+  // `ensureCardPrints` reports two sequential sub-phases (lookup, then insert),
+  // each restarting its batch index at 1. Naming the sub-phase is what keeps a
+  // restarting bar legible — without it the fill visibly rewinds under one
+  // unchanging label.
+  const trackImportBatch = useCallback((phase) => ({ batchIndex, batchCount, phase: subPhase }) => {
+    setProgressPhase(subPhase ? `${phase} — ${SUB_PHASE_LABELS[subPhase] || subPhase}` : phase)
+    setTotal(Math.max(1, batchCount || 1))
+    setProgress(batchIndex || 0)
   }, [])
 
   const handleImport = useCallback(async () => {
@@ -543,7 +482,7 @@ export default function ImportModal({
           const target = getTargetFolder(row)
           return target && target.type !== 'list'
         })
-        beginImportProgress('Saving print data', matchedRows.length)
+        beginImportProgress('Saving print data')
         const printByScryfallId = await ensureCardPrints(
           matchedRows.map(row => row.sfCard),
           trackImportBatch('Saving print data'),
@@ -573,7 +512,7 @@ export default function ImportModal({
           )
           const keepItems = await dropOwnedWishlistRows(items)
           if (keepItems.length) {
-            beginImportProgress('Saving wishlist items', keepItems.length)
+            beginImportProgress('Saving wishlist items')
             await additiveUpsertInBatches(
               'list_items',
               keepItems,
@@ -603,7 +542,7 @@ export default function ImportModal({
           )
           const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
           for (const r of hydratedRows) if (r.card_print_id) acquiredForWishlist.push({ card_print_id: r.card_print_id, foil: !!r.foil })
-          beginImportProgress('Saving owned cards', hydratedRows.length)
+          beginImportProgress('Saving owned cards')
           const upserted = await additiveUpsertInBatches(
             'cards',
             hydratedRows,
@@ -652,7 +591,7 @@ export default function ImportModal({
             }
 
             if (deckPlacements.length) {
-              beginImportProgress('Saving deck placements', deckPlacements.length)
+              beginImportProgress('Saving deck placements')
               const savedDeckPlacements = await additiveUpsertInBatches(
                 'deck_allocations',
                 deckPlacements,
@@ -664,7 +603,7 @@ export default function ImportModal({
               if (savedDeckPlacements?.length) await putDeckAllocations(savedDeckPlacements)
             }
             if (binderPlacements.length) {
-              beginImportProgress('Saving binder placements', binderPlacements.length)
+              beginImportProgress('Saving binder placements')
               const savedBinderPlacements = await additiveUpsertInBatches(
                 'folder_cards',
                 binderPlacements,
@@ -693,7 +632,7 @@ export default function ImportModal({
           }
         )
         if (items.length) {
-          beginImportProgress('Saving print data', matchedRows.length)
+          beginImportProgress('Saving print data')
           const printByScryfallId = await ensureCardPrints(
             matchedRows.map(row => row.sfCard),
             trackImportBatch('Saving print data'),
@@ -703,7 +642,7 @@ export default function ImportModal({
             ...item,
             card_print_id: getCardPrint(printByScryfallId, item)?.id || null,
           }))
-          beginImportProgress('Saving wishlist items', hydratedItems.length)
+          beginImportProgress('Saving wishlist items')
           if (hydratedItems.length) {
             await additiveUpsertInBatches(
               'list_items',
@@ -732,14 +671,14 @@ export default function ImportModal({
           }
         )
         if (cardRows.length) {
-          beginImportProgress('Saving print data', matchedRows.length)
+          beginImportProgress('Saving print data')
           const printByScryfallId = await ensureCardPrints(
             matchedRows.map(row => row.sfCard),
             trackImportBatch('Saving print data'),
           )
           const hydratedRows = cardRows.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
           for (const r of hydratedRows) if (r.card_print_id) acquiredForWishlist.push({ card_print_id: r.card_print_id, foil: !!r.foil })
-          beginImportProgress('Saving owned cards', hydratedRows.length)
+          beginImportProgress('Saving owned cards')
           const upserted = await additiveUpsertInBatches(
             'cards',
             hydratedRows,
@@ -770,7 +709,7 @@ export default function ImportModal({
               importedCopies += row.qty
             }
             if (placementRows.length) {
-              beginImportProgress(savingDeckPlacements ? 'Saving deck placements' : 'Saving binder placements', placementRows.length)
+              beginImportProgress(savingDeckPlacements ? 'Saving deck placements' : 'Saving binder placements')
               const savedPlacements = await additiveUpsertInBatches(
                 savingDeckPlacements ? 'deck_allocations' : 'folder_cards',
                 placementRows,
@@ -806,46 +745,82 @@ export default function ImportModal({
     setStep('done')
   }, [folderId, parsed, resolvedRows, selectedDestinationType, userId, hasSourceFolders, sourceFolders, beginImportProgress, trackImportBatch])
 
+  // On 'done' the parent still has to invalidate its caches — dismissing there
+  // used to commit the import and skip `onSaved`, leaving the collection stale
+  // until a reload.
+  const finishClose = useCallback(() => {
+    if (step === 'done') onSaved?.(folderId)
+    onClose?.()
+  }, [step, folderId, onSaved, onClose])
+
+  // Overlay clicks and Escape land here. A pasted list is expensive input —
+  // often thousands of lines, sometimes with printings corrected by hand — so
+  // an accidental click outside must not silently bin it.
+  const requestClose = useCallback(() => {
+    if (step === 'importing') return
+    if (step === 'done') { finishClose(); return }
+    const model = getImportDiscardModel({
+      reviewing: step === 'preview',
+      rowCount: previewRows.length,
+      hasText: !!text.trim(),
+    })
+    if (!model.needsConfirm) { finishClose(); return }
+    setDiscardPrompt(model)
+  }, [step, previewRows.length, text, finishClose])
+
+  const importPct = total > 0 ? Math.min(100, Math.round((progress / total) * 100)) : 0
+
   return (
-    <Modal onClose={onClose}>
+    <>
+    <Modal
+      onClose={requestClose}
+      // Content-driven height means the dialog resizes on every step, status
+      // line and expanded row. Fixed from CSS; the body scrolls instead.
+      autoHeight={false}
+      className={styles.modal}
+      contentClassName={styles.modalBody}
+      showClose={step !== 'importing'}
+      closeOnEscape={step !== 'importing'}
+      closeOnOverlay={step !== 'importing'}
+    >
       <div className={styles.wrap}>
         <h2 className={styles.title}>{allowTypeSelection ? 'Import Cards' : `Import to ${noun}`}</h2>
 
         {step === 'input' && (
           <>
-            {/*
-              URL import is disabled until production has a server-side proxy.
-              Keep handleUrlFetch and URL state here so the shared flow can be reused
-              once Archidekt, Moxfield, and MTGGoldfish are supported outside dev.
-            */}
-
-            <p className={styles.hint}>
-              Paste a decklist or collection CSV (Manabox, Moxfield, Archidekt), or upload a <em>.csv</em> / <em>.txt</em> file.<br />
-              <span className={styles.hintFormats}>
-                Supported: <code>4 Lightning Bolt</code> / <code>4 Lightning Bolt (M10) 155</code> / <code>4 *F* Sol Ring</code>
-              </span>
-            </p>
-            <textarea
-              className={styles.textarea}
-              placeholder={'4 Forest\n1 Sol Ring\n4 Lightning Bolt (M10) 155\n// comments are ignored'}
-              value={text}
-              onChange={e => {
-                setText(e.target.value)
-                setResolvedRows([])
-                setSourceFolders({})
-                setResolveError('')
-                setPreviewPage(0)
-              }}
-              rows={10}
-              autoFocus
+            <ImportSourceStep
+              sources={['text', 'file', 'url']}
+              tab={sourceTab}
+              onTabChange={id => { setSourceTab(id); setInputError(''); setResolveError('') }}
+              text={text}
+              onTextChange={handleTextChange}
+              url={url}
+              onUrlChange={value => { setUrl(value); setInputError('') }}
+              onUrlSubmit={handleParse}
+              busy={fetchingUrl}
+              textPlaceholder={TEXT_PLACEHOLDER}
+              textHint={
+                <p className={styles.hint}>
+                  One card per line, or paste a collection CSV from Manabox, Moxfield or Archidekt.<br />
+                  <span className={styles.hintFormats}>
+                    <code>Sol Ring</code> / <code>4 Lightning Bolt</code> / <code>4 Lightning Bolt (M10) 155</code> / <code>4 *F* Sol Ring</code>
+                  </span>
+                </p>
+              }
+              urlPlaceholder="https://archidekt.com/decks/123456/my-deck"
+              urlHint={
+                <p className={styles.hint}>
+                  Paste a public deck link from <code>Archidekt</code> or <code>Moxfield</code>.
+                  MTGGoldfish blocks automated imports — paste its decklist text instead.
+                </p>
+              }
             />
+            {inputError && (
+              <p className={`${styles.parseStatus} ${styles.parseStatus_error}`} role="alert">{inputError}</p>
+            )}
             <div className={styles.inputRow}>
-              <input ref={fileRef} type="file" accept=".csv,.txt" style={{ display: 'none' }} onChange={handleFile} />
-              <button className={styles.fileBtn} onClick={() => fileRef.current?.click()}>
-                Upload file
-              </button>
-              <button className={styles.parseBtn} onClick={handleParse} disabled={!text.trim()}>
-                Parse
+              <button type="button" className={BTN_PRIMARY} onClick={handleParse} disabled={!canParse || fetchingUrl}>
+                {fetchingUrl ? 'Fetching…' : 'Parse'}
               </button>
             </div>
           </>
@@ -854,11 +829,20 @@ export default function ImportModal({
         {step === 'preview' && (
           <>
             {allowTypeSelection && !hasSourceFolders && !destinationFixed && (
-              <div className={styles.inputTabs}>
+              <div
+                className={styles.inputTabs}
+                role="tablist"
+                style={{
+                  '--tab-count': TYPE_OPTIONS.length,
+                  '--tab-index': Math.max(0, TYPE_OPTIONS.findIndex(o => o.id === activeFolderType)),
+                }}
+              >
                 {TYPE_OPTIONS.map(option => (
                   <button
                     key={option.id}
                     type="button"
+                    role="tab"
+                    aria-selected={activeFolderType === option.id}
                     className={`${styles.inputTab} ${activeFolderType === option.id ? styles.inputTabActive : ''}`}
                     onClick={() => {
                       setActiveFolderType(option.id)
@@ -923,7 +907,7 @@ export default function ImportModal({
                       </>
                     )}
                   </ResponsiveMenu>
-                  <button className={styles.createBtn} onClick={() => setCreating(true)}>
+                  <button type="button" className={BTN_PRIMARY} onClick={() => setCreating(true)}>
                     + New
                   </button>
                 </div>
@@ -937,185 +921,35 @@ export default function ImportModal({
                     onChange={e => setNewName(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') handleCreateFolder(); if (e.key === 'Escape') setCreating(false) }}
                   />
-                  <button className={styles.parseBtn} onClick={handleCreateFolder} disabled={!newName.trim()}>Create</button>
-                  <button className={styles.fileBtn} onClick={() => setCreating(false)}>Cancel</button>
+                  <button type="button" className={BTN_PRIMARY} onClick={handleCreateFolder} disabled={!newName.trim()}>Create</button>
+                  <button type="button" className={BTN_SECONDARY} onClick={() => setCreating(false)}>Cancel</button>
                 </div>
               )
             )}
 
-            <div className={styles.summaryGrid}>
-              <div className={styles.summaryItem}><strong>{previewSummary.totalCopies}</strong><span>Total copies</span></div>
-              <div className={styles.summaryItem}><strong>{previewSummary.uniqueNames}</strong><span>Unique cards</span></div>
-              <div className={styles.summaryItem}>
-                <strong>{destinationCount}</strong>
-                <span>{hasSourceFolders ? 'Source destinations' : `Importing to ${destinationCount} ${destinationCount === 1 ? destinationLabel : `${destinationLabel}s`}`}</span>
-              </div>
-              <div className={previewSummary.missingRows ? styles.summaryWarn : styles.summaryItem}>
-                <strong>{previewSummary.missingRows}</strong><span>Unresolved rows</span>
-              </div>
-            </div>
-
-            {previewSummary.sourceLocations.length > 0 && (
-              <p className={styles.hint}>
-                Source locations: {previewSummary.sourceLocations.length} location{previewSummary.sourceLocations.length === 1 ? '' : 's'} from CSV
-              </p>
-            )}
-            {parseStatus && (
-              <p className={`${styles.parseStatus} ${styles[`parseStatus_${parseStatus.tone}`]}`}>
-                {parseStatus.text}
-              </p>
-            )}
-
-            {previewRows.length > PAGE_SIZE && (
-              <div className={styles.previewPager}>
-                <button
-                  type="button"
-                  className={styles.fileBtn}
-                  onClick={() => setPreviewPage(page => Math.max(0, page - 1))}
-                  disabled={safePreviewPage === 0}
-                >
-                  Previous
-                </button>
-                <div className={styles.previewPageStatus}>
-                  <span>Page</span>
-                  {previewPageEditing ? (
-                    <input
-                      className={styles.previewPageInput}
-                      value={previewPageInput}
-                      onChange={e => setPreviewPageInput(e.target.value.replace(/\D/g, ''))}
-                      onBlur={applyPreviewPageInput}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') applyPreviewPageInput()
-                        if (e.key === 'Escape') setPreviewPageEditing(false)
-                      }}
-                      inputMode="numeric"
-                      autoFocus
-                    />
-                  ) : (
-                    <button type="button" className={styles.previewPageNumber} onClick={startPreviewPageEdit}>
-                      {safePreviewPage + 1}
-                    </button>
-                  )}
-                  <span>of {previewPageCount}</span>
-                  <span className={styles.previewPageRange}>
-                    {previewStart + 1}-{Math.min(previewStart + PAGE_SIZE, previewRows.length)} of {previewRows.length}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className={styles.fileBtn}
-                  onClick={() => setPreviewPage(page => Math.min(previewPageCount - 1, page + 1))}
-                  disabled={safePreviewPage >= previewPageCount - 1}
-                >
-                  Next
-                </button>
-              </div>
-            )}
-
-            <div className={styles.previewList}>
-              {previewSlice.map((row, pageIndex) => {
-                const index = previewStart + pageIndex
-                return (
-                <Fragment key={`${row.name}-${index}`}>
-                  <div className={`${styles.previewRow} ${row.status === 'missing' ? styles.previewRowMissing : ''}`}>
-                    <span className={styles.previewQty}>
-                      {row.status === 'missing'
-                        ? <CloseIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconMissing}`} />
-                        : row.status === 'matched'
-                          ? row.matchNote
-                            ? <WarningIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconNote}`} />
-                            : <CheckIcon size={12} className={`${styles.previewStatusIcon} ${styles.previewStatusIconMatched}`} />
-                          : null
-                      }
-                      <span>x{row.qty}</span>
-                    </span>
-                    <span className={styles.previewName}>
-                      {row.matchNote && <span className={styles.previewTypedName}>{row.name} →</span>}
-                      <span className={styles.previewNameText}>{row.resolvedName || row.name}</span>
-                      {row.foil && <span className={styles.previewFoil}>Foil</span>}
-                    </span>
-                    {formatSet(row) && <span className={styles.previewSet}>{formatSet(row)}</span>}
-                    {row.sourceLocation && (
-                      <span className={styles.previewLocation}>
-                        {sourceFolders[row.sourceLocation]?.type ? `${getFolderTypeLabel(sourceFolders[row.sourceLocation].type)}: ` : ''}
-                        {sourceFolders[row.sourceLocation]?.name || row.sourceLocation}
-                      </span>
-                    )}
-                    {row.status === 'missing' && <span className={styles.previewMissing}>missing</span>}
-                    {row.matchNote && <span className={styles.previewNote}>{MATCH_NOTE_LABELS[row.matchNote]}</span>}
-                    <button type="button" className={styles.previewEditBtn} onClick={() => handleStartEdit(row, index)}>
-                      Edit
-                    </button>
-                  </div>
-                  {editingIndex === index && (
-                    <div className={styles.editPanel}>
-                      <div className={styles.editHeader}>
-                        <span>Choose printing</span>
-                        <div className={styles.editActions}>
-                          <button type="button" className={styles.fileBtn} onClick={handleCancelEdit}>Cancel</button>
-                          <button type="button" className={styles.parseBtn} onClick={() => handleApplyEdit(index)} disabled={resolving || !editSelectedPrinting}>
-                            Apply
-                          </button>
-                        </div>
-                      </div>
-                      {editPrintingsLoading ? (
-                        <div className={styles.editLoading}>Loading printings...</div>
-                      ) : (
-                        <div className={styles.printingGrid}>
-                          {editPrintings.map(printing => {
-                            const image = getPrintingImage(printing)
-                            return (
-                              <button
-                                key={printing.id}
-                                type="button"
-                                className={`${styles.printingCard} ${editSelectedPrinting?.id === printing.id ? styles.printingCardActive : ''}`}
-                                onClick={() => {
-                                  setEditSelectedPrinting(printing)
-                                  const hasFoil = !!(
-                                    printing.finishes?.includes('foil') ||
-                                    printing.finishes?.includes('etched') ||
-                                    printing.prices?.eur_foil ||
-                                    printing.prices?.usd_foil
-                                  )
-                                  if (!hasFoil) setEditFoil(false)
-                                }}
-                                title={`${printing.set_name || printing.set} ${printing.collector_number}`}
-                              >
-                                {image
-                                  ? <img src={image} alt={printing.name} className={styles.printingImage} loading="lazy" />
-                                  : <div className={styles.printingImageEmpty} />
-                                }
-                                <span className={styles.printingSet}>{printing.set?.toUpperCase()}</span>
-                                <span className={styles.printingMeta}>#{printing.collector_number}</span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
-                      <div className={styles.editBottom}>
-                        <button
-                          type="button"
-                          className={`${styles.foilSwitch} ${editFoil ? styles.foilSwitchOn : ''}`}
-                          onClick={() => editHasFoil && setEditFoil(value => !value)}
-                          disabled={!editHasFoil}
-                          aria-pressed={editFoil}
-                        >
-                          <span className={styles.foilSwitchText}>Foil</span>
-                          <span className={styles.foilSwitchTrack}>
-                            <span className={styles.foilSwitchKnob} />
-                          </span>
-                        </button>
-                        {!editHasFoil && <span className={styles.noFoilText}>No foil version for this printing</span>}
-                      </div>
-                    </div>
-                  )}
-                </Fragment>
-              )})}
-            </div>
+            <ImportReviewList
+              rows={previewRows}
+              status={parseStatus}
+              pageSize={PAGE_SIZE}
+              footnoteParts={[
+                hasSourceFolders ? `from ${locationSummary || 'the file'}` : null,
+                uniformLocationLabel,
+                allExactPrints ? 'exact prints' : null,
+              ]}
+              renderRowTags={row => (row.sourceLocation && !uniformLocation) ? (
+                <span className={styles.rowTagLocation}>
+                  {sourceFolders[row.sourceLocation]?.type ? `${getFolderTypeLabel(sourceFolders[row.sourceLocation].type)}: ` : ''}
+                  {sourceFolders[row.sourceLocation]?.name || row.sourceLocation}
+                </span>
+              ) : null}
+              onRowChange={handleRowChange}
+              editDisabled={resolving}
+              editDisabledTitle="Available once matching finishes"
+            />
 
             <div className={styles.actionRow}>
-              <button className={styles.fileBtn} onClick={() => setStep('input')}>Back</button>
-              <button className={styles.parseBtn} onClick={handleImport} disabled={!canImport || resolving}>
+              <button type="button" className={BTN_SECONDARY} onClick={() => setStep('input')}>Back</button>
+              <button type="button" className={BTN_PRIMARY} onClick={handleImport} disabled={!canImport || resolving}>
                 {importButtonLabel}
               </button>
             </div>
@@ -1126,11 +960,19 @@ export default function ImportModal({
           <div className={styles.progressWrap}>
             <div className={styles.progressLabel}>
               <strong>{progressPhase || 'Importing'}</strong>
-              <span>{progress} / {total}</span>
+              <span>{importPct}%</span>
             </div>
-            <div className={styles.progressBar}>
-              <div className={styles.progressFill} style={{ width: total ? `${(progress / total) * 100}%` : '0%' }} />
+            <div
+              className={styles.progressBar}
+              role="progressbar"
+              aria-valuenow={importPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={progressPhase || 'Importing'}
+            >
+              <div className={styles.progressFill} style={{ width: `${importPct}%` }} />
             </div>
+            <p className={styles.progressNote}>Keep this open until the import finishes.</p>
           </div>
         )}
 
@@ -1139,7 +981,7 @@ export default function ImportModal({
             <p className={styles.doneMsg}>
               {imported > 0
                 ? <span className={styles.success}>{imported} card{imported === 1 ? '' : 's'} imported successfully.</span>
-                : <span style={{ color: 'var(--text-dim)' }}>No cards were imported.</span>
+                : <span className={styles.doneMuted}>No cards were imported.</span>
               }
             </p>
             {skippedOwnedCount > 0 && (
@@ -1156,11 +998,26 @@ export default function ImportModal({
               </>
             )}
             <div className={styles.actionRow}>
-              <button className={styles.parseBtn} onClick={() => { onSaved?.(folderId); onClose() }}>Done</button>
+              <button type="button" className={BTN_PRIMARY} onClick={finishClose}>Done</button>
             </div>
           </>
         )}
       </div>
     </Modal>
+
+    {/* Sits on top of this component's own <Modal>. Modal keeps a stack so
+        Escape only reaches the topmost one — see UI.jsx. */}
+    {discardPrompt && (
+      <ConfirmModal
+        title={null}
+        message={discardPrompt.message}
+        cancelLabel={discardPrompt.keepLabel}
+        confirmLabel={discardPrompt.discardLabel}
+        variant={discardPrompt.discardVariant}
+        onConfirm={() => { setDiscardPrompt(null); finishClose() }}
+        onClose={() => setDiscardPrompt(null)}
+      />
+    )}
+    </>
   )
 }

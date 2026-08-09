@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
+import { getDiscardModel } from '../../lib/discardPrompt'
 import { CheckIcon, InfoIcon, WarningIcon, AddIcon } from '../../icons'
-import { Modal, Select, Button } from '../UI'
+import { Modal, ConfirmModal, Select, Button } from '../UI'
 import { BASIC_LANDS } from '../../lib/deckBuilderConstants'
 import { isGroupFolder, normalizeCardName, placementFilterNames } from '../../lib/deckBuilderHelpers'
 import { buildChosenAllocations, buildChosenPrintingSelections } from '../../lib/deckSyncDecisions'
@@ -75,6 +76,23 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
   const [newWishlistName, setNewWishlistName] = useState('')
   const [chosenOtherCardIds, setChosenOtherCardIds] = useState({})
   const [pickerItem, setPickerItem] = useState(null)
+  const [discardPrompt, setDiscardPrompt] = useState(null)
+
+  // Nothing here is written until Create Deck, so an overlay click throws away
+  // every printing choice and option the user has set up.
+  const requestClose = () => {
+    const model = getDiscardModel({
+      subject: 'this deck setup',
+      hasWork: Object.keys(chosenOtherCardIds).length > 0
+        || missingAction !== 'skip'
+        || !!newWishlistName.trim()
+        || !skipBasicLands
+        || !exactVersionOnly
+        || pullFromOtherDecks,
+    })
+    if (!model.needsConfirm) { onClose(); return }
+    setDiscardPrompt(model)
+  }
 
   // 'new' bypasses ownership matching entirely (see planningOwnedCards below) —
   // it's one of the missing-card strategies, just one that makes every card missing.
@@ -180,7 +198,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
 
   return (
     <>
-      <Modal onClose={onClose} className={styles.modal} contentClassName={styles.modalContent}>
+      <Modal onClose={requestClose} className={styles.modal} contentClassName={styles.modalContent}>
         <div className={styles.header}>
           <span className={styles.title}>Make Collection Deck</span>
           <span className={styles.subtitle}>Assign owned copies from your collection into a new deck built from this list. Choose how to handle cards you don’t own.</span>
@@ -294,7 +312,7 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
               <div className={`${styles.footerNote}${refreshError ? ' ' + styles.footerNoteError : ''}`}>
                 {!remoteReady ? (refreshError || 'Refreshing collection placements...') : ''}
               </div>
-              <Button variant="secondary" onClick={onClose}>Cancel</Button>
+              <Button variant="secondary" onClick={requestClose}>Cancel</Button>
               <Button
                 variant="primary"
                 disabled={!canConfirm}
@@ -313,6 +331,17 @@ export default function MakeDeckModal({ deckCards, userId, onConfirm, onClose })
           </>
         )}
       </Modal>
+      {discardPrompt && (
+        <ConfirmModal
+          title={null}
+          message={discardPrompt.message}
+          cancelLabel={discardPrompt.keepLabel}
+          confirmLabel={discardPrompt.discardLabel}
+          variant={discardPrompt.discardVariant}
+          onConfirm={() => { setDiscardPrompt(null); onClose() }}
+          onClose={() => setDiscardPrompt(null)}
+        />
+      )}
       {pickerItem && (
         <PrintingPickerModal
           cardName={pickerItem.dc.name}

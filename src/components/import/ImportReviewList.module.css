@@ -1,0 +1,330 @@
+/* Shared review list for both import modals. Tokens only — see DESIGN.md §1. */
+
+.status {
+  margin: -2px 0 0;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--s-border2);
+  font-family: var(--font-display);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+.status_busy {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 38%, transparent);
+  background: color-mix(in srgb, var(--gold) 8%, transparent);
+}
+.status_success {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 36%, transparent);
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+}
+.status_warn {
+  color: var(--orange);
+  border-color: color-mix(in srgb, var(--orange) 36%, transparent);
+  background: color-mix(in srgb, var(--orange) 8%, transparent);
+}
+.status_error {
+  color: var(--red-bright);
+  border-color: color-mix(in srgb, var(--red) 38%, transparent);
+  background: color-mix(in srgb, var(--red) 8%, transparent);
+}
+
+/* The constants that used to repeat down every row. */
+.footnote {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--font-xs);
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+}
+/* Compact tier: this sits directly above a dense list, so it runs shorter than
+   the page-level control height. */
+.pager .pagerBtn {
+  min-height: 26px;
+  padding: 0 10px;
+}
+.pagerStatus { white-space: nowrap; }
+
+/* Absorbs the modal's spare height so the dialog itself never has to resize
+   when rows resolve, an edit panel opens, or a status line appears. */
+.list {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s1);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--s-border0);
+  font-size: var(--font-sm);
+}
+.row:last-child { border-bottom: none; }
+.rowMissing { background: color-mix(in srgb, var(--red) 5%, transparent); }
+
+.qty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  flex: 0 0 44px;
+  font-family: var(--font-display);
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+.statusIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.statusIconMatched { color: var(--green); }
+.statusIconMissing { color: var(--red-bright); }
+/* Matched, but the name came from a fuzzy lookup (flavor name / near-miss). */
+.statusIconNote { color: var(--orange); }
+
+.typedName { color: var(--text-faint); white-space: nowrap; }
+
+/* Takes whatever the row has left and wraps rather than truncating — the card
+   name is the only thing identifying a row. */
+.name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  flex: 1 1 180px;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+.nameText { min-width: 0; }
+
+.set {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+/* Static chips — pill, no border, flat tint (DESIGN.md §4), so the one bordered
+   rectangle in the row (Edit) is unmistakably the only thing you can click.
+   Compact tier: 20px, because this is a dense data list, not a page header. */
+.tagFoil,
+.tagNote,
+.tagMissing,
+.tagNeutral {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--label-size-sm);
+  /* body's line-height:1.6 would centre these as a ~17px line box whose lower
+     half is unused descender space, riding the glyphs high. */
+  line-height: 1;
+  white-space: nowrap;
+}
+.tagFoil {
+  color: var(--purple);
+  background: color-mix(in srgb, var(--purple) 14%, transparent);
+}
+.tagMissing {
+  color: var(--red-bright);
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+.tagNote {
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 14%, transparent);
+}
+.tagNeutral {
+  color: var(--text-dim);
+  background: var(--s-subtle);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  line-height: 20px;
+}
+
+/* Compact override of uiStyles.btn — parent-scoped so it beats .sm without
+   touching the primitive (DESIGN.md §5). */
+.row .editBtn {
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 0 9px;
+  font-size: var(--label-size-sm);
+}
+
+/* ── Printing editor ───────────────────────────────────────────────────── */
+
+.editPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--s-border0);
+  background: color-mix(in srgb, var(--s2) 72%, transparent);
+}
+.editHeader,
+.editBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.editHeader > span {
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+}
+.editActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.editLoading {
+  color: var(--text-faint);
+  font-size: var(--font-sm);
+  padding: 8px 0;
+}
+.editError {
+  color: var(--red-bright);
+  font-size: var(--font-sm);
+}
+.printingGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.printingCard {
+  display: grid;
+  grid-template-rows: 92px auto auto;
+  gap: 3px;
+  min-width: 0;
+  background: var(--s1);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  padding: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: center;
+}
+/* :not() — a bare .printingCard:hover (0,2,0) outranks .printingCardActive
+   (0,1,0) on the two properties they share, so hovering the printing you just
+   picked reverted it to the un-picked look. DESIGN.md §10. */
+.printingCard:hover:not(.printingCardActive) {
+  border-color: color-mix(in srgb, var(--gold) 40%, transparent);
+  background: color-mix(in srgb, var(--gold) 6%, transparent);
+}
+.printingCardActive {
+  border-color: color-mix(in srgb, var(--gold) 75%, transparent);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 18%, transparent);
+}
+.printingImage,
+.printingImageEmpty {
+  width: 100%;
+  height: 92px;
+  object-fit: contain;
+  border-radius: var(--radius-xs);
+  background: var(--s2);
+}
+.printingImageEmpty { border: 1px dashed var(--s-border2); }
+.printingSet {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--label-size-md);
+  line-height: 1.1;
+}
+.printingMeta {
+  color: var(--text-faint);
+  font-size: 0.64rem;
+  line-height: 1.1;
+}
+
+.foilSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--s1);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-pill);
+  color: var(--text-dim);
+  padding: 5px 8px 5px 10px;
+  cursor: pointer;
+}
+.foilSwitch:disabled { opacity: 0.45; cursor: not-allowed; }
+.foilSwitchText { font-family: var(--font-display); font-size: 0.7rem; }
+.foilSwitchTrack {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--s3);
+  border: 1px solid var(--s-border2);
+}
+.foilSwitchKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+.foilSwitchOn {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 45%, transparent);
+  background: color-mix(in srgb, var(--gold) 8%, transparent);
+}
+.foilSwitchOn .foilSwitchTrack {
+  background: color-mix(in srgb, var(--gold) 24%, transparent);
+  border-color: color-mix(in srgb, var(--gold) 50%, transparent);
+}
+.foilSwitchOn .foilSwitchKnob {
+  transform: translateX(14px);
+  background: var(--gold);
+}
+.noFoilText { color: var(--text-faint); font-size: 0.72rem; }
+
+@media (max-width: 520px) {
+  .pager { flex-wrap: wrap; justify-content: center; }
+  .pagerStatus { order: -1; flex: 0 0 100%; text-align: center; }
+  .row {
+    flex-wrap: wrap;
+    gap: 4px 7px;
+    padding: 6px 8px;
+  }
+  .qty { flex: 0 0 42px; }
+  .name { flex: 1 1 auto; }
+  /* Set code and Edit drop below the name rather than squeezing it. */
+  .set { order: 3; margin-left: 49px; }
+  .row .editBtn { order: 4; margin-left: auto; }
+  .editHeader,
+  .editBottom { align-items: flex-start; flex-direction: column; }
+  .editActions { justify-content: flex-end; }
+  .printingGrid { grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); max-height: 220px; }
+}

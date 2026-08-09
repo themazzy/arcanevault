@@ -2,7 +2,8 @@ import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
-import { Modal } from './UI'
+import { getFeedbackDiscardModel } from '../lib/feedbackDiscard'
+import { Modal, ConfirmModal } from './UI'
 import styles from './FeedbackModal.module.css'
 import { CheckIcon } from '../icons'
 
@@ -59,6 +60,22 @@ export default function FeedbackModal({ onClose, initialType = 'bug' }) {
   const [submitError, setSubmitError] = useState('')
   const [fileError, setFileError] = useState('')
   const [screenshot, setScreenshot] = useState(null)
+  const [discardPrompt, setDiscardPrompt] = useState(null)
+
+  // Overlay clicks, Escape and Cancel all land here. A written report can't be
+  // reconstructed from anything on screen, so it must not go without a word.
+  const requestClose = () => {
+    if (submitting) return
+    if (done) { onClose(); return }
+    const model = getFeedbackDiscardModel({
+      type,
+      hasDescription: !!description.trim(),
+      hasContact: !!contact.trim(),
+      hasScreenshot: !!screenshot,
+    })
+    if (!model.needsConfirm) { onClose(); return }
+    setDiscardPrompt(model)
+  }
 
   const clearScreenshot = () => {
     setScreenshot(null)
@@ -181,7 +198,13 @@ export default function FeedbackModal({ onClose, initialType = 'bug' }) {
   }
 
   return (
-    <Modal onClose={onClose}>
+    <>
+    <Modal
+      onClose={requestClose}
+      showClose={!submitting}
+      closeOnEscape={!submitting}
+      closeOnOverlay={!submitting}
+    >
       <div className={styles.titleRow}>
         <span className={styles.titleIcon}>{type === 'bug' ? '🐞' : '✦'}</span>
         <h2 className={styles.title}>
@@ -291,7 +314,7 @@ export default function FeedbackModal({ onClose, initialType = 'bug' }) {
       {submitError ? <p className={styles.errorText}>{submitError}</p> : null}
 
       <div className={styles.actions}>
-        <button className={styles.cancelBtn} onClick={onClose}>Cancel</button>
+        <button className={styles.cancelBtn} onClick={requestClose} disabled={submitting}>Cancel</button>
         <button
           className={styles.submitBtn}
           onClick={handleSubmit}
@@ -301,5 +324,20 @@ export default function FeedbackModal({ onClose, initialType = 'bug' }) {
         </button>
       </div>
     </Modal>
+
+    {/* Sits on top of this component's own <Modal>. Modal keeps a stack so
+        Escape only reaches the topmost one — see UI.jsx. */}
+    {discardPrompt && (
+      <ConfirmModal
+        title={null}
+        message={discardPrompt.message}
+        cancelLabel={discardPrompt.keepLabel}
+        confirmLabel={discardPrompt.discardLabel}
+        variant={discardPrompt.discardVariant}
+        onConfirm={() => { setDiscardPrompt(null); onClose() }}
+        onClose={() => setDiscardPrompt(null)}
+      />
+    )}
+    </>
   )
 }

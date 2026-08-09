@@ -342,7 +342,7 @@ Underline tabs — reference: `.detailTabs` in `CardComponents.module.css`, mirr
 
 **No geometry in interaction media queries.** `(hover: none)` / `(pointer: coarse)` are unreliable inputs: Chromium re-evaluates them live on device hot-plug, touch digitizers, and DevTools emulation — sizes keyed to them visibly *jump* on desktop PCs (shipped 2026-07: toolbar buttons flapping 30↔44px whenever DevTools inspect toggled). Touch-target bumps and any other sizing belong in the width breakpoints (`max-width: 900px`) that drive the rest of the layout. Interaction queries may only gate **behavior**: `:hover` effects (`(hover: hover) and (pointer: fine)`), hover-preview suppression, and capability-driven display swaps.
 
-**Never `!important` an active state to beat its own hover.** `.tab:hover` (0,2,0) outranks `.tabActive` (0,1,0), so the active tab greys out on hover. The fix is `:not()`: `.tab:hover:not(.tabActive)`. Reaching for `!important` here hides the real problem. *(DeckBuilder's `.tab` still has this bug.)*
+**Never `!important` an active state to beat its own hover.** `.tab:hover` (0,2,0) outranks `.tabActive` (0,1,0), so the active tab greys out on hover. The fix is `:not()`: `.tab:hover:not(.tabActive)`. Reaching for `!important` here hides the real problem. *(64 sites app-wide — 44 live, 20 papered over with `!important`. Measured and deliberately deferred: see §11 #22. Don't add to the pile; new CSS gets the `:not()`.)*
 
 **Inline `style` beats every stylesheet rule.** An inline `textTransform: 'capitalize'` silently defeated a shared `text-transform` rule. Don't reach for inline style for anything a class can do — reserve it for genuinely dynamic values (`--tab-index`).
 
@@ -375,6 +375,18 @@ Measured 2026-07-17. **These are debt, not precedent.**
 | 19 | ~~`components/Icons.jsx` shim~~ | **FIXED** — both importers moved to `src/icons`; shim deleted |
 | 20 | Breakpoints | **29** distinct max-widths (480×16, 640×15, 600×15, 900×12, 768×7, 700×7, 980×6, 620×5, 520×5, 380×5…). The documented `--bp-*` scale is barely used: `--bp-lg` once, **`--bp-xl` never** |
 | 21 | `--mobile-floating-bar-height` | 4 uses vs **49** `env(safe-area-inset-*)` — bottom-bar clearance is mostly hand-rolled |
+| 22 | **Hover outranks its own active state** (§10) | **64** across 27 stylesheets — measured 2026-08-09. **Deliberately not swept; see below.** |
+
+#### 22 — hover outranks its own active state (measured, deliberately deferred)
+
+`.x:hover` is (0,2,0); `.xActive` is (0,1,0). On every property they **both** declare, hover wins, so the selected element renders unselected while the pointer is on it. Counting only same-property conflicts:
+
+- **44 live** — 30 misc active states, 7 tab/nav, 5 toggles (`foilToggleOn`, `likeBtnOn`, `pinBtnOn` read *off* while on), 2 selection. The sharpest is `VirtualCardTable` `.row:hover` repainting `.rowSelected`, so during a multi-select the one row under your cursor lies about its state.
+- **20 masked with `!important`** on the active rule — no visible bug, but the `!important` is load-bearing and blocks future overrides. `Home` ×4, `SetupWizard` ×3, `DeckBrowser` ×3, `Lists` ×2, `Folders` ×2, `AddCardModal`, `CardComponents`, `ExportModal`, `DeckView`, `Settings`.
+
+**Why it is not fixed:** the mechanical fix (`.x:hover:not(.xActive)`) is correct but not sufficient — it makes hover on an active element do *nothing*, which reads as dead on primary controls, so each site needs a deliberate `.xActive:hover` treatment. Removing an `!important` can also expose a second conflict it was suppressing. That is a design pass across 27 files, not a find-replace, and it would visibly change many surfaces at once. Decided 2026-08-09 to leave it until someone can eyeball the results.
+
+**To re-measure:** walk every `src/**/*.module.css`, parse rules to `[selector, body]`, collect `.NAME:hover` (skipping ones already `:not()`-scoped on themselves) and `.NAME(Active|Selected|Current|On)`, and report any pair sharing a declared property — splitting on whether the active rule's clashing declarations are all `!important` (masked) or not (live). Fix newly-written CSS as you go; the count should only fall.
 
 **Stale documentation found while auditing:** `CLAUDE.md`'s view-toggle-pill snippet specifies `6px` radius and `rgba(255,255,255,0.04)`; both real implementations (`Folders`, `DeckBrowser`) use `5px` + `--s1`/`--s-card`. The code is right, the doc is stale.
 

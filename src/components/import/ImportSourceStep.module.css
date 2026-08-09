@@ -1,0 +1,130 @@
+/* Shared source picker for both import modals. Tokens only — see DESIGN.md §1. */
+
+/* The canonical tab bar from DESIGN.md §6: tinted shell, one sliding indicator
+   driven by --tab-index/--tab-count (a per-tab border can't travel, it
+   cross-fades), pseudo-element dividers so no tab is widened by a real border. */
+.tabs {
+  display: flex;
+  position: relative;
+  min-height: 32px;
+  background: color-mix(in srgb, var(--bg2) 28%, transparent);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.tabs::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: calc(100% / var(--tab-count, 1));
+  transform: translateX(calc(var(--tab-index, 0) * 100%));
+  background: var(--gold);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--gold) 50%, transparent);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tab {
+  position: relative;
+  flex: 1;
+  min-height: 30px;
+  padding: 6px 13px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.18s, background 0.18s;
+}
+.tab + .tab::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 1px;
+  background: var(--s-border);
+}
+/* :not() rather than !important — a bare .tab:hover (0,2,0) outranks .tabActive
+   (0,1,0) and greys the selected tab out on hover. DESIGN.md §10. */
+.tab:hover:not(.tabActive) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--gold) 6%, transparent);
+}
+.tabActive {
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 10%, transparent);
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* The modal is a fixed size now, so the pane takes the slack instead of the
+     dialog resizing around its content. */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The dialog is a fixed height, so a pane holding only a hint and one control
+   would otherwise pin them to the top with a void beneath. Nothing here can
+   stretch, so centre the group instead — same call as the progress step. */
+.paneCentered {
+  justify-content: center;
+  gap: 12px;
+}
+
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--s1);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-sm);
+  resize: none;
+  transition: border-color 0.2s;
+  flex: 1 1 auto;
+  min-height: 140px;
+}
+.textarea:focus-visible { border-color: var(--border-hi); }
+.textarea::placeholder { color: var(--text-faint); }
+
+.filePreview {
+  composes: textarea;
+  background: var(--s2);
+  color: var(--text-faint);
+  min-height: 80px;
+}
+
+/* The drop target is uiStyles.libraryImport itself, shared with the /decks,
+   /binders and /lists empty states — this only stops it stretching in the
+   modal's flex column. Do NOT re-declare its size here: an equal-specificity
+   rule in another module has no reliable winner (DESIGN.md §10). */
+.dropZone {
+  flex: 0 0 auto;
+}
+
+.fileError {
+  margin: 0;
+  color: var(--red-bright);
+  font-size: var(--font-sm);
+}
+
+.urlInput {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--s1);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  min-height: var(--control-height);
+  color: var(--text);
+  font-size: 0.83rem;
+}
+.urlInput:focus-visible { border-color: var(--border-hi); }
+.urlInput::placeholder { color: var(--text-faint); }

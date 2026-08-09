@@ -427,6 +427,20 @@ export function WarningIcon(p) {
   )
 }
 
+// Hard failure, distinct from WarningIcon's outline triangle: a filled disc
+// reads as "this did not work" where the triangle reads as "check this". The
+// import preview shows both at once — unresolved rows next to fuzzy matches —
+// so they must be tellable apart without relying on colour alone.
+export function AlertIcon(p) {
+  return (
+    <Icon {...p}>
+      <circle cx="8" cy="8" r="6.5" fill={p.color ?? 'currentColor'} />
+      <line x1="8" y1="4.6" x2="8" y2="8.8" stroke="var(--bg2, #111)" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="8" cy="11.2" r="0.85" fill="var(--bg2, #111)" />
+    </Icon>
+  )
+}
+
 export function BannedIcon(p) {
   return (
     <Icon {...p}>

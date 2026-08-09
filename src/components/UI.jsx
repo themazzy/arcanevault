@@ -492,6 +492,13 @@ export function Modal({
   children,
   onClose,
   allowOverflow = true,
+  // Modal normally measures its content and animates its own height to fit.
+  // That is right for a dialog whose content is stable, and wrong for one whose
+  // content changes as you use it — a multi-step flow resizes under the
+  // pointer on every step, every status line and every expanded row. Pass
+  // false and size the dialog from CSS instead; the content is then expected to
+  // scroll inside it.
+  autoHeight = true,
   showClose = true,
   closeOnOverlay = true,
   closeOnEscape = true,
@@ -516,6 +523,7 @@ export function Modal({
   useModalKeys(modalRef, { onClose, closeOnEscape, initialFocusRef })
 
   useEffect(() => {
+    if (!autoHeight) { setModalHeight(null); return }
     const modalEl = modalRef.current
     const contentEl = modalContentRef.current
     if (!modalEl || !contentEl) return
@@ -548,7 +556,7 @@ export function Modal({
       observer.disconnect()
       window.removeEventListener('resize', updateHeight)
     }
-  }, [])
+  }, [autoHeight])
 
   const dialog = (
     <div

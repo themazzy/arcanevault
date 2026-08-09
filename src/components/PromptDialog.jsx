@@ -34,7 +34,14 @@ export default function PromptDialog({ state, onCancel, onSubmit }) {
     onSubmit(trimmed)
   }
   return (
-    <Modal onClose={onCancel} allowOverflow={false} className={styles.modal}>
+    <Modal
+      onClose={onCancel}
+      allowOverflow={false}
+      // Escape and Cancel stay open — those are deliberate. Only the stray
+      // click on the backdrop is blocked, and only once something is typed.
+      closeOnOverlay={value === (state.initialValue || '')}
+      className={styles.modal}
+    >
       <p className={styles.title}>{state.title}</p>
       <input
         ref={inputRef}

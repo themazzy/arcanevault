@@ -1,62 +1,99 @@
+/* Fixed size, set here rather than measured from content (Modal's
+   `autoHeight={false}`). The dialog used to resize on every step, every status
+   line and every expanded row, which moves the buttons out from under the
+   pointer. Capped to the viewport; the list inside takes the slack and scrolls. */
+.modal {
+  height: min(760px, calc(100dvh - 40px));
+}
+.modalBody {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .wrap {
   display: flex; flex-direction: column; gap: 14px;
   width: 100%; max-width: 100%;
-  max-height: calc(100dvh - 80px);
+  flex: 1 1 auto;
+  min-height: 0;
+  /* Safety net: if the non-scrolling chrome alone exceeds a short viewport,
+     the dialog scrolls rather than clipping. */
   overflow-y: auto;
   /* Breathing room so the last row's (buttons') border isn't shaved by the
      overflow clip at fractional browser-zoom levels. */
   padding-bottom: 4px;
 }
 .title { font-family: var(--font-display); color: var(--gold); font-size: 1rem; font-weight: 600; margin: 0; }
-.hint { font-size: 0.82rem; color: var(--text-dim); margin: 0; line-height: 1.5; }
+.hint { font-size: var(--font-sm); color: var(--text-dim); margin: 0; line-height: 1.5; }
 .hintFormats { font-size: 0.75rem; color: var(--text-faint); }
-.hintFormats code { color: var(--gold); background: rgba(201,168,76,0.08); border-radius: 3px; padding: 0 4px; font-size: 0.72rem; }
+.hintFormats code {
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 8%, transparent);
+  border-radius: var(--radius-xs);
+  padding: 0 4px;
+  font-size: 0.72rem;
+}
 
-/* Input tabs */
-.inputTabs { display: flex; border-bottom: 1px solid var(--s-border); margin-bottom: 2px; }
+/* Type tabs — the canonical bar from DESIGN.md §6: tinted shell, one sliding
+   indicator driven by --tab-index/--tab-count (a per-tab border can't travel,
+   it cross-fades), pseudo-element dividers so no tab is widened by a real
+   border. */
+.inputTabs {
+  display: flex;
+  position: relative;
+  min-height: 32px;
+  background: color-mix(in srgb, var(--bg2) 28%, transparent);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.inputTabs::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: calc(100% / var(--tab-count, 1));
+  transform: translateX(calc(var(--tab-index, 0) * 100%));
+  background: var(--gold);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--gold) 50%, transparent);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
 .inputTab {
-  flex: 1; padding: 7px 0; background: none; border: none;
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
-  color: var(--text-dim); font-size: 0.82rem; cursor: pointer; transition: color 0.15s;
+  position: relative;
+  flex: 1;
+  min-height: 30px;
+  padding: 6px 13px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.18s, background 0.18s;
 }
-.inputTab:hover { color: var(--text); }
-.inputTabActive { border-bottom-color: var(--gold); color: var(--gold); }
+.inputTab + .inputTab::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 1px;
+  background: var(--s-border);
+}
+/* :not() rather than !important — a bare .inputTab:hover (0,2,0) outranks
+   .inputTabActive (0,1,0) and greyed the selected tab out on hover. */
+.inputTab:hover:not(.inputTabActive) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--gold) 6%, transparent);
+}
+.inputTabActive {
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 10%, transparent);
+}
 
-.urlInput {
-  width: 100%; background: var(--s1); border: 1px solid var(--s-border2);
-  border-radius: 4px; padding: 9px 12px; color: var(--text); font-size: 0.88rem; outline: none;
-  transition: border-color 0.2s;
-}
-.urlInput:focus { border-color: var(--border-hi); }
-.urlInput::placeholder { color: var(--text-faint); }
-.urlError { font-size: 0.82rem; color: #e07070; margin: 0; }
-
-.textarea {
-  width: 100%; background: var(--s1); border: 1px solid var(--s-border2);
-  border-radius: 4px; padding: 10px 12px; color: var(--text); font-family: var(--font-mono, monospace);
-  font-size: 0.82rem; resize: vertical; outline: none; transition: border-color 0.2s;
-  min-height: 160px; max-height: 40vh;
-}
-.textarea:focus { border-color: var(--border-hi); }
-.textarea::placeholder { color: var(--text-faint); }
-
-.inputRow { display: flex; gap: 8px; align-items: center; }
-.fileBtn {
-  background: var(--s2); border: 1px solid var(--s-border2);
-  border-radius: 4px; padding: 7px 14px; color: var(--text-dim);
-  font-family: var(--font-display); font-size: 0.78rem; cursor: pointer;
-  transition: all 0.15s;
-}
-.fileBtn:hover { background: var(--s3); border-color: var(--border-hi); color: var(--text); }
-
-.parseBtn {
-  background: rgba(201,168,76,0.12); border: 1px solid rgba(201,168,76,0.4);
-  border-radius: 4px; padding: 7px 18px; color: var(--gold);
-  font-family: var(--font-display); font-size: 0.78rem; cursor: pointer;
-  transition: all 0.15s; margin-left: auto;
-}
-.parseBtn:hover:not(:disabled) { background: rgba(201,168,76,0.2); border-color: rgba(201,168,76,0.6); }
-.parseBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.inputRow { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 
 /* Folder picker */
 .pickerRow { display: flex; gap: 8px; align-items: center; }
@@ -66,8 +103,9 @@
 
 .folderComboBtn {
   width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  background: var(--s2); border: 1px solid var(--s-border2); border-radius: 4px;
-  padding: 7px 10px; color: var(--text); font-size: 0.82rem;
+  min-height: var(--control-height);
+  background: var(--s2); border: 1px solid var(--s-border2); border-radius: var(--radius-sm);
+  padding: 0 10px; color: var(--text); font-size: var(--font-sm);
   cursor: pointer; text-align: left; transition: border-color 0.15s, background 0.15s;
 }
 .folderComboBtn:hover { border-color: var(--border-hi); background: var(--s3); }
@@ -76,400 +114,48 @@
 
 /* Search input inside the dropdown / bottom sheet */
 .folderDropSearch {
-  width: 100%; background: var(--s2); border: 1px solid var(--s-border2); border-radius: 6px;
-  padding: 7px 12px; color: var(--text); font-size: 0.85rem; outline: none;
+  width: 100%; background: var(--s2); border: 1px solid var(--s-border2); border-radius: var(--radius-sm);
+  padding: 7px 12px; color: var(--text); font-size: 0.85rem;
   box-sizing: border-box; flex-shrink: 0; margin-bottom: 4px;
 }
-.folderDropSearch:focus { border-color: var(--border-hi); }
+.folderDropSearch:focus-visible { border-color: var(--border-hi); }
 .folderDropSearch::placeholder { color: var(--text-faint); }
 
-.folderDropEmpty { padding: 6px 4px; color: var(--text-faint); font-size: 0.82rem; font-style: italic; }
-.createBtn {
-  white-space: nowrap; background: none; border: 1px solid rgba(201,168,76,0.3);
-  border-radius: 4px; padding: 7px 12px; color: var(--gold); font-size: 0.78rem;
-  cursor: pointer; transition: all 0.15s;
-}
-.createBtn:hover { background: rgba(201,168,76,0.08); }
+.folderDropEmpty { padding: 6px 4px; color: var(--text-faint); font-size: var(--font-sm); font-style: italic; }
+
 .newInput {
   flex: 1; background: var(--s2); border: 1px solid var(--border-hi);
-  border-radius: 4px; padding: 7px 10px; color: var(--text); font-size: 0.85rem; outline: none;
+  border-radius: var(--radius-sm); padding: 0 10px; min-height: var(--control-height);
+  color: var(--text); font-size: 0.85rem;
 }
+/* This field had `outline: none` and no :focus rule at all, so it was the one
+   control in the modal with zero keyboard affordance. */
+.newInput:focus-visible { border-color: var(--gold); }
+.newInput::placeholder { color: var(--text-faint); }
 
-/* Preview */
-.summaryGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-.summaryItem,
-.summaryWarn {
-  background: var(--s1);
-  border: 1px solid var(--s-border2);
-  border-radius: 4px;
-  padding: 8px 10px;
-  min-width: 0;
-}
-.summaryItem strong,
-.summaryWarn strong {
-  display: block;
-  color: var(--text);
-  font-family: var(--font-display);
-  font-size: 0.95rem;
-  line-height: 1.1;
-}
-.summaryItem span,
-.summaryWarn span {
-  display: block;
-  color: var(--text-faint);
-  font-size: 0.68rem;
-  line-height: 1.25;
-  margin-top: 3px;
-}
-.summaryWarn {
-  border-color: rgba(196,96,96,0.4);
-  background: rgba(196,96,96,0.06);
-}
-.summaryWarn strong { color: var(--red, #e07070); }
-
+/* Preview
+   One status line replaces what used to be three stacked summaries: a grid of
+   four tiles whose numbers largely restated each other, a "Source locations"
+   hint, and a separate parse-status line. */
 .parseStatus {
   margin: -2px 0 0;
   padding: 7px 9px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--s-border2);
   font-family: var(--font-display);
   font-size: 0.74rem;
   line-height: 1.35;
 }
-.parseStatus_busy {
-  color: var(--gold);
-  border-color: rgba(201,168,76,0.38);
-  background: rgba(201,168,76,0.08);
-}
-.parseStatus_success {
-  color: var(--green);
-  border-color: rgba(93,186,112,0.36);
-  background: rgba(93,186,112,0.08);
-}
 .parseStatus_error {
-  color: var(--red, #e07070);
-  border-color: rgba(196,96,96,0.38);
-  background: rgba(196,96,96,0.08);
+  color: var(--red-bright);
+  border-color: color-mix(in srgb, var(--red) 38%, transparent);
+  background: color-mix(in srgb, var(--red) 8%, transparent);
 }
-
-.previewList {
-  max-height: min(440px, 48vh); overflow-y: auto; border: 1px solid var(--s-border2);
-  border-radius: 4px; background: var(--s1);
-}
-.previewPager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--text-faint);
-  font-size: 0.76rem;
-}
-.previewPager .fileBtn {
-  margin: 0;
-  padding: 5px 10px;
-}
-.previewPager .fileBtn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.previewPageStatus {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-width: 0;
-  text-align: center;
-}
-.previewPageNumber,
-.previewPageInput {
-  width: 42px;
-  height: 28px;
-  border: 1px solid var(--s-border2);
-  border-radius: 4px;
-  background: var(--s2);
-  color: var(--text);
-  font-family: var(--font-display);
-  font-size: 0.78rem;
-  text-align: center;
-}
-.previewPageNumber {
-  cursor: pointer;
-}
-.previewPageNumber:hover,
-.previewPageInput:focus {
-  border-color: var(--border-hi);
-  outline: none;
-}
-.previewPageRange {
-  margin-left: 4px;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-.previewRow {
-  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  border-bottom: 1px solid var(--s-border0); font-size: 0.82rem;
-}
-.previewRow:last-child { border-bottom: none; }
-.previewRowMissing { background: rgba(196,96,96,0.05); }
-.previewQty {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 3px;
-  flex: 0 0 44px;
-  font-family: var(--font-display);
-  color: var(--text-faint);
-  font-size: 0.75rem;
-  text-align: right;
-}
-.previewStatusIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-}
-.previewStatusIconMatched {
-  color: var(--green);
-}
-.previewStatusIconMissing {
-  color: var(--red, #e07070);
-}
-/* Matched, but the name came from a fuzzy lookup (flavor name / near-miss). */
-.previewStatusIconNote {
-  color: var(--orange);
-}
-.previewTypedName {
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-.previewName {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1 1 180px;
-  min-width: 0;
-  color: var(--text);
-  overflow-wrap: anywhere;
-  line-height: 1.25;
-}
-.previewNameText {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.previewSet {
-  flex: 0 1 auto;
-  font-size: 0.72rem;
-  color: var(--text-faint);
-  font-family: monospace;
-  white-space: nowrap;
-}
-.previewLocation {
-  flex: 0 1 140px;
-  max-width: 140px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-faint);
-  font-size: 0.68rem;
-  border: 1px solid var(--s-border2);
-  border-radius: 3px;
-  padding: 1px 5px;
-}
-.previewFoil,
-.previewNote,
-.previewMissing {
-  flex-shrink: 0;
-  border-radius: 3px;
-  padding: 1px 5px;
-  font-size: 0.65rem;
-  line-height: 1.3;
-}
-.previewFoil {
-  color: #c8a0ff;
-  background: rgba(160,144,208,0.1);
-  border: 1px solid rgba(160,144,208,0.32);
-}
-.previewMissing {
-  color: var(--red, #e07070);
-  background: rgba(196,96,96,0.08);
-  border: 1px solid rgba(196,96,96,0.32);
-}
-.previewNote {
-  color: var(--orange);
-  background: rgba(224,150,80,0.08);
-  border: 1px solid rgba(224,150,80,0.32);
-}
-.previewEditBtn {
-  flex-shrink: 0;
-  background: var(--s2);
-  border: 1px solid var(--s-border2);
-  border-radius: 3px;
-  color: var(--text-dim);
-  font-size: 0.68rem;
-  padding: 2px 7px;
-  cursor: pointer;
-}
-.previewEditBtn:hover {
-  color: var(--gold);
-  border-color: rgba(201,168,76,0.35);
-  background: rgba(201,168,76,0.08);
-}
-.editPanel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 9px 10px;
-  border-bottom: 1px solid var(--s-border0);
-  background: color-mix(in srgb, var(--s2) 72%, transparent);
-}
-.editHeader,
-.editBottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-.editHeader > span {
-  color: var(--text-dim);
-  font-family: var(--font-display);
-  font-size: 0.75rem;
-}
-.editLoading {
-  color: var(--text-faint);
-  font-size: 0.78rem;
-  padding: 8px 0;
-}
-.editActions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-shrink: 0;
-}
-.editActions .parseBtn,
-.editActions .fileBtn {
-  margin-left: 0;
-  padding: 6px 10px;
-}
-.printingGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
-  gap: 8px;
-  max-height: 260px;
-  overflow-y: auto;
-  padding-right: 2px;
-}
-.printingCard {
-  display: grid;
-  grid-template-rows: 92px auto auto;
-  gap: 3px;
-  min-width: 0;
-  background: var(--s1);
-  border: 1px solid var(--s-border2);
-  border-radius: 5px;
-  padding: 5px;
-  color: var(--text-dim);
-  cursor: pointer;
-  text-align: center;
-}
-.printingCard:hover {
-  border-color: rgba(201,168,76,0.4);
-  background: rgba(201,168,76,0.06);
-}
-.printingCardActive {
-  border-color: rgba(201,168,76,0.75);
-  background: rgba(201,168,76,0.12);
-  box-shadow: 0 0 0 1px rgba(201,168,76,0.18);
-}
-.printingImage,
-.printingImageEmpty {
-  width: 100%;
-  height: 92px;
-  object-fit: contain;
-  border-radius: 3px;
-  background: var(--s2);
-}
-.printingImageEmpty {
-  border: 1px dashed var(--s-border2);
-}
-.printingSet {
-  color: var(--text);
-  font-family: var(--font-display);
-  font-size: 0.68rem;
-  line-height: 1.1;
-}
-.printingMeta {
-  color: var(--text-faint);
-  font-size: 0.64rem;
-  line-height: 1.1;
-}
-.foilSwitch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--s1);
-  border: 1px solid var(--s-border2);
-  border-radius: 999px;
-  color: var(--text-dim);
-  padding: 5px 8px 5px 10px;
-  cursor: pointer;
-}
-.foilSwitch:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.foilSwitchText {
-  font-family: var(--font-display);
-  font-size: 0.7rem;
-}
-.foilSwitchTrack {
-  position: relative;
-  width: 32px;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--s3);
-  border: 1px solid var(--s-border2);
-}
-.foilSwitchKnob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--text-faint);
-  transition: transform 0.16s ease, background 0.16s ease;
-}
-.foilSwitchOn {
-  color: var(--gold);
-  border-color: rgba(201,168,76,0.45);
-  background: rgba(201,168,76,0.08);
-}
-.foilSwitchOn .foilSwitchTrack {
-  background: rgba(201,168,76,0.24);
-  border-color: rgba(201,168,76,0.5);
-}
-.foilSwitchOn .foilSwitchKnob {
-  transform: translateX(14px);
-  background: var(--gold);
-}
-.noFoilText {
-  color: var(--text-faint);
-  font-size: 0.72rem;
-}
-.previewMore { padding: 6px 10px; color: var(--text-faint); font-size: 0.78rem; font-style: italic; }
 
 .actionRow { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 
 /* Progress */
-.progressWrap { display: flex; flex-direction: column; gap: 10px; padding: 20px 0; }
+.progressWrap { display: flex; flex-direction: column; justify-content: center; gap: 10px; flex: 1 1 auto; padding: 20px 0; }
 .progressLabel {
   display: flex;
   align-items: center;
@@ -491,110 +177,36 @@
   font-family: var(--font-display);
   font-size: 0.76rem;
 }
-.progressBar { width: 100%; height: 6px; background: var(--s3); border-radius: 3px; overflow: hidden; }
-.progressFill { height: 100%; background: var(--gold); border-radius: 3px; transition: width 0.1s; }
+.progressBar { width: 100%; height: 6px; background: var(--s3); border-radius: var(--radius-pill); overflow: hidden; }
+.progressFill { height: 100%; background: var(--gold); border-radius: var(--radius-pill); transition: width 0.1s; }
+.progressNote { margin: 0; color: var(--text-faint); font-size: 0.74rem; }
 
 /* Done */
-.doneMsg { font-size: 0.88rem; }
-.success { color: #6acc8a; font-weight: 600; }
-.missedList { max-height: 120px; overflow-y: auto; background: var(--s1); border: 1px solid var(--s-border2); border-radius: 4px; padding: 6px 10px; }
+.doneMsg { font-size: var(--font-md); }
+.success { color: var(--green); font-weight: 600; }
+.doneMuted { color: var(--text-dim); }
+.missedList {
+  max-height: 120px; overflow-y: auto; background: var(--s1);
+  border: 1px solid var(--s-border2); border-radius: var(--radius-sm); padding: 6px 10px;
+}
 .missedItem { font-size: 0.8rem; color: var(--text-dim); padding: 2px 0; border-bottom: 1px solid var(--s-border0); }
 .missedItem:last-child { border-bottom: none; }
 
-@media (max-width: 520px) {
-  .summaryGrid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
-  }
-  .summaryItem,
-  .summaryWarn {
-    padding: 5px 4px;
-  }
-  .summaryItem strong,
-  .summaryWarn strong {
-    font-size: 0.8rem;
-    line-height: 1;
-  }
-  .summaryItem span,
-  .summaryWarn span {
-    font-size: 0.54rem;
-    line-height: 1.05;
-    margin-top: 2px;
-  }
-  .parseStatus {
-    padding: 5px 7px;
-    font-size: 0.68rem;
-  }
-  .previewList {
-    max-height: min(520px, 55vh);
-  }
-  .previewPager { flex-wrap: wrap; justify-content: center; }
-  .previewPageStatus { order: -1; flex: 0 0 100%; }
-  .previewRow {
-    display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) 96px;
-    align-items: center;
-    gap: 5px 7px;
-    padding: 6px 8px;
-  }
-  .previewQty {
-    grid-column: 1;
-    grid-row: 1;
-    flex-basis: 42px;
-  }
-  .previewName {
-    grid-column: 2;
-    grid-row: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .previewNameText {
-    white-space: nowrap;
-  }
-  .previewSet,
-  .previewLocation,
-  .previewMissing {
-    grid-row: 2;
-    justify-self: start;
-    max-width: 100%;
-  }
-  .previewSet { grid-column: 2; }
-  .previewLocation {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: end;
-    margin-left: 0;
-    max-width: 96px;
-  }
-  .previewMissing {
-    grid-column: 3;
-    justify-self: end;
-  }
-  .previewEditBtn {
-    grid-column: 3;
-    grid-row: 1;
-    align-self: center;
-    padding: 2px 6px;
-  }
-  .editHeader,
-  .editBottom { align-items: flex-start; flex-direction: column; }
-  .editActions { justify-content: flex-end; }
-  .printingGrid { grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); max-height: 220px; }
-}
-
-@media (max-width: 380px) {
-  .previewRow {
-    grid-template-columns: 40px minmax(0, 1fr) 84px;
-  }
-  .previewQty { flex-basis: 40px; }
-  .previewSet { grid-column: 2; }
-  .previewLocation {
-    grid-column: 3;
-    max-width: 84px;
-  }
-  .previewMissing {
-    grid-column: 3;
-  }
+/* Extra review-row chip, passed to ImportReviewList via renderRowTags. Same
+   shape contract as the shared chips (DESIGN.md §4) — pill, no border, flat
+   tint — so it can't be mistaken for the Edit button next to it. */
+.rowTagLocation {
+  display: inline-block;
+  flex-shrink: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  height: 20px;
+  line-height: 20px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--label-size-sm);
+  color: var(--text-dim);
+  background: var(--s-subtle);
 }

@@ -147,7 +147,14 @@ export default function TradePostWizard({ onClose, onSaved }) {
   const live = open && !!nickname && haves.length > 0
 
   return (
-    <Modal onClose={onClose} className={styles.modal} contentClassName={styles.modalContent}>
+    <Modal
+      onClose={onClose}
+      // Every step persists as it changes, so closing costs nothing — except a
+      // trade note mid-edit, which is the one thing worth holding the door for.
+      closeOnOverlay={!editingNote}
+      className={styles.modal}
+      contentClassName={styles.modalContent}
+    >
       <div className={styles.body}>
         <div className={styles.header}>
           <span className={styles.title}>Trade Post</span>

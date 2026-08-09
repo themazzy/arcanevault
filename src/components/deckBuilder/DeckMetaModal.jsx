@@ -18,7 +18,14 @@ export default function DeckMetaModal({
   onClose,
 }) {
   return (
-    <Modal onClose={onClose} className={styles.metaModal}>
+    <Modal
+      onClose={onClose}
+      // The description is parent state and persists on blur, so the only thing
+      // an accidental close destroys is a tag mid-typing. Worth blocking the
+      // backdrop click for; not worth a confirm dialog.
+      closeOnOverlay={!newTagInput.trim()}
+      className={styles.metaModal}
+    >
       <div className={styles.metaModalBody}>
         <h3 className={styles.metaModalTitle}>Deck Details</h3>
         <label className={styles.metaModalLabel}>Description / Primer</label>
