@@ -98,6 +98,31 @@ echo | openssl s_client -connect 185.199.108.153:443 -servername deckloom.app \
 ```
 Cloudflare → Analytics & Logs shows the error-status breakdown. Ignore the constant scanner noise there (`/.git/HEAD`, `/docker-compose.yaml`, `/kube/config`, `/wp-json/*` — bots probing for leaked secrets); it inflates the error rate but is not user traffic. The durable fix for this whole failure class is moving the origin to Cloudflare Pages, so edge and origin are the same provider and there is no cross-company cert handshake.
 
+### `/sw.js` must bypass the Cloudflare cache — or deploys land hours late
+
+Cloudflare caches by **file extension**, and `sw.js` is a `.js` file, so it is swept up with the hashed bundles: edge-cached and re-stamped with the 4-hour Browser Cache TTL. That is right for `assets/*.js` (immutable, content-hashed names) and wrong for the one file whose entire job is to announce that a new deploy exists.
+
+```
+/ , /index.html, /404.html, /CNAME   max-age=600     cf-cache-status: DYNAMIC
+/sw.js, /assets/*.js, /favicon.ico   max-age=14400   cf-cache-status: HIT
+```
+
+GitHub Pages sends `max-age=600` on everything; the 14400 is Cloudflare rewriting it on assets it decided to cache. Pages cannot set response headers, so this can only be fixed at the edge.
+
+**This stalls the whole app, not just the service worker.** The old SW precaches the app shell and answers navigations from its own cache, so a fresh `index.html` at the edge never reaches the user — the only thing that breaks the loop is the browser fetching a *new* `sw.js`, and that request gets a Cloudflare edge HIT of the old one. On 2026-08-11 a deploy took ~65 minutes to become visible: GitHub's own Fastly cache (~10 min), then Cloudflare's per-POP copy with no purge on deploy (`deploy.yml` has no purge step), then `startServiceWorkerUpdateChecks` only forcing `registration.update()` every 20 min (`src/lib/swUpdate.js`). Hard-reloading does not help: the Builder chunk is a dynamic import fetched after load, so it goes through the SW rather than the bypassed navigation.
+
+The fix is a Cloudflare **Cache Rule** — Caching → Cache Rules → *If* `URI Path equals /sw.js` → *Cache eligibility: Bypass cache*. Symptom that it is missing or was removed: a deploy succeeds in Actions, `curl -sI https://deckloom.app/` shows the new `last-modified`, the deployed chunk provably contains the new code, and users still see the old build.
+
+Verifying a deploy actually reached the browser, without trusting the Actions badge:
+```bash
+curl -sI https://deckloom.app/sw.js | grep -iE 'cache-control|cf-cache-status'   # want: DYNAMIC / BYPASS
+curl -s https://deckloom.app/ | grep -oE 'assets/index-[^"]+\.js'                # entry bundle for the live HTML
+curl -s https://deckloom.app/sw.js | grep -oE '"assets/[^"]+\.js"'               # every precached chunk, by name
+curl -s https://deckloom.app/assets/<chunk>.js | grep -c '<a string you just added>'
+```
+
+Moving the origin to Cloudflare Pages retires this too: a `_headers` file sets `/sw.js` → `Cache-Control: no-cache` directly, with no dashboard rule and no cross-provider cache chain.
+
 ### Email links
 
 `src/components/Auth.jsx` passes `emailRedirectTo: 'https://deckloom.app/'` in `signUp()` to ensure Supabase confirmation emails link to prod, not localhost. Production-URL helpers live in `src/lib/publicUrl.js` (`getPublicBaseUrl()`, `getPublicAppUrl(path)`) — always use those instead of hardcoding `deckloom.app`.
