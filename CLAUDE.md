@@ -111,7 +111,11 @@ GitHub Pages sends `max-age=600` on everything; the 14400 is Cloudflare rewritin
 
 **This stalls the whole app, not just the service worker.** The old SW precaches the app shell and answers navigations from its own cache, so a fresh `index.html` at the edge never reaches the user — the only thing that breaks the loop is the browser fetching a *new* `sw.js`, and that request gets a Cloudflare edge HIT of the old one. On 2026-08-11 a deploy took ~65 minutes to become visible: GitHub's own Fastly cache (~10 min), then Cloudflare's per-POP copy with no purge on deploy (`deploy.yml` has no purge step), then `startServiceWorkerUpdateChecks` only forcing `registration.update()` every 20 min (`src/lib/swUpdate.js`). Hard-reloading does not help: the Builder chunk is a dynamic import fetched after load, so it goes through the SW rather than the bypassed navigation.
 
-The fix is a Cloudflare **Cache Rule** — Caching → Cache Rules → *If* `URI Path equals /sw.js` → *Cache eligibility: Bypass cache*. Symptom that it is missing or was removed: a deploy succeeds in Actions, `curl -sI https://deckloom.app/` shows the new `last-modified`, the deployed chunk provably contains the new code, and users still see the old build.
+The fix is a Cloudflare **Cache Rule** — Caching → Cache Rules → *If* `URI Path equals /sw.js` → *Cache eligibility: Bypass cache*. **In place since 2026-08-11**, which is why `/sw.js` now answers `max-age=600` / `cf-cache-status: DYNAMIC` while `assets/*.js` stays a cached `HIT`. Symptom that it was removed: a deploy succeeds in Actions, `curl -sI https://deckloom.app/` shows the new `last-modified`, the deployed chunk provably contains the new code, and users still see the old build.
+
+It cannot be applied from this repo: wrangler has no cache-rules command, and its OAuth token is scoped `zone (read)`. Dashboard or a zone-write API token only.
+
+Deploys are still not instant — GitHub's Fastly cache holds the shell ~10 min, and an already-open tab waits up to 20 min for `startServiceWorkerUpdateChecks` to poll. A fresh navigation after that window picks it up immediately.
 
 Verifying a deploy actually reached the browser, without trusting the Actions badge:
 ```bash
