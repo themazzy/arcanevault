@@ -903,6 +903,7 @@ export default function BuilderPage() {
     setNewMode('blank')
     setGuidedCmd(null)
     setGuidedPartner(null)
+    autoDeckNameRef.current = ''
     const nextSearch = clearNewDeckIntent(location.search)
     if (nextSearch !== location.search) {
       navigate({ pathname: location.pathname, search: nextSearch }, { replace: true })
@@ -913,9 +914,15 @@ export default function BuilderPage() {
   // onSelect each keystroke (which would re-render its whole owned-commander
   // list — the source of the input-lag violations). Functional setNewName keeps
   // it independent of the current name value.
+  //
+  // The name a commander pick filled in is tracked so a later pick can replace
+  // it — re-rolling a random commander would otherwise leave the first roll's
+  // name on the deck. A name the user typed themselves is never overwritten.
+  const autoDeckNameRef = useRef('')
   const handleGuidedSelect = useCallback(sf => {
     setGuidedCmd(sf)
-    setNewName(prev => (prev.trim() ? prev : sf.name))
+    setNewName(prev => (prev.trim() && prev !== autoDeckNameRef.current ? prev : sf.name))
+    autoDeckNameRef.current = sf.name
   }, [])
 
   async function createDeck() {

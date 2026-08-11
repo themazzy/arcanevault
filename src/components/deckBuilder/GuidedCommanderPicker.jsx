@@ -1,9 +1,15 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { CheckIcon } from '../../icons'
-import { SearchInput } from '../UI'
+import { CheckIcon, DiceIcon } from '../../icons'
+import { Button, SearchInput } from '../UI'
 import { getLocalCards, getLocalCardPrints } from '../../lib/db'
 import { getInstantCache, getScryfallKey, getImageUri } from '../../lib/scryfall'
-import { searchCommanders, fetchCardsByScryfallIds, searchLegalPartners } from '../../lib/deckBuilderApi'
+import {
+  searchCommanders,
+  fetchCardsByScryfallIds,
+  searchLegalPartners,
+  fetchRandomCommander,
+  fetchRandomPartner,
+} from '../../lib/deckBuilderApi'
 import { manaSymbolUrl } from '../../lib/deckBuilderHelpers'
 import { detectPartnerType, partnerHint } from '../../lib/commanderPartners'
 import styles from './GuidedCommanderPicker.module.css'
@@ -160,11 +166,19 @@ function GuidedCommanderPickerBase({ userId, value, onSelect, partnerValue = nul
   const [pSearching, setPSearching] = useState(false)
   const pTimer = useRef(null)
 
+  // A random roll sets commander and partner together, and this effect would
+  // otherwise wipe the partner the roll just chose. The ref holds the commander
+  // name the partner was rolled for, so only that exact pairing survives — a
+  // stale value can't preserve a partner for some later, hand-picked commander.
+  const partnerRolledForRef = useRef('')
+
   // Changing the primary commander invalidates a partner chosen for the old one
   // (different identity / mechanic), so clear it and reset the partner search.
   const primaryName = value?.name || ''
   useEffect(() => {
-    if (typeof onSelectPartner === 'function' && partnerValue) onSelectPartner(null)
+    const keepPartner = !!primaryName && partnerRolledForRef.current === primaryName
+    partnerRolledForRef.current = ''
+    if (!keepPartner && typeof onSelectPartner === 'function' && partnerValue) onSelectPartner(null)
     setPQuery('')
     setPResults([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -280,6 +294,57 @@ function GuidedCommanderPickerBase({ userId, value, onSelect, partnerValue = nul
     return owned.filter(sf => (sf.name || '').toLowerCase().includes(lower))
   }, [owned, q])
 
+  // ── Random commander ────────────────────────────────────────────────────────
+  // 'owned' | 'any' | null. Both dice are disabled while either roll is in
+  // flight so a double tap can't leave a partner from one roll on the commander
+  // from another.
+  const [rolling, setRolling] = useState(null)
+
+  // Apply a rolled card as the selection. Owned entries can be minimal
+  // cold-cache objects with no oracle text, and partner detection reads oracle
+  // text — so fill the card in first, then roll a partner when it has one.
+  // Commander and partner are set in the same tick so the partner-reset effect
+  // sees the finished pair.
+  async function applyRoll(card) {
+    if (!card) return
+    let full = card
+    if (card.id && !card.oracle_text && !card.card_faces?.length) {
+      const [fetched] = await fetchCardsByScryfallIds([card.id]).catch(() => [])
+      if (fetched) full = fetched
+    }
+    const desc = typeof onSelectPartner === 'function' ? detectPartnerType(full) : null
+    const partner = desc ? await fetchRandomPartner(desc, full.name).catch(() => null) : null
+    if (partner) partnerRolledForRef.current = full.name || ''
+    onSelect(full)
+    if (partner) onSelectPartner(partner)
+  }
+
+  // Roll from the collection. When a search is narrowing the owned list we roll
+  // within that filter — typing "goblin" and rolling should not return Atraxa.
+  async function rollOwned() {
+    const pool = (q && filteredOwned?.length ? filteredOwned : owned) || []
+    if (!pool.length) return
+    const choices = pool.filter(sf => (sf.name || '').toLowerCase() !== selectedName)
+    const from = choices.length ? choices : pool
+    setRolling('owned')
+    try {
+      await applyRoll(from[Math.floor(Math.random() * from.length)])
+    } finally {
+      setRolling(null)
+    }
+  }
+
+  async function rollAny() {
+    setRolling('any')
+    try {
+      await applyRoll(await fetchRandomCommander({ excludeName: value?.name || '' }).catch(() => null))
+    } finally {
+      setRolling(null)
+    }
+  }
+
+  const ownedCount = (q && filteredOwned?.length ? filteredOwned : owned)?.length || 0
+
   const renderItem = sf => {
     const selected = (sf.name || '').toLowerCase() === selectedName
     return (
@@ -343,6 +408,33 @@ function GuidedCommanderPickerBase({ userId, value, onSelect, partnerValue = nul
             aria-label="Search legal partners"
           />
         )}
+      </div>
+
+      <div className={styles.diceRow}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.diceBtn}
+          onClick={rollOwned}
+          disabled={!!rolling || ownedCount === 0}
+          title={ownedCount
+            ? `Pick a random commander from your collection (${ownedCount})`
+            : 'No commanders in your collection yet'}
+        >
+          <DiceIcon size={14} />
+          <span>{rolling === 'owned' ? 'Rolling…' : 'Random from collection'}</span>
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.diceBtn}
+          onClick={rollAny}
+          disabled={!!rolling}
+          title="Pick a random commander from every legal commander"
+        >
+          <DiceIcon size={14} />
+          <span>{rolling === 'any' ? 'Rolling…' : 'Random commander'}</span>
+        </Button>
       </div>
 
       {value && <CommanderPreview sf={fullCommander || value} />}

@@ -38,6 +38,24 @@
   border-color: rgba(201, 168, 76, 0.5);
 }
 
+/* ── Random commander dice ────────────────────────────────────────────────── */
+.diceRow {
+  display: flex;
+  gap: 8px;
+}
+
+/* Parent-scoped so it beats UI.module.css's .btn regardless of chunk order. */
+.picker .diceBtn {
+  flex: 1;
+  min-width: 0;
+}
+
+.diceBtn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Partner panel ────────────────────────────────────────────────────────── */
 .partnerPanel {
   display: flex;

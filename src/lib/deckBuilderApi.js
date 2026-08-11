@@ -280,6 +280,38 @@ export async function searchLegalPartners(descriptor, commanderName, typed = '')
   return cards.slice(0, 40)
 }
 
+/**
+ * Roll a uniformly random legal commander.
+ *
+ * `game:paper` keeps digital-only cards out (they have no printing to own and
+ * no EDHREC presence for Build Assist to work from); `legal:commander` keeps
+ * banned and un-cards out. `excludeName` stops a re-roll from handing back the
+ * commander already on screen.
+ *
+ * `noCache` matters: /cards/random is a plain GET, so a cached response would
+ * return the same commander for every roll in a session.
+ *
+ * @returns {Promise<object|null>} a full Scryfall card, or null if the roll failed
+ */
+export async function fetchRandomCommander({ excludeName = '' } = {}) {
+  const parts = ['is:commander', 'legal:commander', 'game:paper']
+  if (excludeName) parts.push(`-!"${String(excludeName).replace(/"/g, '')}"`)
+  const card = await sfFetch(`${SF}/cards/random?q=${encodeURIComponent(parts.join(' '))}`, { noCache: true })
+  return card?.object === 'card' ? card : null
+}
+
+/**
+ * Roll a random legal partner / background for a commander that has a
+ * partner-style ability. Reuses the exact query the partner picker lists from,
+ * so a rolled partner is always one the user could have chosen by hand.
+ */
+export async function fetchRandomPartner(descriptor, commanderName) {
+  const query = legalPartnerQuery(descriptor, commanderName)
+  if (!query) return null
+  const card = await sfFetch(`${SF}/cards/random?q=${encodeURIComponent(query)}`, { noCache: true })
+  return card?.object === 'card' ? card : null
+}
+
 /** Batch-fetch Scryfall card data by name list (for enriching EDHRec results) */
 export async function fetchCardsByNames(names) {
   if (!names?.length) return []

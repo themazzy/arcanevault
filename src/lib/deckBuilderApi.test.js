@@ -28,6 +28,7 @@ import {
   pickAutomaticDeckPrinting, FORMATS, nameToSlug, getEdhrecPartnerSlugCandidates,
   fetchEdhrecCommander,
   importFromArchidekt, importFromMoxfield,
+  fetchRandomCommander, fetchRandomPartner,
 } from './deckBuilderApi'
 import { EDH_FORMAT_IDS } from './commanderBracket'
 import { sfGet } from './scryfall'
@@ -574,5 +575,66 @@ describe('fetchEdhrecCommander', () => {
     const cards = res.categories[0].cards
     expect(cards[0]).toMatchObject({ name: 'Slick Sequence', inclusion: 2525, potentialDecks: 2782 })
     expect(cards[1].inclusion).toBe(2487)
+  })
+})
+
+describe('fetchRandomCommander', () => {
+  beforeEach(() => { sfGet.mockReset() })
+
+  function lastQuery() {
+    const url = sfGet.mock.calls.at(-1)[0]
+    return decodeURIComponent(new URL(url).searchParams.get('q'))
+  }
+
+  it('rolls only paper, commander-legal commanders', async () => {
+    sfGet.mockResolvedValue({ object: 'card', name: 'Krenko, Mob Boss' })
+    const card = await fetchRandomCommander()
+    expect(card.name).toBe('Krenko, Mob Boss')
+    expect(lastQuery()).toBe('is:commander legal:commander game:paper')
+  })
+
+  it('excludes the current commander so a re-roll always changes the card', async () => {
+    sfGet.mockResolvedValue({ object: 'card', name: 'Atraxa, Praetors\' Voice' })
+    await fetchRandomCommander({ excludeName: 'Krenko, Mob Boss' })
+    expect(lastQuery()).toContain('-!"Krenko, Mob Boss"')
+  })
+
+  // /cards/random is a plain GET: a cached response would hand back the same
+  // commander on every roll of a session.
+  it('bypasses the HTTP cache', async () => {
+    sfGet.mockResolvedValue({ object: 'card', name: 'Krenko, Mob Boss' })
+    await fetchRandomCommander()
+    expect(sfGet.mock.calls.at(-1)[1]).toEqual({ noCache: true })
+  })
+
+  it('returns null when the roll finds nothing (Scryfall 404s an empty search)', async () => {
+    sfGet.mockResolvedValue(null)
+    expect(await fetchRandomCommander()).toBeNull()
+  })
+})
+
+describe('fetchRandomPartner', () => {
+  beforeEach(() => { sfGet.mockReset() })
+
+  it('rolls from the same pool the partner picker lists', async () => {
+    sfGet.mockResolvedValue({ object: 'card', name: 'Thrasios, Triton Hero' })
+    const card = await fetchRandomPartner({ type: 'partner', label: 'Partner' }, 'Tymna the Weaver')
+    expect(card.name).toBe('Thrasios, Triton Hero')
+    const q = decodeURIComponent(new URL(sfGet.mock.calls.at(-1)[0]).searchParams.get('q'))
+    expect(q).toContain('is:partner')
+    expect(q).toContain('legal:commander')
+    expect(q).toContain('-!"Tymna the Weaver"')
+  })
+
+  it('rolls a Background for a Choose a Background commander', async () => {
+    sfGet.mockResolvedValue({ object: 'card', name: 'Criminal Past' })
+    await fetchRandomPartner({ type: 'choose-background', label: 'Choose a Background' }, 'Wilson, Refined Grizzly')
+    const q = decodeURIComponent(new URL(sfGet.mock.calls.at(-1)[0]).searchParams.get('q'))
+    expect(q).toContain('type:background')
+  })
+
+  it('does not call Scryfall for a commander with no partner ability', async () => {
+    expect(await fetchRandomPartner(null, 'Krenko, Mob Boss')).toBeNull()
+    expect(sfGet).not.toHaveBeenCalled()
   })
 })
