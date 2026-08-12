@@ -2,7 +2,7 @@
 
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AppBootSkeleton, BrowserSkeleton, TileGridSkeleton } from './Skeletons'
+import { AppBootSkeleton, BrowserSkeleton, TileGridSkeleton, ValueSkeleton } from './Skeletons'
 
 afterEach(() => {
   cleanup()
@@ -19,10 +19,24 @@ function ofKind(container, kind) {
 }
 
 describe('TileGridSkeleton', () => {
-  it('renders one placeholder per tile', () => {
+  it('renders one tile per requested count', () => {
     const { container } = render(<TileGridSkeleton count={4} />)
     expect(ofKind(container, 'tile')).toHaveLength(4)
-    expect(placeholders(container)).toHaveLength(4)
+  })
+
+  // The tile stands in for a named folder with a count and a value, so it
+  // carries those three shapes in those three places. A single solid block
+  // would reflow the meta row into existence when the data lands.
+  it('gives every tile a name and a meta row', () => {
+    const { container } = render(<TileGridSkeleton count={3} />)
+    expect(ofKind(container, 'tile-name')).toHaveLength(3)
+    expect(ofKind(container, 'tile-count')).toHaveLength(3)
+    expect(ofKind(container, 'tile-value')).toHaveLength(3)
+
+    for (const tile of ofKind(container, 'tile')) {
+      expect(tile.querySelector('[data-skeleton="tile-name"]')).not.toBeNull()
+      expect(tile.querySelector('[data-skeleton="tile-value"]')).not.toBeNull()
+    }
   })
 
   it('announces what is loading without exposing the placeholders', () => {
@@ -34,6 +48,22 @@ describe('TileGridSkeleton', () => {
     const hidden = container.querySelector('[aria-hidden="true"]')
     expect(hidden).not.toBeNull()
     expect(within(hidden).queryByRole('status')).toBeNull()
+  })
+})
+
+describe('ValueSkeleton', () => {
+  it('marks itself as a value placeholder', () => {
+    const { container } = render(<ValueSkeleton />)
+    expect(ofKind(container, 'value')).toHaveLength(1)
+  })
+
+  // One of these renders per tile. A live region on each would make a screen
+  // reader announce every folder on the page the moment the grid paints, so
+  // the label is readable in place rather than announced.
+  it('labels itself for screen readers without being a live region', () => {
+    render(<ValueSkeleton label="Value loading" />)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByText('Value loading')).not.toBeNull()
   })
 })
 

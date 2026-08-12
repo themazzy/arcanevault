@@ -8,7 +8,7 @@ import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { EmptyState, LibraryEmptyState, SectionHeader, Button, Input, Modal, ResponsiveHeaderActions, ResponsiveMenu, Select, SearchInput } from '../components/UI'
-import { BrowserSkeleton, TileGridSkeleton } from '../components/Skeletons'
+import { BrowserSkeleton, TileGridSkeleton, ValueSkeleton } from '../components/Skeletons'
 import { isTradeBinder } from '../lib/tradeBinder'
 import { parseFolderBgUrl, withFolderBgUrl } from '../lib/folderBackground'
 import { getPublicAppUrl } from '../lib/publicUrl'
@@ -225,7 +225,7 @@ async function upsertPlacementRows(targetFolder, rows) {
 }
 
 // ── GroupSection ──────────────────────────────────────────────────────────────
-function GroupSection({ group, folders, folderMeta, priceSource, selectMode, selectedIds,
+function GroupSection({ group, folders, folderMeta, priceSource, pricesPending, selectMode, selectedIds,
   onToggleSelect, onEnterSelectMode, onOpenFolder, onDeleteGroup, onRenameGroup,
   onDeleteFolder, onEditBg, onClearBg, onMoveToGroup, onMoveUp, onMoveDown, isFirst, isLast }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -293,6 +293,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
               folder={folder}
               meta={folderMeta[folder.id]}
               priceSource={priceSource}
+              pricesPending={pricesPending}
               onClick={() => onOpenFolder(folder)}
               onDelete={() => onDeleteFolder(folder)}
               onEditBg={() => onEditBg(folder)}
@@ -312,7 +313,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
 }
 
 // ── FolderCard ────────────────────────────────────────────────────────────────
-function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, onClearBg,
+function FolderCard({ folder, meta, priceSource, pricesPending, onClick, onDelete, onEditBg, onClearBg,
   onRename, selectMode, selected, onToggleSelect, onEnterSelectMode, onMoveToGroup }) {
   const value  = meta?.value
   const qty    = meta?.totalQty ?? meta?.count ?? 0
@@ -452,7 +453,9 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onEditBg, on
       <div className={styles.folderMeta}>
         <span>{qty} card{qty !== 1 ? 's' : ''}</span>
         <span style={{ color: value != null ? 'var(--green)' : 'var(--text-faint)' }}>
-          {value != null ? formatPrice(value, priceSource) : '—'}
+          {value != null
+            ? formatPrice(value, priceSource)
+            : pricesPending ? <ValueSkeleton /> : '—'}
         </span>
       </div>
     </div>
@@ -1594,6 +1597,11 @@ export default function FoldersPage({ type }) {
   const [sort, setSort]                 = useState(savedSort || default_sort || 'name')
   const [folderSearch, setFolderSearch] = useState('')
   const [loading, setLoading]           = useState(true)
+  // Counts land in Phase A; values only after Phase B's price load. This tracks
+  // that gap so a tile can shimmer its value slot instead of showing "—", and
+  // is cleared on every path Phase B can end on — including the ones where it
+  // ends without prices — so nothing shimmers indefinitely.
+  const [pricesPending, setPricesPending] = useState(true)
   const [activeFolder, setActiveFolder] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [bulkDeleteData, setBulkDeleteData] = useState(null) // { nonEmpty, empty }
@@ -1723,6 +1731,7 @@ export default function FoldersPage({ type }) {
   }, [])
 
   const loadFolders = useCallback(async () => {
+    setPricesPending(true)
     // Phase 0 — instant paint from React Query cache (already hydrated by idbQueryBridge)
     // and the persisted folder meta cache (last-known counts + values).
     let seeded = false
@@ -1769,10 +1778,10 @@ export default function FoldersPage({ type }) {
       .eq('user_id', user.id).eq('type', type).order('name')
 
     // Network/RLS error: keep cached folders on screen rather than wiping them.
-    if (foldersError) { if (!seeded) setLoading(false); return }
+    if (foldersError) { if (!seeded) setLoading(false); setPricesPending(false); return }
     if (!foldersData?.length) {
       folderJoinRef.current = { allRows: [], cardById: {}, foldersData: [] }
-      setFolders([]); setFolderMeta({}); setLoading(false); return
+      setFolders([]); setFolderMeta({}); setLoading(false); setPricesPending(false); return
     }
     setFolders(foldersData)
 
@@ -1814,11 +1823,16 @@ export default function FoldersPage({ type }) {
     }
 
     // Phase B: load prices in background and fill in values (consumed by the price-only effect below)
-    if (!uniqueCardIds.length) return
+    if (!uniqueCardIds.length) { setPricesPending(false); return }
     const priceCards = uniqueCardIds.map(id => cardById[id]).filter(Boolean)
-    if (!priceCards.length) return
-    const sfMap = await loadCardMapWithSharedPrices(priceCards, { priceLookup: 'set' })
-    if (!sfMap) return
+    if (!priceCards.length) { setPricesPending(false); return }
+    let sfMap
+    try {
+      sfMap = await loadCardMapWithSharedPrices(priceCards, { priceLookup: 'set' })
+    } catch (err) {
+      console.warn('[Folders] price load failed:', err?.message || err)
+    }
+    if (!sfMap) { setPricesPending(false); return }
     folderJoinRef.current = { ...folderJoinRef.current, sfMap }
     setSfMapVersion(v => v + 1)
     // `price_source` is deliberately not a dependency: adding it would re-walk
@@ -1848,6 +1862,10 @@ export default function FoldersPage({ type }) {
       if (p != null) m.value += p * (row.qty || 1)
     }
     setFolderMeta(next)
+    // Cleared here rather than next to setSfMapVersion: doing it there would
+    // land a render with pending=false and value still null, flashing "—"
+    // between the shimmer and the price.
+    setPricesPending(false)
     // Persist for instant paint on next visit.
     setFolderMetaCache(user.id, type, next, price_source).catch(() => {})
   }, [sfMapVersion, price_source, user.id, type])
@@ -2115,13 +2133,19 @@ export default function FoldersPage({ type }) {
   }
 
 
-  if (loading) return <TileGridSkeleton label={`Loading ${noun.toLowerCase()}s`} />
+  // Only the grid is skeletonized — the header, search and actions render for
+  // real from the first frame, so nothing above the grid pops in or shifts.
+  // While loading, chrome is shown as if folders exist: the empty state is the
+  // first-run case only, and hiding the header until the fetch lands would
+  // reflow the page for everyone else.
+  const gridLoading = loading && folders.length === 0
+  const showChrome  = folders.length > 0 || loading
 
   return (
     <div className={styles.page}>
       <SectionHeader
         title={`${noun}s`}
-        action={folders.length > 0 ? (
+        action={showChrome ? (
           <ResponsiveHeaderActions
             primary={!selectMode ? (
               <Button size="sm" onClick={() => setShowNewFolder(true)} title={`New ${noun}`} aria-label={`New ${noun}`}>
@@ -2206,7 +2230,7 @@ export default function FoldersPage({ type }) {
           </ResponsiveHeaderActions>
         ) : null}
       />
-      {!selectMode && folders.length > 0 && (
+      {!selectMode && showChrome && (
         <div className={styles.overviewStickySearch}>
           <SearchInput
             className={styles.folderSearch}
@@ -2219,7 +2243,9 @@ export default function FoldersPage({ type }) {
         </div>
       )}
 
-      {folders.length === 0 && (
+      {gridLoading && <TileGridSkeleton label={`Loading ${noun.toLowerCase()}s`} />}
+
+      {folders.length === 0 && !loading && (
         <LibraryEmptyState
           icon={type === 'deck' ? <DeckIcon size={34} /> : <BinderIcon size={34} />}
           title={type === 'deck' ? 'Create your first collection deck' : 'Create your first binder'}
@@ -2253,6 +2279,7 @@ export default function FoldersPage({ type }) {
           folders={filteredFoldersByGroup[group.id] || []}
           folderMeta={folderMeta}
           priceSource={price_source}
+          pricesPending={pricesPending}
           selectMode={selectMode}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelected}
@@ -2282,6 +2309,7 @@ export default function FoldersPage({ type }) {
                 folder={folder}
                 meta={folderMeta[folder.id]}
                 priceSource={price_source}
+                pricesPending={pricesPending}
                 onClick={() => setActiveFolder(folder)}
                 onDelete={() => handleDeleteClick(folder)}
                 onEditBg={() => setBgTarget(folder)}

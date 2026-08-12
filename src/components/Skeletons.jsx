@@ -23,15 +23,52 @@ function times(count, render) {
   return Array.from({ length: count }, (_, i) => render(i))
 }
 
-/** Index pages: /binders, /decks, /lists. Mirrors .folderGrid / .folderCard. */
+/**
+ * Index pages: /binders, /decks, /lists. Mirrors .folderGrid / .folderCard.
+ *
+ * The tile is a real bordered card rather than one solid shimmer block, and it
+ * carries the name and meta line the loaded tile will have, in the same places.
+ * A featureless block reads as "something rectangular is coming"; this reads as
+ * "binders are coming", and nothing moves when they arrive.
+ *
+ * This stands in for the grid only — the page header, search and actions are
+ * rendered for real by the pages, so they never pop in.
+ */
 export function TileGridSkeleton({ count = 6, label = 'Loading' }) {
   return (
     <div aria-busy="true">
       <span className="sr-only" role="status">{label}</span>
       <div className={styles.tileGrid} aria-hidden="true">
-        {times(count, i => <Block key={i} kind="tile" className={styles.tile} />)}
+        {times(count, i => (
+          <div key={i} data-skeleton="tile" className={styles.tile}>
+            <Block kind="tile-name" className={styles.tileName} />
+            <div className={styles.tileMeta}>
+              <Block kind="tile-count" className={styles.tileCount} />
+              <Block kind="tile-value" className={styles.tileValue} />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
+  )
+}
+
+/**
+ * The price slot of an index tile, while prices are still being computed.
+ *
+ * Counts land well before values on these pages (prices need a Scryfall map
+ * plus a shared-price overlay), so the value slot would otherwise sit on a
+ * faint "—" that is indistinguishable from a folder genuinely worth nothing.
+ * Sized to a typical formatted price so the swap does not shift the meta row.
+ *
+ * Callers must stop rendering it once the price phase settles — including when
+ * it settles by failing — or it shimmers forever. See `pricesPending`.
+ */
+export function ValueSkeleton({ label = 'Value loading' }) {
+  return (
+    <span data-skeleton="value" className={`${styles.block} ${styles.value}`}>
+      <span className="sr-only">{label}</span>
+    </span>
   )
 }
 

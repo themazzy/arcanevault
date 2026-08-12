@@ -988,22 +988,25 @@
   color: var(--gold);
   border-color: var(--border-hi);
 }
-/* "Trade" tag on the protected For Trade binder card */
+/* Tile status badges — "Trade" on the protected For Trade binder, "Unsynced"
+   on a drifted linked deck pair. Same shape as Builder's tile badges
+   (.formatBadge / .unsyncedBadge in Builder.module.css): a linked deck appears
+   on both surfaces, so it must not be a red 999px pill here and an orange
+   --radius-xs badge there. See .unsyncedTag below for the colour. */
 .tradeTag {
+  composes: labelSm from '../styles/typography.module.css';
   display: inline-flex;
   align-items: center;
   gap: 3px;
   margin-left: 8px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
-  color: var(--gold);
-  background: rgba(201, 168, 76, 0.14);
-  border: 1px solid rgba(201, 168, 76, 0.4);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  line-height: 1;
+  white-space: nowrap;
   vertical-align: middle;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
 }
 .wishlistCost,
 .wishlistEstimate {
@@ -1057,20 +1060,23 @@
   gap: 8px;
   margin-top: 20px;
 }
+/* Drift between a linked builder/collection pair. Orange, not red: it is the
+   caution token, and the state is "these two have diverged, sync when you
+   like", not an error. Matches Builder.module.css .unsyncedBadge exactly. */
 .unsyncedTag {
+  composes: labelSm from '../styles/typography.module.css';
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   margin-left: 8px;
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
-  color: var(--red);
-  background: color-mix(in srgb, var(--red) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--red) 38%, transparent);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  line-height: 1;
+  white-space: nowrap;
   vertical-align: middle;
+  color: var(--orange);
+  background: color-mix(in srgb, var(--orange) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--orange) 30%, transparent);
 }
 .addCardsBtn {
   display: inline-flex;

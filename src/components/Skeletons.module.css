@@ -24,9 +24,42 @@
   gap: 14px;
   margin-top: 10px;
 }
+/* Not a .block itself — the tile frame is real, only its contents shimmer, so
+   the grid already reads as tiles before any data arrives. Padding/border/
+   min-height track .folderCard. */
 .tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 7px;
   min-height: 150px;
+  padding: 14px;
+  border: 1px solid var(--s-border);
   border-radius: var(--radius-md);
+  background: var(--s1);
+}
+.tileName { height: 15px; width: 70%; }
+/* Uneven name widths — a column of identically-sized bars looks like a table,
+   not like a list of binders people actually named. */
+.tile:nth-child(3n + 2) .tileName { width: 52%; }
+.tile:nth-child(3n + 3) .tileName { width: 84%; }
+
+.tileMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.tileCount { height: 9px; width: 58px; }
+.tileValue { height: 11px; width: 46px; }
+
+/* Inline price placeholder on a loaded tile — see ValueSkeleton. */
+.value {
+  display: inline-block;
+  width: 54px;
+  height: 11px;
+  vertical-align: middle;
+  border-radius: var(--radius-xs);
 }
 
 /* ── Browser header ─────────────────────────────────────────────────────── */

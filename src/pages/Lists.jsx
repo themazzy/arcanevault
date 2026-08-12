@@ -12,7 +12,7 @@ import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { useToast } from '../components/ToastContext'
 import { EmptyState, LibraryEmptyState, SectionHeader, Modal, ConfirmModal, ResponsiveHeaderActions, ResponsiveMenu, Button, SearchInput, Select } from '../components/UI'
-import { BrowserSkeleton, TileGridSkeleton } from '../components/Skeletons'
+import { BrowserSkeleton, TileGridSkeleton, ValueSkeleton } from '../components/Skeletons'
 import { CardDetail, FilterBar, BulkActionBar, EMPTY_FILTERS } from '../components/CardComponents'
 import { useLongPress } from '../hooks/useLongPress'
 import { useFilterWorker } from '../hooks/useFilterWorker'
@@ -875,7 +875,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
 }
 
 // ── FolderCard ────────────────────────────────────────────────────────────────
-function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
+function FolderCard({ folder, meta, priceSource, pricesPending, onClick, onDelete, onRename,
   selectMode, selected, onToggleSelect, onEnterSelectMode, onMoveToGroup, onEditBg, onClearBg }) {
   const value  = meta?.value
   const qty    = meta?.totalQty ?? 0
@@ -999,7 +999,9 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
       <div className={styles.folderMeta}>
         <span>{qty} want{qty !== 1 ? 's' : ''}</span>
         <span className={styles.wishlistEstimate}>
-          {value != null ? `Est. ${formatPrice(value, priceSource)}` : '—'}
+          {value != null
+            ? `Est. ${formatPrice(value, priceSource)}`
+            : pricesPending ? <ValueSkeleton /> : '—'}
         </span>
       </div>
     </div>
@@ -1007,7 +1009,7 @@ function FolderCard({ folder, meta, priceSource, onClick, onDelete, onRename,
 }
 
 // ── GroupSection ──────────────────────────────────────────────────────────────
-function GroupSection({ group, folders, folderMeta, priceSource, selectMode, selectedIds,
+function GroupSection({ group, folders, folderMeta, priceSource, pricesPending, selectMode, selectedIds,
   onToggleSelect, onEnterSelectMode, onOpenFolder, onDeleteGroup, onRenameGroup,
   onDeleteFolder, onEditBg, onClearBg, onMoveToGroup, onMoveUp, onMoveDown, isFirst, isLast }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -1072,6 +1074,7 @@ function GroupSection({ group, folders, folderMeta, priceSource, selectMode, sel
               folder={folder}
               meta={folderMeta[folder.id]}
               priceSource={priceSource}
+              pricesPending={pricesPending}
               onClick={() => onOpenFolder(folder)}
               onDelete={() => onDeleteFolder(folder)}
               onEditBg={() => onEditBg(folder)}
@@ -1099,6 +1102,11 @@ export default function ListsPage() {
   const [sort, setSort]                 = useState(list_sort || 'name')
   const [folderSearch, setFolderSearch] = useState('')
   const [loading, setLoading]           = useState(true)
+  // Wishlist values need a Scryfall/price map that the seeded meta cache may
+  // not cover, so a tile can have its count before its estimate. Tracks that
+  // gap for the tile's value shimmer; cleared on every path the load can end
+  // on, including failures, so nothing shimmers indefinitely.
+  const [pricesPending, setPricesPending] = useState(true)
   const [activeFolder, setActiveFolder] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [deletingWishlist, setDeletingWishlist] = useState(false)
@@ -1194,6 +1202,7 @@ export default function ListsPage() {
   }, [price_source])
 
   const loadFolders = useCallback(async () => {
+    setPricesPending(true)
     // Phase 0 — instant paint of the folder grid + meta from React Query cache + IDB.
     let seeded = false
     const cachedFolders = queryClient.getQueryData(['folders', user.id])
@@ -1240,6 +1249,10 @@ export default function ListsPage() {
           for (const f of cachedTyped) placeholder[f.id] = { count: 0, totalQty: 0, value: 0 }
           setFolderMeta(placeholder)
         }
+        // Every folder now carries a priced value, even if only from IDB — the
+        // Supabase reconcile below refreshes it in place, which is not a state
+        // worth shimmering over.
+        setPricesPending(false)
         setLoading(false)
       } catch {}
     } else {
@@ -1251,8 +1264,8 @@ export default function ListsPage() {
       .from('folders').select('*')
       .eq('user_id', user.id).eq('type', 'list').order('name')
 
-    if (foldersError) { if (!seeded) setLoading(false); return }
-    if (!foldersData?.length) { setFolders([]); setFolderMeta({}); setLoading(false); return }
+    if (foldersError) { if (!seeded) setLoading(false); setPricesPending(false); return }
+    if (!foldersData?.length) { setFolders([]); setFolderMeta({}); setLoading(false); setPricesPending(false); return }
     setFolders(foldersData)
 
     const ids = foldersData.map(f => f.id)
@@ -1271,11 +1284,17 @@ export default function ListsPage() {
     }
 
     // Network error: keep seeded counts/values, don't overwrite with empty.
-    if (itemsError) { setLoading(false); return }
+    if (itemsError) { setLoading(false); setPricesPending(false); return }
 
-    const sfMap = allItems.length ? (await loadCardMapWithSharedPrices(allItems, { priceLookup: 'set' }) || {}) : {}
+    let sfMap = {}
+    try {
+      if (allItems.length) sfMap = await loadCardMapWithSharedPrices(allItems, { priceLookup: 'set' }) || {}
+    } catch (err) {
+      console.warn('[Lists] price load failed:', err?.message || err)
+    }
     const freshMeta = computeListMeta(foldersData, allItems, sfMap)
     setFolderMeta(freshMeta)
+    setPricesPending(false)
     setLoading(false)
 
     // Phase 2 — Mirror fresh server items + meta into IDB.
@@ -1511,13 +1530,16 @@ export default function ListsPage() {
     />
   )
 
-  if (loading) return <TileGridSkeleton label="Loading wishlists" />
+  // Only the grid is skeletonized — header, search and actions render for real
+  // from the first frame. Matches /binders and /decks; see Folders.jsx.
+  const gridLoading = loading && folders.length === 0
+  const showChrome  = folders.length > 0 || loading
 
   return (
     <div className={styles.page}>
       <SectionHeader
         title="Wishlists"
-        action={folders.length > 0 ? (
+        action={showChrome ? (
           <ResponsiveHeaderActions
             primary={!selectMode ? (
               <Button size="sm" onClick={() => setShowNewFolder(true)} title="New wishlist" aria-label="New wishlist">
@@ -1602,7 +1624,7 @@ export default function ListsPage() {
           </ResponsiveHeaderActions>
         ) : null}
       />
-      {!selectMode && folders.length > 0 && (
+      {!selectMode && showChrome && (
         <div className={styles.overviewStickySearch}>
           <SearchInput
             className={styles.folderSearch}
@@ -1615,7 +1637,9 @@ export default function ListsPage() {
         </div>
       )}
 
-      {folders.length === 0 && (
+      {gridLoading && <TileGridSkeleton label="Loading wishlists" />}
+
+      {folders.length === 0 && !loading && (
         <LibraryEmptyState
           icon={<WishlistsIcon size={34} />}
           title="Save cards for later"
@@ -1641,6 +1665,7 @@ export default function ListsPage() {
           folders={filteredFoldersByGroup[group.id] || []}
           folderMeta={folderMeta}
           priceSource={price_source}
+          pricesPending={pricesPending}
           selectMode={selectMode}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelected}
@@ -1669,6 +1694,7 @@ export default function ListsPage() {
                 folder={folder}
                 meta={folderMeta[folder.id]}
                 priceSource={price_source}
+                pricesPending={pricesPending}
                 onClick={() => setActiveFolder(folder)}
                 onDelete={() => deleteFolder(folder)}
                 onEditBg={() => setBgTarget(folder)}
