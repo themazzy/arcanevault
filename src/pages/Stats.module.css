@@ -1,8 +1,8 @@
-﻿.page {
-  /* inherits app shell background â€” no override needed */
+.page {
+  /* inherits app shell background — no override needed */
 }
 
-/* Tab bar â€” same pattern as Trading */
+/* Tab bar — same pattern as Trading */
 .tabBar {
   display: flex;
   gap: 4px;
@@ -29,7 +29,7 @@
 .tabBtn:hover { color: var(--text); }
 .tabBtnActive { color: var(--gold); border-bottom-color: var(--gold); }
 
-/* â”€â”€ Section label â€” matches DeckView extending-rule style â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Section label — matches DeckView extending-rule style ─────────────────── */
 .sectionLabel {
   composes: sectionLabel from '../styles/typography.module.css';
   margin-bottom: 14px;
@@ -54,7 +54,7 @@
   white-space: nowrap;
 }
 
-/* â”€â”€ Stat cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Stat cards ─────────────────────────────────────────────────────────────── */
 .statGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -233,7 +233,7 @@
   border-radius: 2px;
 }
 
-/* â”€â”€ Chart boxes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Chart boxes ────────────────────────────────────────────────────────────── */
 .chartBox {
   background: var(--s1);
   border: 1px solid var(--border);
@@ -547,7 +547,7 @@
   margin-top: auto;
 }
 
-/* â”€â”€ Chart row â€” two equal columns â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Chart row — two equal columns ─────────────────────────────────────────── */
 .chartRow {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -556,7 +556,7 @@
 }
 .chartRow .chartBox { margin-bottom: 0; }
 
-/* â”€â”€ Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Tooltip ────────────────────────────────────────────────────────────────── */
 .tooltip {
   background: var(--bg3, #1a1628);
   border: 1px solid rgba(201,168,76,0.25);
@@ -574,7 +574,7 @@
   margin-bottom: 4px;
 }
 
-/* â”€â”€ Format legality bars â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Format legality bars ───────────────────────────────────────────────────── */
 .legalityList {
   display: flex;
   flex-direction: column;
@@ -616,7 +616,7 @@
   flex-shrink: 0;
 }
 
-/* â”€â”€ Biggest movers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Biggest movers ─────────────────────────────────────────────────────────── */
 .moverList {
   display: flex;
   flex-direction: column;
@@ -708,7 +708,7 @@
   text-align: center;
 }
 
-/* â”€â”€ Top cards table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Top cards table ────────────────────────────────────────────────────────── */
 .tableWrap {
   overflow-x: auto;
   scrollbar-width: thin;
@@ -808,7 +808,7 @@
   font-weight: 600;
 }
 
-/* â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .chartRow { grid-template-columns: 1fr; }
   .statGrid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
@@ -1145,7 +1145,7 @@
   background: linear-gradient(90deg, var(--gold), var(--purple, #8a6fc4));
 }
 
-/* â”€â”€ Deck Win Rates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Deck Win Rates ──────────────────────────────────────────────────────────── */
 .winrateLeaderboard {
   display: flex;
   flex-direction: column;
@@ -1387,7 +1387,7 @@
   .winrateWL { font-size: 0.65rem; }
 }
 
-/* â”€â”€ Color dot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Color dot ──────────────────────────────────────────────────────────────── */
 .colorDot {
   display: inline-block;
   width: 10px;
@@ -1400,7 +1400,7 @@
   vertical-align: middle;
 }
 
-/* â”€â”€ Milestones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Milestones ─────────────────────────────────────────────────────────────── */
 .milestonesSubLabel {
   font-family: var(--font-display, 'Cinzel', serif);
   font-size: 0.58rem;
@@ -1486,7 +1486,7 @@
   }
 }
 
-/* â”€â”€ Set completion: expandable missing-cards panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Set completion: expandable missing-cards panel ─────────────────────── */
 
 .setRowClickable { cursor: pointer; border-radius: 6px; padding: 4px 6px; margin: 0 -6px; }
 .setRowClickable:hover { background: var(--s-subtle); }
@@ -1535,7 +1535,7 @@
 .missingNote { font-size: 0.74rem; color: var(--text-faint); }
 .missingComplete { font-size: 0.76rem; color: var(--green); }
 
-/* â”€â”€ Value over time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Value over time ────────────────────────────────────────────────────── */
 
 .valueDeltas { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .valueDelta { font-size: 0.74rem; font-variant-numeric: tabular-nums; }
