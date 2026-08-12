@@ -13,8 +13,9 @@
 //   • Choose a Background   — pairs with a Background (Enchantment — Background)
 //   • Doctor's companion    — pairs with a Time Lord Doctor
 //   • Doctor (Time Lord Doctor) — pairs with a card that has Doctor's companion
-//   • Partner — [group]    — restricted partner; treated as generic Partner for
-//                            the query (the group is rare and hard to filter on)
+//   • Partner — [group]    — typed partner; pairs ONLY with cards carrying the
+//                            same typed ability (Survivors, Character select,
+//                            Father & son)
 //
 // Pure + framework-free so it can be unit-tested and shared.
 
@@ -85,6 +86,31 @@ function q(str) {
   return String(str || '').replace(/"/g, '')
 }
 
+// `is:partner` means "has a partner-STYLE ability", not "has plain Partner". Of
+// the 228 commanders it returns, 95 pair only within their own mechanic:
+// 32 Choose a Background, 27 Doctor's companion, 17 Time Lord Doctors, 7 Friends
+// forever and 19 typed "Partner—<group>" cards. Offering those to a plain
+// Partner commander is offering an illegal pairing — Tymna the Weaver cannot
+// partner Ellie, Brick Master.
+//
+// Subtracting them leaves the 133 commanders that actually have plain Partner
+// (measured against Scryfall 2026-08-12, zero restricted cards leaking through).
+// "Partner with [name]" survives the last exclusion by design: its text has no
+// dash after "partner", and those cards do have plain Partner (CR 702.124b).
+// `-type:background` is not redundant with `-oracle:"choose a background"`: that
+// one removes the commanders that CHOOSE a Background, while Scryfall also flags
+// the 30 Backgrounds themselves `is:commander` (they legitimately sit in the
+// command zone, just never beside a Partner commander). Without it, Tymna the
+// Weaver's partner list opened on Acolyte of Bahamut.
+const PLAIN_PARTNER_ONLY = [
+  '-oracle:"friends forever"',
+  '-oracle:"doctor\'s companion"',
+  '-type:"time lord doctor"',
+  '-oracle:"choose a background"',
+  '-type:background',
+  '-oracle:/partner[—-]/',
+]
+
 /**
  * Build the Scryfall search query listing legal partners for a commander.
  * @param {object} descriptor  result of detectPartnerType
@@ -109,10 +135,16 @@ export function legalPartnerQuery(descriptor, commanderName, typed = '') {
       parts.push('oracle:"doctor\'s companion"', 'is:commander')
       break
     case 'partner-group':
+      // Typed partner: the reminder text is "You can have two commanders if both
+      // have THIS ability", so the pool is the group itself, not every Partner.
+      // Built from the captured group rather than a hard-coded list, so a new
+      // typed group (there were three as of 2026-08) needs no code change.
+      parts.push(`oracle:"partner—${q(descriptor.group)}"`, 'is:commander')
+      break
     case 'partner-with':
     case 'partner':
     default:
-      parts.push('is:partner', 'is:commander')
+      parts.push('is:partner', 'is:commander', ...PLAIN_PARTNER_ONLY)
       break
   }
   // Format legality so a banned card is never offered.
@@ -132,7 +164,7 @@ export function partnerHint(descriptor) {
     case 'doctor-companion':  return 'Pair with a Time Lord Doctor.'
     case 'doctor':            return 'Pair with a commander that has “Doctor’s companion”.'
     case 'partner-with':      return `Suggested pairing: ${descriptor.name}. You can also pick any Partner.`
-    case 'partner-group':     return 'Pair with a matching Partner commander.'
+    case 'partner-group':     return `Pair with another “Partner — ${descriptor.group}” commander.`
     case 'partner':           return 'Pair with any other Partner commander.'
     default:                  return ''
   }

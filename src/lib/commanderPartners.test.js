@@ -92,6 +92,51 @@ describe('legalPartnerQuery', () => {
     expect(q).toContain('name:"tana"')
   })
 
+  // Scryfall's `is:partner` means "has a partner-STYLE ability", not "has plain
+  // Partner": of the 228 commanders it returns, 95 pair only inside their own
+  // mechanic. Offering those to a plain Partner commander offers an illegal
+  // pairing, and the random-partner dice rolled from the same pool.
+  describe('plain Partner excludes the other mechanics', () => {
+    const q = legalPartnerQuery({ type: 'partner' }, 'Tymna the Weaver')
+
+    it.each([
+      ['Friends forever', '-oracle:"friends forever"'],
+      ["Doctor's companion", '-oracle:"doctor\'s companion"'],
+      ['Time Lord Doctors', '-type:"time lord doctor"'],
+      ['Choose a Background', '-oracle:"choose a background"'],
+      ['typed Partner — group', '-oracle:/partner[—-]/'],
+    ])('excludes %s', (_label, term) => {
+      expect(q).toContain(term)
+    })
+
+    // "Partner with [name]" cards DO have plain Partner (CR 702.124b), and
+    // their text carries no dash after "partner", so the typed-group exclusion
+    // leaves them in the pool.
+    it('keeps "Partner with" cards in the pool', () => {
+      const withQ = legalPartnerQuery({ type: 'partner-with', name: 'Toothy, Imaginary Friend' }, 'Pir')
+      expect(withQ).toContain('is:partner')
+      expect(withQ).toContain('-oracle:/partner[—-]/')
+    })
+  })
+
+  // Typed partners pair only with the same group — the reminder text is "if
+  // both have THIS ability". Ellie, Brick Master has 3 legal partners, not 227.
+  describe('typed Partner — group', () => {
+    it('searches the group, never the generic partner pool', () => {
+      const q = legalPartnerQuery({ type: 'partner-group', group: 'Survivors' }, 'Ellie, Brick Master')
+      expect(q).toContain('oracle:"partner—Survivors"')
+      expect(q).not.toContain('is:partner')
+      expect(q).toContain('-!"Ellie, Brick Master"')
+    })
+
+    // The group comes from the card's own text, so a group we have never heard
+    // of still gets a correct query with no code change.
+    it.each(['Survivors', 'Character select', 'Father & son'])('handles the %s group', group => {
+      expect(legalPartnerQuery({ type: 'partner-group', group }, 'X'))
+        .toContain(`oracle:"partner—${group}"`)
+    })
+  })
+
   it('returns null with no descriptor', () => {
     expect(legalPartnerQuery(null, 'X')).toBeNull()
   })
