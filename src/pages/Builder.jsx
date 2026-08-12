@@ -993,7 +993,7 @@ export default function BuilderPage() {
         await patchDeckMeta(id, baseMeta, meta)
       } catch (error) {
         console.error('[Builder] hide deck failed:', error)
-        showToast(`Failed to hide deck: ${error.message}`, { tone: 'error', duration: 4000 })
+        showToast(`Could not hide the deck: ${error.message}`, { tone: 'error', duration: 4000 })
         await loadDecks()
       }
     } else {
@@ -1013,7 +1013,7 @@ export default function BuilderPage() {
         await removeDecksFromHomeSnapshot(queryClient, user.id, [id])
       } catch (err) {
         console.error('[Builder] deleteDeck failed:', err)
-        showToast(`Failed to delete deck: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+        showToast(`Could not delete the deck: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
         // Refetch to resync the UI with whatever actually persisted.
         await loadDecks()
       }
@@ -1040,7 +1040,7 @@ export default function BuilderPage() {
       patchDeckRow(target.id, { name })
       await invalidateHomeSnapshot(queryClient, user.id)
       setRenameState(null)
-      showToast('Deck renamed')
+      showToast('Deck renamed.')
     } catch (err) {
       console.error('[Builder] rename failed:', err)
       setRenameState(s => ({ ...s, busy: false }))
@@ -1058,7 +1058,7 @@ export default function BuilderPage() {
       const copy = await duplicateBuilderDeck({ userId: user.id, deck })
       await invalidateHomeSnapshot(queryClient, user.id)
       await loadDecks()
-      showToast(`Created "${copy.name}"`)
+      showToast(`Created "${copy.name}".`)
     } catch (err) {
       console.error('[Builder] duplicate failed:', err)
       showToast(`Could not duplicate deck: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
@@ -1140,7 +1140,7 @@ export default function BuilderPage() {
       }
     } catch (err) {
       console.error('[Builder] bulkDelete failed:', err)
-      showToast(`Bulk delete failed: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+      showToast(`Could not delete the selected decks: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
       await loadDecks()
     }
     toggleSelectMode()

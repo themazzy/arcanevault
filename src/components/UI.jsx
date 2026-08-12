@@ -2,6 +2,7 @@ import { Children, isValidElement, forwardRef, useState, useRef, useEffect, useL
 import { createPortal } from 'react-dom'
 import styles from './UI.module.css'
 import { CheckIcon, ChevronDownIcon, CloseIcon, ImportIcon } from '../icons'
+import { useBottomBarClearance, MOBILE_TOOLBAR_HEIGHT, HEADER_TOOLBAR_QUERY } from './bottomBarClearance'
 
 // Chevron with the open-state rotation the menus need. The glyph itself comes
 // from the icon system — this only adds the rotate class.
@@ -661,6 +662,14 @@ export function ResponsiveHeaderActions({ primary = null, children, menuLabel = 
 
   useEffect(() => () => clearTimeout(panelTimerRef.current), [])
   const mobileToolbarChildren = isValidElement(children) ? children.props.children : children
+
+  // .headerFloatingToolbar goes position:fixed at the bottom edge below 980px;
+  // tell anything else anchored down there (the toast stack) to clear it.
+  useBottomBarClearance({
+    active: mobileToolbar,
+    height: MOBILE_TOOLBAR_HEIGHT,
+    query: HEADER_TOOLBAR_QUERY,
+  })
 
   useEffect(() => {
     if (!open) return

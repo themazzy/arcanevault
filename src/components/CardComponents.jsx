@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { formatAttractionLights } from '../lib/attractions'
 import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
@@ -6,6 +6,7 @@ import CardImg from './CardImg'
 import { Modal, Badge, Button, Input, ResponsiveMenu, Select, SearchInput } from './UI'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
+import { useBottomBarClearance, BULK_BAR_HEIGHT, BULK_BAR_QUERY } from './bottomBarClearance'
 import { AddIcon, BinderIcon, CheckIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, DeckIcon, FilterIcon, FolderTypeIcon, SearchIcon, SortIcon, WishlistsIcon } from '../icons'
 import { sb } from '../lib/supabase'
 import { putCards } from '../lib/db'
@@ -297,13 +298,15 @@ export function BulkActionBar({ selected, total, onSelectAll, onDeselectAll, onD
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const count = selectedQty ?? selected.size
 
-  // Flag the floating mobile bulk bar so the global ActivityStatusBadge can
-  // lift itself above it (both sit bottom-left on phones).
-  useEffect(() => {
-    if (!floatingMobile) return undefined
-    document.body.classList.add('has-bulk-bar')
-    return () => document.body.classList.remove('has-bulk-bar')
-  }, [floatingMobile])
+  // Every bottom-anchored floater (toast stack, activity badge, feedback nudge)
+  // reserves room for this bar while it is up. This replaces the old
+  // `body.has-bulk-bar` class, which only the activity badge knew to look for —
+  // the toast stack and the nudge rendered straight through it.
+  useBottomBarClearance({
+    active: floatingMobile,
+    height: BULK_BAR_HEIGHT,
+    query: BULK_BAR_QUERY,
+  })
 
   return (
     <div className={`${styles.bulkBar}${floatingMobile ? ` ${styles.bulkBarFloatingMobile}` : ''}`}>

@@ -3,7 +3,9 @@
 .nudge {
   position: fixed;
   right: max(14px, env(safe-area-inset-right));
-  bottom: max(14px, env(safe-area-inset-bottom));
+  /* Clears whatever bottom bar is mounted — see bottomBarClearance.js. Without
+     this the nudge's own close button sat under the browse toolbar. */
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--toast-bottom-clearance, 0px));
   z-index: 85;
   width: min(340px, calc(100vw - 28px));
   padding: 16px 16px 14px;

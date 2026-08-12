@@ -71,6 +71,18 @@
   --label-tracking-wide: 0.12em;
   /* Mobile floating action bar (browser controls / bulk action) — gutter cards must reserve so they're not covered */
   --mobile-floating-bar-height: 76px;
+  /* Scanner's own bottom bar. Unlike the floating bar above this is in-flow
+     inside the full-screen scanner, and it exists at every viewport width (the
+     scanner is offered on any coarse-pointer device, tablets included), so
+     anything clearing it must not sit inside a max-width query.
+     16px padding + a 42px button row + 16px padding, plus the safe-area inset
+     the bar adds on top. CardScanner's .bottomBar pins its min-height to this
+     so the two cannot drift apart. */
+  --scanner-bottom-bar-height: 74px;
+  /* Floating bulk-action bar (select mode, ≤620px). Taller than the toolbar it
+     replaces — two rows of controls. The value is the measured offset the
+     ActivityStatusBadge already used to lift itself clear of this bar. */
+  --bulk-bar-height: 92px;
   --card-name-size: 0.68rem;
   --card-name-size-tight: 0.6rem;
   --card-name-size-list: 0.88rem;

@@ -3,7 +3,10 @@
 .badge {
   position: fixed;
   left: max(14px, env(safe-area-inset-left));
-  bottom: max(14px, env(safe-area-inset-bottom));
+  /* Clears whatever bottom bar is mounted — see bottomBarClearance.js. This
+     used to be a `body.has-bulk-bar` rule that knew about exactly one bar (the
+     bulk bar, at one breakpoint) and rendered under the browse toolbar. */
+  bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--toast-bottom-clearance, 0px));
   z-index: 80;
   display: inline-flex;
   align-items: center;
@@ -59,14 +62,6 @@
 .badge_loading .dot {
   background: var(--gold);
   box-shadow: 0 0 0 3px rgba(201,168,76,0.16);
-}
-
-/* On phones the floating bulk-action bar (select mode) sits bottom-left too and
-   stacks above this badge. While it's present, lift the badge clear of it. */
-@media (max-width: 620px) {
-  :global(body.has-bulk-bar) .badge {
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 92px);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

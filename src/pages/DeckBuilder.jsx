@@ -25,6 +25,7 @@ import {
   replaceLocalFolderCards,
 } from '../lib/db'
 import styles from './DeckBuilder.module.css'
+import { useBottomBarClearance, MOBILE_TOOLBAR_HEIGHT, DECK_TOOLBAR_QUERY } from '../components/bottomBarClearance'
 import uiStyles from '../components/UI.module.css'
 import { Button, ConfirmModal, ResponsiveMenu, Select, Modal, SearchInput } from '../components/UI'
 import { useToast } from '../components/ToastContext'
@@ -1595,6 +1596,14 @@ export default function DeckBuilderPage() {
     return () => { ignore = true }
   }, [deckId, user.id])
 
+  // .deckToolbar goes position:fixed at the bottom edge below 900px. Registered
+  // here rather than passed per toast: this page raises 21 toasts and only one
+  // of them ever remembered to ask for the clearance.
+  useBottomBarClearance({
+    height: MOBILE_TOOLBAR_HEIGHT,
+    query: DECK_TOOLBAR_QUERY,
+  })
+
   // ── Computed ─────────────────────────────────────────────────────────────────
   const format         = useMemo(() => FORMATS.find(f => f.id === (deckMeta.format || 'commander')), [deckMeta.format])
   const isEDH          = format?.isEDH ?? false
@@ -3030,7 +3039,7 @@ export default function DeckBuilderPage() {
         applyLocalDeckMeta(persisted)
       } catch (err) {
         console.error('[DeckBuilder] save meta failed:', err)
-        showToast('Save deck info failed', { tone: 'error' })
+        showToast('Could not save the deck details.', { tone: 'error' })
       }
     }, 600)
   }
@@ -3100,7 +3109,7 @@ export default function DeckBuilderPage() {
       await renameFolder(deckId, trimmed)
       queryClient.invalidateQueries({ queryKey: ['folders', user?.id] })
     } catch (err) {
-      showToast(`Rename failed: ${err?.message || 'network error'}`, { tone: 'error', duration: 4000 })
+      showToast(`Could not rename the deck: ${err?.message || 'network error'}`, { tone: 'error', duration: 4000 })
       console.error('[DeckBuilder] rename failed:', err)
     } finally {
       setSaving(false)
@@ -3120,7 +3129,7 @@ export default function DeckBuilderPage() {
       logDeckChange(deckId, user?.id, 'Visibility', nextPublic ? 'Made public' : 'Made private')
     } catch (err) {
       applyLocalDeckMeta(previousMeta)
-      showToast(`Toggle public failed: ${err?.message || 'unknown error'}`, { tone: 'error' })
+      showToast(`Could not change visibility: ${err?.message || 'unknown error'}`, { tone: 'error' })
       throw err
     }
   }
@@ -3518,7 +3527,7 @@ export default function DeckBuilderPage() {
           if (!!dc.foil !== targetFoil) applied.push({ ...dc, foil: targetFoil, updated_at: now })
         }
         if (unsupported > 0 && !applied.length) {
-          showToast(`No changes â€” ${unsupported} printing${unsupported === 1 ? '' : 's'} do not support ${targetFoil ? 'foil' : 'non-foil'}.`, { tone: 'info' })
+          showToast(`No changes — ${unsupported} printing${unsupported === 1 ? '' : 's'} do not support ${targetFoil ? 'foil' : 'non-foil'}.`, { tone: 'info' })
           return
         }
       } else {
@@ -4091,7 +4100,6 @@ export default function DeckBuilderPage() {
           duration: 6500,
           actionLabel: 'Undo',
           onAction: () => restoreRemovedCard(current, originalIndex),
-          placement: 'above-mobile-toolbar',
         })
       }
     } catch {
@@ -5016,7 +5024,7 @@ export default function DeckBuilderPage() {
           await onComplete?.(destination)
           await refreshAllocationIndicators()
         } catch (err) {
-          showToast(`Move failed: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
+          showToast(`Could not move the cards: ${err?.message || 'unknown error'}`, { tone: 'error', duration: 4000 })
           console.error('[DeckBuilder] move owned copies failed:', err)
         }
         setPendingOwnedMove(null)

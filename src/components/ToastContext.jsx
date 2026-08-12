@@ -4,6 +4,26 @@ import styles from './ToastContext.module.css'
 
 const ToastContext = createContext(null)
 
+/**
+ * House style for toast copy: one complete sentence, ending in a full stop.
+ *
+ * Applied centrally rather than left to 62 call sites, because half the
+ * messages end in an interpolated runtime string — `Rename failed:
+ * ${err.message}` — and whether *that* arrives punctuated depends on whoever
+ * threw it. Postgres, fetch, and our own `new Error()` all differ, so a literal
+ * "." in the template produces "…already exists.." about a third of the time.
+ *
+ * Idempotent: a message already ending in terminal punctuation is untouched, so
+ * call sites that read as finished sentences in source stay that way.
+ */
+const TERMINAL_PUNCTUATION = /[.!?…:]$/
+
+export function formatToastMessage(message) {
+  const text = String(message ?? '').trimEnd()
+  if (!text) return text
+  return TERMINAL_PUNCTUATION.test(text) ? text : `${text}.`
+}
+
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([])
   const timers = useRef(new Map())
@@ -17,14 +37,15 @@ export function ToastProvider({ children }) {
 
   const showToast = useCallback((message, opts = {}) => {
     if (!message) return null
+    const text = formatToastMessage(message)
+    if (!text) return null
     const id = crypto.randomUUID()
     setToasts(prev => [...prev.slice(-2), {
       id,
-      message,
+      message: text,
       tone: opts.tone || 'success',
       actionLabel: opts.actionLabel || null,
       onAction: typeof opts.onAction === 'function' ? opts.onAction : null,
-      placement: opts.placement || 'default',
     }])
     const timeout = window.setTimeout(() => dismissToast(id), opts.duration ?? 3200)
     timers.current.set(id, timeout)
@@ -43,13 +64,11 @@ export function ToastProvider({ children }) {
     dismissToast,
   }), [showToast, dismissToast])
 
-  const hasRaisedToast = toasts.some(toast => toast.placement === 'above-mobile-toolbar')
-
   return (
     <ToastContext.Provider value={value}>
       {children}
       <div
-        className={`${styles.toastStack}${hasRaisedToast ? ` ${styles.toastStackRaised}` : ''}`}
+        className={styles.toastStack}
         role="status"
         aria-live="polite"
         aria-atomic="true"

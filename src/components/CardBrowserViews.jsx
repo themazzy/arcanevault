@@ -7,6 +7,7 @@ import { useLongPress } from '../hooks/useLongPress'
 import { lastInputWasTouch } from '../lib/inputType'
 import { countActive } from './CardComponents'
 import uiStyles from './UI.module.css'
+import { useBottomBarClearance, MOBILE_TOOLBAR_HEIGHT, HEADER_TOOLBAR_QUERY } from './bottomBarClearance'
 import styles from '../pages/DeckBrowser.module.css'
 import { AddIcon, CheckIcon, DeleteIcon, ExportIcon, FilterIcon, GridViewIcon, ImportIcon, SettingsIcon, SortIcon, StacksViewIcon, TextViewIcon, TableViewIcon } from '../icons'
 import { CAT_ORDER, CAT_COLORS, getCardCategoryFromCard } from '../lib/cardCategory'
@@ -962,6 +963,15 @@ export function CardBrowserViewControls({
 }) {
   const activeFilters = countActive(filters)
   const sortLabel = BROWSER_SORT_OPTIONS.find(([value]) => value === sort)?.[1] || 'Sort'
+
+  // The floating toolbar swaps out for the bulk bar in select mode, and that
+  // bar registers its own clearance — claiming here too would keep a stale
+  // reservation alive for whichever of the two is not on screen.
+  useBottomBarClearance({
+    active: !bulkBarVisible,
+    height: MOBILE_TOOLBAR_HEIGHT,
+    query: HEADER_TOOLBAR_QUERY,
+  })
 
   return (
     <>

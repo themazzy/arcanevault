@@ -943,7 +943,7 @@ export default function ProfilePage() {
         viewer_following: !next,
         follower_count: Math.max(0, (s.follower_count || 0) + (next ? -1 : 1)),
       } : s)
-      showToast('Could not update follow', { tone: 'error' })
+      showToast('Could not update follow.', { tone: 'error' })
     } finally {
       setFollowBusy(false)
     }
@@ -953,9 +953,9 @@ export default function ProfilePage() {
     const url = getPublicAppUrl(`/profile/${encodeURIComponent(decodedUsername)}`)
     try {
       await navigator.clipboard.writeText(url)
-      showToast('Profile link copied')
+      showToast('Profile link copied.')
     } catch {
-      showToast('Could not copy the link', { tone: 'error' })
+      showToast('Could not copy the link.', { tone: 'error' })
     }
   }, [decodedUsername, showToast])
 
@@ -1000,7 +1000,7 @@ export default function ProfilePage() {
     }).eq('user_id', user.id)
 
     if (error) {
-      showToast('Could not save your profile', { tone: 'error' })
+      showToast('Could not save your profile.', { tone: 'error' })
       setSaving(false)
       return
     }
@@ -1012,7 +1012,7 @@ export default function ProfilePage() {
     queryClient.invalidateQueries({ queryKey: profileKeys.profile(decodedUsername) })
     setEditMode(false)
     setSaving(false)
-    showToast('Profile saved')
+    showToast('Profile saved.')
   }
 
   function hideBlock(id) { setDraftBlocks(prev => prev.map(b => b.id === id ? { ...b, enabled: false } : b)) }

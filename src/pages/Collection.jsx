@@ -19,6 +19,7 @@ import ExportModal from '../components/ExportModal'
 import ImportModal from '../components/ImportModal'
 import styles from './Collection.module.css'
 import uiStyles from '../components/UI.module.css'
+import { useBottomBarClearance, MOBILE_TOOLBAR_HEIGHT, HEADER_TOOLBAR_QUERY } from '../components/bottomBarClearance'
 import { pruneUnplacedCards, findUnplacedCardIds } from '../lib/collectionOwnership'
 import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
 import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap } from '../lib/collectionFetchers'
@@ -1241,6 +1242,17 @@ export default function CollectionPage() {
   )
   const showScanner = shouldOfferCardScanner()
 
+  // Collection renders headerFloatingToolbar directly rather than through
+  // ResponsiveHeaderActions, so it registers its own bottom-bar clearance. Its
+  // BulkActionBar is in-flow (no floatingMobile), so the toolbar is the only
+  // claimant and it stands down while the bulk bar is up.
+  const collectionToolbarMounted = !(selectMode && selected.size > 0)
+  useBottomBarClearance({
+    active: collectionToolbarMounted,
+    height: MOBILE_TOOLBAR_HEIGHT,
+    query: HEADER_TOOLBAR_QUERY,
+  })
+
   if (collectionInitialLoading) {
     return <BrowserSkeleton viewMode={viewMode} label="Loading your collection" />
   }
@@ -1398,6 +1410,8 @@ export default function CollectionPage() {
         {filtered.length === 0 && !enriching && <EmptyState>No cards match your filters.</EmptyState>}
 
         {!(selectMode && selected.size > 0) && (
+          /* Bottom-pinned below 980px — clearance registered by
+             collectionToolbarMounted above so the toast stack clears it. */
           <div className={`${uiStyles.headerFloatingToolbar} ${styles.collectionToolbar}`} aria-label="Collection actions">
             {selectMode ? (
               <Button variant="default" size="sm" onClick={toggleSelectMode} title="Exit select mode" aria-label="Exit select mode">
