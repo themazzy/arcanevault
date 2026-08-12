@@ -14,7 +14,10 @@ vi.mock('./cardPrints', () => ({
 }))
 
 const { sb } = await import('./supabase')
-const { additiveSaveOwnedCards, ownedCardKey, toDeckCardRow, toCardPrintSource, buildOwnedCardUpsertRows } = await import('./deckBuilderWrites')
+const {
+  additiveSaveOwnedCards, additiveSaveWishlistItems, ownedCardKey,
+  toDeckCardRow, toCardPrintSource, buildOwnedCardUpsertRows,
+} = await import('./deckBuilderWrites')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -190,6 +193,62 @@ describe('additiveSaveOwnedCards (HI-005)', () => {
     await additiveSaveOwnedCards([{ card_print_id: 'cp-9', user_id: 'user-A', qty: 1, foil: false }])
 
     expect(upsertCalls[0][0]).not.toHaveProperty('id')
+  })
+})
+
+describe('additiveSaveWishlistItems', () => {
+  // from().select().eq().in() → existing wishlist rows; from().upsert().select() → saved.
+  const mockListItems = (existing) => {
+    const upsertCalls = []
+    sb.from.mockImplementation(() => ({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ data: existing, error: null }),
+      upsert: vi.fn(function (rows) {
+        upsertCalls.push(rows)
+        return { select: vi.fn().mockResolvedValue({ data: rows, error: null }) }
+      }),
+    }))
+    return upsertCalls
+  }
+
+  it('adds to the qty already on the wishlist instead of replacing it', async () => {
+    // The scanner used to upsert a raw qty on (folder_id, card_print_id, foil),
+    // so re-scanning a card you already wanted 3 of overwrote the 3.
+    const upsertCalls = mockListItems([{ card_print_id: 'cp-1', foil: false, qty: 3 }])
+    await additiveSaveWishlistItems('f1', 'u1', [{ card_print_id: 'cp-1', foil: false, qty: 2 }])
+    expect(upsertCalls[0][0].qty).toBe(5)
+  })
+
+  it('does not add a foil want onto the non-foil row', async () => {
+    const upsertCalls = mockListItems([{ card_print_id: 'cp-1', foil: false, qty: 3 }])
+    await additiveSaveWishlistItems('f1', 'u1', [{ card_print_id: 'cp-1', foil: true, qty: 2 }])
+    expect(upsertCalls[0][0].qty).toBe(2)
+  })
+
+  it('merges duplicate input rows before comparing against the wishlist', async () => {
+    const upsertCalls = mockListItems([{ card_print_id: 'cp-1', foil: false, qty: 1 }])
+    await additiveSaveWishlistItems('f1', 'u1', [
+      { card_print_id: 'cp-1', foil: false, qty: 2 },
+      { card_print_id: 'cp-1', foil: false, qty: 4 },
+    ])
+    expect(upsertCalls[0]).toHaveLength(1)
+    expect(upsertCalls[0][0].qty).toBe(7)
+  })
+
+  it('stamps folder_id and user_id onto every row', async () => {
+    const upsertCalls = mockListItems([])
+    await additiveSaveWishlistItems('f1', 'u1', [{ card_print_id: 'cp-1', foil: false, qty: 1 }])
+    expect(upsertCalls[0][0]).toMatchObject({ folder_id: 'f1', user_id: 'u1' })
+  })
+
+  it('rejects a row whose printing could not be resolved', async () => {
+    // list_items.card_print_id is NOT NULL — better a readable message than a
+    // constraint violation mid-batch.
+    mockListItems([])
+    await expect(
+      additiveSaveWishlistItems('f1', 'u1', [{ name: 'Sol Ring', foil: false, qty: 1 }], 'Scanned card')
+    ).rejects.toThrow(/Scanned card could not resolve a card print for Sol Ring/)
   })
 })
 

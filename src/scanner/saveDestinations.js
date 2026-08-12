@@ -16,6 +16,18 @@ export function isSaveDestinationType(type) {
   return SAVE_DESTINATION_TYPES.includes(type)
 }
 
+// What to call a destination in front of a user. 'list' is the folders.type
+// value for a wishlist and is never shown as-is.
+export function destinationNoun(type) {
+  return type === 'list' ? 'wishlist' : type
+}
+
+// Same word at the head of a sentence.
+export function destinationNounTitle(type) {
+  const noun = destinationNoun(type)
+  return noun ? noun.charAt(0).toUpperCase() + noun.slice(1) : noun
+}
+
 export function isSaveDestinationFolder(folder) {
   return !!folder && isSaveDestinationType(folder.type) && !isGroupFolder(folder)
 }

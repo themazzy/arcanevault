@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  destinationNoun,
+  destinationNounTitle,
   filterDestinationFolders,
   hasDestinationNamed,
   isSaveDestinationFolder,
@@ -19,6 +21,25 @@ const FOLDERS = [
   { id: 'g1', name: 'Commander decks', type: 'deck', description: JSON.stringify(group) },
   { id: 'g2', name: 'Binder shelf', type: 'binder', description: JSON.stringify(group) },
 ]
+
+describe('destinationNoun', () => {
+  it('never leaks the DB name for a wishlist', () => {
+    expect(destinationNoun('list')).toBe('wishlist')
+    expect(destinationNounTitle('list')).toBe('Wishlist')
+  })
+
+  it('passes binder and deck through', () => {
+    expect(destinationNoun('binder')).toBe('binder')
+    expect(destinationNoun('deck')).toBe('deck')
+    expect(destinationNounTitle('binder')).toBe('Binder')
+    expect(destinationNounTitle('deck')).toBe('Deck')
+  })
+
+  it('does not blow up on an absent type', () => {
+    expect(destinationNounTitle('')).toBe('')
+    expect(destinationNounTitle(undefined)).toBe(undefined)
+  })
+})
 
 describe('isSaveDestinationType', () => {
   it('accepts the three folder types that hold owned cards', () => {

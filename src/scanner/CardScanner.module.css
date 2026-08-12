@@ -482,13 +482,16 @@
 }
 
 
-@keyframes toastIn {
-  from { transform: translateY(12px); opacity: 0; }
-  to   { transform: translateY(0);    opacity: 1; }
-}
-
 /* ── Bottom bar ── */
 .bottomBar {
+  /* The floor is the same number the toast stack clears via
+     --scanner-bottom-bar-height (see index.css). It is a no-op in the resting
+     state — 16 + 42 + 16 is exactly 74 — and exists so that retuning the
+     padding or the button height moves the toast with it instead of silently
+     letting the bar grow underneath a toast that no longer clears it. The bar
+     is taller while a scanned card is shown, but a toast only ever fires with
+     the basket emptied or the add-flow panel covering it. */
+  min-height: var(--scanner-bottom-bar-height);
   padding: 16px 16px;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   display: flex;
@@ -526,27 +529,6 @@
   font-size: 0.9rem;
   letter-spacing: 0.04em;
   color: var(--gold, #c9a84c);
-}
-
-.saveNotice {
-  position: absolute;
-  left: 50%;
-  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  min-width: min(82vw, 320px);
-  max-width: min(88vw, 420px);
-  padding: 11px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(93,186,112,0.34);
-  background: rgba(11,18,13,0.92);
-  box-shadow: 0 16px 28px rgba(0,0,0,0.28);
-  font-family: var(--font-display);
-  font-size: 0.74rem;
-  letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
-  text-align: center;
-  color: #cfe9d4;
-  animation: toastIn 0.22s ease-out;
 }
 
 .overlayPanelCount {
@@ -2304,7 +2286,6 @@
   .detectOverlay,
   .spinner,
   .bottomBar,
-  .saveNotice,
   .overlayPanel,
   .basketItem,
   .primaryBtn,

@@ -38,6 +38,8 @@ import { fuseFrameHashes } from './hashFusion'
 import { pushScanLog, getScanLog, clearScanLog, subscribeScanLog, formatScanLog, SCAN_LOG_LIMIT } from './scanLog'
 import { isCurrentUserAdmin } from '../lib/admin'
 import { useAuth } from '../components/Auth'
+import { useToast } from '../components/ToastContext'
+import { useBottomBarClearance, SCANNER_BAR_HEIGHT } from '../components/bottomBarClearance'
 import { SearchInput } from '../components/UI'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
@@ -50,9 +52,20 @@ import {
 } from './autoScanGuard'
 import { sb } from '../lib/supabase'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
-import { toOwnedCardRow, toListItemRow, mergeNonNull } from '../lib/deckBuilderWrites'
+import { toOwnedCardRow, additiveSaveWishlistItems } from '../lib/deckBuilderWrites'
+import { chunkIds } from '../lib/deckBuilderHelpers'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import {
+  aggregateOwnedRows,
+  aggregateListItems,
+  planOwnedCardWrites,
+  planPlacementLinks,
+  newlyInsertedIds,
+  totalPendingQty,
+} from './saveBatch'
+import {
+  destinationNoun,
+  destinationNounTitle,
   filterDestinationFolders,
   hasDestinationNamed,
   isSaveDestinationFolder,
@@ -340,15 +353,9 @@ function roundedQuadPath(points, radius) {
 }
 
 const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG']
-const CONDITION_DB = { NM: 'near_mint', LP: 'lightly_played', MP: 'moderately_played', HP: 'heavily_played', DMG: 'damaged' }
 function cycleCondition(current) {
   const idx = CONDITIONS.indexOf(current)
   return CONDITIONS[(idx + 1) % CONDITIONS.length]
-}
-
-function getOwnedCardKey(c) {
-  const printPart = c.card_print_id ? `print:${c.card_print_id}` : `set:${c.set_code}|${c.collector_number}`
-  return [printPart, c.foil ? 1 : 0, c.language || 'en', c.condition || 'near_mint'].join('|')
 }
 
 async function batchSaveCards({ userId, cards, folderId, folderType }) {
@@ -360,152 +367,95 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
   }
   const destinationType = folderType
 
-  let aggregatedOwned = Array.from(
-    cards.reduce((map, c) => {
-      const row = {
-        user_id: userId,
-        name: c.name,
-        set_code: c.setCode,
-        collector_number: c.collNum,
-        scryfall_id: c.id,
-        foil: c.foil,
-        qty: c.qty ?? 1,
-        condition: CONDITION_DB[c.condition] || 'near_mint',
-        language: c.language || 'en',
-        currency: 'EUR',
-      }
-      const key = getOwnedCardKey(row)
-      const prev = map.get(key)
-      if (prev) {
-        prev.qty += row.qty
-        prev.name = row.name
-        prev.scryfall_id = row.scryfall_id
-      } else {
-        map.set(key, row)
-      }
-      return map
-    }, new Map()).values()
-  )
+  let aggregatedOwned = aggregateOwnedRows(cards, userId)
 
   const printByScryfallId = await ensureCardPrints(cards)
   aggregatedOwned = aggregatedOwned.map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
 
   if (destinationType === 'list') {
-    const aggregatedItems = Array.from(
-      cards.reduce((map, c) => {
-        const key = [c.setCode, c.collNum, c.foil ? 1 : 0].join('|')
-        const prev = map.get(key)
-        if (prev) {
-          prev.qty += c.qty ?? 1
-        } else {
-          map.set(key, {
-            folder_id: folderId,
-            user_id: userId,
-            name: c.name,
-            set_code: c.setCode,
-            collector_number: c.collNum,
-            scryfall_id: c.id,
-            foil: c.foil,
-            qty: c.qty ?? 1,
-          })
-        }
-        return map
-      }, new Map()).values()
-    )
-    const items = aggregatedItems.map(c => ({
-      folder_id: folderId,
-      user_id: userId,
-      name: c.name,
-      set_code: c.set_code,
-      collector_number: c.collector_number,
-      scryfall_id: c.scryfall_id,
-      card_print_id: getCardPrint(printByScryfallId, c)?.id || null,
-      foil: c.foil,
-      qty: c.qty ?? 1,
-    }))
-    // Strip denorm cols at upsert boundary; the JS objects keep them for any
-    // downstream UI use (currently none — we return early after this).
-    const { error } = await sb.from('list_items')
-      .upsert(items.map(toListItemRow), { onConflict: 'folder_id,card_print_id,foil' })
-    if (error) throw new Error(error.message)
+    // Additive, like the binder/deck path below. A bare upsert on
+    // (folder_id, card_print_id, foil) writes the payload's qty over whatever
+    // the wishlist already held, so scanning a card you had already wished for
+    // *replaced* the count instead of adding to it — wanting a second copy of
+    // something you already wanted 3 of left you wanting 1.
+    // Hydrating card_print_id here from the print map we already fetched keeps
+    // requireCardPrintIds inside the helper from re-resolving every printing.
+    const items = aggregateListItems(cards, { folderId, userId })
+      .map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
+    await additiveSaveWishlistItems(folderId, userId, items, 'Scanned card')
     return
   }
 
   // Binder or deck — upsert owned cards first
   const owned = aggregatedOwned
 
-  const setCodes = [...new Set(owned.map(c => c.set_code).filter(Boolean))]
-  const cardPrintIds = [...new Set(owned.map(c => c.card_print_id).filter(Boolean))]
-  const existingFilter = [
-    setCodes.length ? `set_code.in.(${setCodes.join(',')})` : null,
-    cardPrintIds.length ? `card_print_id.in.(${cardPrintIds.join(',')})` : null,
-  ].filter(Boolean).join(',')
-  // Read via owned_cards_view so set_code resolves through card_prints.
-  let existingQuery = sb.from('owned_cards_view')
-    .select('id,set_code,collector_number,foil,language,condition,qty,card_print_id')
-    .eq('user_id', userId)
-  if (existingFilter) existingQuery = existingQuery.or(existingFilter)
-  const { data: existing, error: existErr } = await existingQuery
-  if (existErr) throw new Error(existErr.message)
+  // cards.card_print_id is NOT NULL, so a row that never resolved a printing
+  // cannot be written at all. Fail before touching the DB rather than emitting
+  // a batch Postgres will reject halfway through.
+  const unresolved = owned.find(row => !row.card_print_id)
+  if (unresolved) {
+    throw new Error(`Could not resolve a printing for ${unresolved.name || 'a scanned card'}. Please re-pick its printing and retry.`)
+  }
+  const cardPrintIds = [...new Set(owned.map(c => c.card_print_id))]
 
-  const existByKey = new Map((existing || []).map(c => [getOwnedCardKey(c), c]))
-  const resolvedRows = owned.map(c => {
-    const key = getOwnedCardKey(c)
-    const prev = existByKey.get(key)
-    return prev ? { ...prev, ...c, id: prev.id, qty: (prev.qty || 0) + c.qty } : c
-  })
-
-  const updateRows = resolvedRows.filter(row => row.id)
-  const insertRows = resolvedRows.filter(row => !row.id)
-
-  // Strip denorm cols on update patches — only ownership cols are writable.
-  for (const row of updateRows) {
-    const { id, ...patch } = toOwnedCardRow(row)
-    const { error: updateErr } = await sb.from('cards')
-      .update(patch)
-      .eq('id', id)
-    if (updateErr) throw new Error(updateErr.message)
+  // Look the existing copies up by card_print_id ONLY, straight off `cards`.
+  //
+  // This used to read owned_cards_view under `or(set_code.in.(…),
+  // card_print_id.in.(…))`, which was both slow and wrong. Slow: the OR spans
+  // two tables (set_code lives on card_prints), so no index applies and the
+  // planner seq-scans all ~120k card_prints and hash-joins every row the user
+  // owns — measured at 4.0 s for a 12k-card collection against 14 ms for the
+  // print-id filter alone, which is what pushed bigger sessions past the 8 s
+  // statement timeout. Wrong: the result was unbounded, so PostgREST truncated
+  // it at 1000 rows and existing copies went unseen, making the write below
+  // collide with cards_unique_owned_print_idx.
+  // The set_code branch never added anything anyway — card_print_id is NOT NULL
+  // and the view joins through it, so every owned row is reachable by print id.
+  const existing = []
+  for (const batch of chunkIds(cardPrintIds)) {
+    const { data, error: existErr } = await sb.from('cards')
+      .select('id,foil,language,condition,qty,card_print_id')
+      .eq('user_id', userId)
+      .in('card_print_id', batch)
+    if (existErr) throw new Error(existErr.message)
+    if (data?.length) existing.push(...data)
   }
 
-  const savedRows = [...updateRows]
-  const insertedCardIds = []
+  const { upsertRows, existingIds } = planOwnedCardWrites({ owned, existing })
 
-  if (insertRows.length) {
-    const { data: inserted, error: insertErr } = await sb.from('cards')
-      .insert(insertRows.map(toOwnedCardRow))
-      .select('id,foil,language,condition,card_print_id')
-    if (insertErr) throw new Error(insertErr.message)
-    insertedCardIds.push(...(inserted || []).map(row => row.id).filter(Boolean))
-    // Re-attach input metadata so savedByKey lookups (which use getOwnedCardKey
-    // with set_code/collector_number fallback) still work. mergeNonNull keeps
-    // the input row's name/set_code when the upserted row returns them as null.
-    const insertByKey = new Map(insertRows.map(row => [getOwnedCardKey(row), row]))
-    for (const row of inserted || []) {
-      const input = insertByKey.get(getOwnedCardKey(row)) ||
-        [...insertByKey.values()].find(r => r.card_print_id === row.card_print_id && !!r.foil === !!row.foil)
-      savedRows.push(mergeNonNull(input, row))
-    }
-  }
+  // One batched upsert, not an UPDATE per already-owned row: a 29-card session
+  // was 29 sequential round trips before the placement writes even started.
+  const { data: saved, error: saveErr } = await sb.from('cards')
+    .upsert(upsertRows.map(toOwnedCardRow), { onConflict: 'user_id,card_print_id,foil,language,condition' })
+    .select('id,foil,language,condition,qty,card_print_id')
+  if (saveErr) throw new Error(saveErr.message)
 
-  const savedByKey = new Map(savedRows.map(c => [getOwnedCardKey(c), c]))
+  const savedRows = saved || []
+  const insertedCardIds = newlyInsertedIds(savedRows, existingIds)
+
   const table = destinationType === 'deck' ? 'deck_allocations' : 'folder_cards'
   const fk    = destinationType === 'deck' ? 'deck_id' : 'folder_id'
 
-  const { data: existLinks, error: linksErr } = await sb.from(table).select('card_id,qty').eq(fk, folderId)
-  if (linksErr) throw new Error(linksErr.message)
-  const existLinkQty = new Map((existLinks || []).map(l => [l.card_id, l.qty || 1]))
+  // Only the placements for the cards being saved. Fetching the whole folder
+  // was capped at 1000 rows, so saving into a large binder (three exist above
+  // that today) read back no existing qty and the additive upsert below
+  // *replaced* it with the scanned count instead of adding to it.
+  const savedIds = savedRows.map(row => row.id).filter(Boolean)
+  const existLinkQty = new Map()
+  for (const batch of chunkIds(savedIds)) {
+    const { data: existLinks, error: linksErr } = await sb.from(table)
+      .select('card_id,qty')
+      .eq(fk, folderId)
+      .in('card_id', batch)
+    if (linksErr) throw new Error(linksErr.message)
+    for (const link of existLinks || []) existLinkQty.set(link.card_id, link.qty || 1)
+  }
 
-  const links = owned.map(c => {
-    const key = getOwnedCardKey(c)
-    const sc = savedByKey.get(key)
-    if (!sc) return null
-    const base = { card_id: sc.id, qty: (existLinkQty.get(sc.id) || 0) + (c.qty ?? 1) }
-    return destinationType === 'deck'
-      ? { ...base, deck_id: folderId, user_id: userId }
-      : { ...base, folder_id: folderId }
-  }).filter(Boolean)
+  const { links, complete } = planPlacementLinks({
+    owned, savedRows, existingLinkQty: existLinkQty, destinationType, folderId, userId,
+  })
 
-  if (links.length !== owned.length) {
+  if (!complete) {
     if (insertedCardIds.length) await pruneUnplacedCards(insertedCardIds)
     throw new Error('Card was saved, but its destination placement could not be matched. Please retry the save.')
   }
@@ -614,7 +564,14 @@ function useAnimatedToggle(duration = 180) {
 export default function CardScanner({ onMatch, onClose }) {
   const { user } = useAuth()
   const { price_source } = useSettings()
+  const toast = useToast()
   const isNative = Capacitor.isNativePlatform()
+
+  // No width query: the scanner is full-screen on every coarse-pointer device,
+  // so its bar is bottom-pinned on a landscape tablet too. The clearance also
+  // covers the add-flow panel's "Save to X" button, which sits lower than the
+  // bar it replaces.
+  useBottomBarClearance({ height: SCANNER_BAR_HEIGHT })
 
   // Admin-only scan-log panel. The buffer always fills (it is a few KB of
   // strings); only the surface for reading it is gated.
@@ -767,7 +724,6 @@ export default function CardScanner({ onMatch, onClose }) {
   const [addFlowFoldersLoading, setAddFlowFoldersLoading] = useState(false)
   const [addFlowCreatingFolder, setAddFlowCreatingFolder] = useState(false)
   const [closing, setClosing] = useState(false)
-  const [saveNotice, setSaveNotice] = useState(null)
   const latestPending = pendingCards[0] || null
 
   // ── Scanner settings ───────────────────────────────────────────────────────
@@ -863,12 +819,6 @@ export default function CardScanner({ onMatch, onClose }) {
   useEffect(() => {
     try { localStorage.setItem('arcanevault_scanner_locked_sets', JSON.stringify([...lockedSets])) } catch {}
   }, [lockedSets])
-  useEffect(() => {
-    if (!saveNotice) return undefined
-    const timer = setTimeout(() => setSaveNotice(null), 2200)
-    return () => clearTimeout(timer)
-  }, [saveNotice])
-
   // ── Scan sound — plays when price data arrives for a newly scanned card ─────
   useEffect(() => {
     if (!scanSounds) return
@@ -1401,12 +1351,13 @@ export default function CardScanner({ onMatch, onClose }) {
       if (!data) throw new Error('Failed to create folder')
       setAddFlowFolders(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
       setAddFlowSelectedFolder(data.id)
+      toast.success(`${destinationNounTitle(folderType)} "${data.name}" created.`)
     } catch (e) {
       setAddFlowError(e.message)
     } finally {
       setAddFlowCreatingFolder(false)
     }
-  }, [addFlowCreatingFolder, addFlowFolderSearch, addFlowFolderType, addFlowFolders, user])
+  }, [addFlowCreatingFolder, addFlowFolderSearch, addFlowFolderType, addFlowFolders, user, toast])
 
   const saveAllPending = useCallback(async () => {
     if (!addFlowSelectedFolder || !pendingCards.length || !user?.id) return
@@ -1415,7 +1366,7 @@ export default function CardScanner({ onMatch, onClose }) {
     setAddFlowSaving(true)
     setAddFlowError(null)
     try {
-      const savedQty = pendingCards.reduce((sum, card) => sum + (card.qty || 1), 0)
+      const savedQty = totalPendingQty(pendingCards)
       await batchSaveCards({
         userId: user.id,
         cards: pendingCards,
@@ -1433,12 +1384,14 @@ export default function CardScanner({ onMatch, onClose }) {
       setPendingCards([])
       addFlowTgl.hide()
       setAddFlowSelectedFolder(null)
-      setSaveNotice(`Saved ${savedQty} card${savedQty !== 1 ? 's' : ''} to ${folder.name}`)
+      // Toast rather than an in-scanner notice: the save is often the last thing
+      // a session does, and the app-level toast outlives the scanner unmounting.
+      toast.success(`Saved ${savedQty} card${savedQty !== 1 ? 's' : ''} to ${folder.name}.`)
     } catch (e) {
       setAddFlowError(e.message)
     }
     setAddFlowSaving(false)
-  }, [addFlowSelectedFolder, pendingCards, addFlowFolders, user, addFlowTgl.hide])
+  }, [addFlowSelectedFolder, pendingCards, addFlowFolders, user, addFlowTgl.hide, toast])
 
   // ── Capture + scan logic ───────────────────────────────────────────────────
 
@@ -2125,14 +2078,14 @@ export default function CardScanner({ onMatch, onClose }) {
     type: addFlowFolderType,
     search: addFlowFolderSearch,
   })
-  const createFolderLabel = addFlowFolderType === 'list' ? 'wishlist' : addFlowFolderType
+  const createFolderLabel = destinationNoun(addFlowFolderType)
   const canCreateAddFlowFolder = !!addFlowFolderSearch.trim() && !addFlowCreatingFolder
   const hasExactAddFlowMatch = hasDestinationNamed(addFlowFolders, {
     type: addFlowFolderType,
     name: addFlowFolderSearch,
   })
   const latestSetIcon = latestPending?.setCode ? getSetIcon(setIcons, latestPending.setCode) : null
-  const pendingTotalQty = pendingCards.reduce((sum, card) => sum + (card.qty || 1), 0)
+  const pendingTotalQty = totalPendingQty(pendingCards)
   const showManualSearchEmpty = manualSearchOpen &&
     manualSearchQuery.trim().length >= 2 &&
     !manualSearchLoading &&
@@ -2400,12 +2353,6 @@ export default function CardScanner({ onMatch, onClose }) {
         {DEBUG && !debugInfo && (
           <div className={styles.debugStrip}>
             hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? '✓' : '...'} | DB: {dbReady ? '✓' : '...'}
-          </div>
-        )}
-
-        {saveNotice && (
-          <div className={styles.saveNotice} role="status" aria-live="polite">
-            {saveNotice}
           </div>
         )}
 
@@ -2793,7 +2740,7 @@ export default function CardScanner({ onMatch, onClose }) {
         <div className={`${styles.overlayPanel}${addFlowClosing ? ` ${styles.overlayPanelClosing}` : ''}`}>
           <div className={styles.overlayPanelHeader}>
             <span className={styles.overlayPanelTitle}>
-              Add {pendingCards.length} Card{pendingCards.length !== 1 ? 's' : ''}
+              Add {pendingTotalQty} Card{pendingTotalQty !== 1 ? 's' : ''}
               <span className={styles.overlayPanelTitleValue}>
                 {scannedValueMeta ? `${scannedValueMeta.symbol}${scannedValueMeta.value.toFixed(2)}` : '—'}
               </span>
