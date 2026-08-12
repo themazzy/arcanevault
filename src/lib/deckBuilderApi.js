@@ -247,10 +247,22 @@ export async function searchCards({ query = '', page = 1, priceSource = 'cardmar
   }
 }
 
+// Scryfall's `is:commander` answers "can be in a command zone", which is not the
+// same as "can be your commander on its own". The 60 non-creature cards it
+// returns are 26 Vehicles and 5 Spacecraft — both legal solo — plus 29
+// Backgrounds, which are only ever the SECOND card beside a "Choose a
+// Background" commander. Offering one as a primary commander builds an illegal
+// deck, and the picker gives it no partner search either (a Background has no
+// partner ability of its own), so there is no way to make it legal afterwards.
+//
+// Backgrounds are still reachable where they belong: the partner picker lists
+// them via legalPartnerQuery's `type:background` branch.
+export const PRIMARY_COMMANDER_ONLY = 'is:commander -type:background'
+
 /** Search for valid commanders */
 export async function searchCommanders(q, scope = 'commander') {
   if (!q || q.length < 2) return []
-  const filter = scope === 'companion' ? 'keyword:companion' : 'is:commander'
+  const filter = scope === 'companion' ? 'keyword:companion' : PRIMARY_COMMANDER_ONLY
   const query = encodeURIComponent(`"${q}" ${filter}`)
   const data = await sfFetch(`${SF}/cards/search?q=${query}&order=edhrec&unique=cards`)
   return (data?.data || []).slice(0, 12)
@@ -294,7 +306,10 @@ export async function searchLegalPartners(descriptor, commanderName, typed = '')
  * @returns {Promise<object|null>} a full Scryfall card, or null if the roll failed
  */
 export async function fetchRandomCommander({ excludeName = '' } = {}) {
-  const parts = ['is:commander', 'legal:commander', 'game:paper']
+  // PRIMARY_COMMANDER_ONLY, not a bare is:commander: 30 of the 3,411 cards in
+  // this pool are Backgrounds, so roughly 1 roll in 114 handed the user a card
+  // that cannot legally be a commander by itself.
+  const parts = [PRIMARY_COMMANDER_ONLY, 'legal:commander', 'game:paper']
   if (excludeName) parts.push(`-!"${String(excludeName).replace(/"/g, '')}"`)
   const card = await sfFetch(`${SF}/cards/random?q=${encodeURIComponent(parts.join(' '))}`, { noCache: true })
   return card?.object === 'card' ? card : null

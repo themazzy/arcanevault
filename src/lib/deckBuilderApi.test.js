@@ -28,7 +28,7 @@ import {
   pickAutomaticDeckPrinting, FORMATS, nameToSlug, getEdhrecPartnerSlugCandidates,
   fetchEdhrecCommander,
   importFromArchidekt, importFromMoxfield,
-  fetchRandomCommander, fetchRandomPartner,
+  fetchRandomCommander, fetchRandomPartner, searchCommanders,
 } from './deckBuilderApi'
 import { EDH_FORMAT_IDS } from './commanderBracket'
 import { sfGet } from './scryfall'
@@ -627,6 +627,24 @@ describe('fetchEdhrecCommander', () => {
   })
 })
 
+describe('searchCommanders', () => {
+  beforeEach(() => { sfGet.mockReset(); sfGet.mockResolvedValue({ data: [] }) })
+  const lastUrl = () => decodeURIComponent(sfGet.mock.calls.at(-1)[0])
+
+  it('excludes Backgrounds from the primary commander picker', async () => {
+    await searchCommanders('artisan')
+    expect(lastUrl()).toContain('-type:background')
+  })
+
+  // The companion scope is a different question entirely (Lurrus, Yorion …) and
+  // must not inherit the commander filter.
+  it('leaves the companion scope alone', async () => {
+    await searchCommanders('lurrus', 'companion')
+    expect(lastUrl()).toContain('keyword:companion')
+    expect(lastUrl()).not.toContain('-type:background')
+  })
+})
+
 describe('fetchRandomCommander', () => {
   beforeEach(() => { sfGet.mockReset() })
 
@@ -639,7 +657,18 @@ describe('fetchRandomCommander', () => {
     sfGet.mockResolvedValue({ object: 'card', name: 'Krenko, Mob Boss' })
     const card = await fetchRandomCommander()
     expect(card.name).toBe('Krenko, Mob Boss')
-    expect(lastQuery()).toBe('is:commander legal:commander game:paper')
+    expect(lastQuery()).toBe('is:commander -type:background legal:commander game:paper')
+  })
+
+  // Scryfall counts Backgrounds as commanders because they can sit in a command
+  // zone — but only ever beside a "Choose a Background" commander, never alone.
+  // 30 of the 3,411 cards in this pool were Backgrounds, so roughly 1 roll in
+  // 114 produced a commander the user could not legally build around, and the
+  // picker offers a Background no partner search to rescue it with.
+  it('never rolls a Background as the sole commander', async () => {
+    sfGet.mockResolvedValue({ object: 'card', name: 'Krenko, Mob Boss' })
+    await fetchRandomCommander()
+    expect(lastQuery()).toContain('-type:background')
   })
 
   it('excludes the current commander so a re-roll always changes the card', async () => {
