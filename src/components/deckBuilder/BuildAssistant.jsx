@@ -47,6 +47,7 @@ import {
   countByRole,
   recommendedBasicCount,
   basicsForAutoFill,
+  describeAutoFillShortfall,
   isBasicLandName,
   analyzeCut,
   spendableSlotsAfterLands,
@@ -1832,6 +1833,56 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     oracle_text: p.cand.sfCard?.oracle_text || '',
     qty: 1,
   }))
+
+  // Where a click would actually leave the deck: the picks plus the basics that
+  // top the manabase up afterwards. Deliberately the same basicsForAutoFill call
+  // the run makes (finishAutoFill), so the projected number is the number the
+  // user gets. Basics fill toward the LAND target, not to deckSize — they cannot
+  // cover missing spell slots, which is why a thin candidate pool ends the build
+  // short however many basics are available.
+  const autoFillProjection = useMemo(() => {
+    if (!plan) return null
+    const added = autoFillSelected.length
+    const openSlots = Math.max(0, afTarget - (totalCards + added))
+    const basics = basicsForAutoFill({
+      deckCards: [...(deckCards || []), ...picksToPseudoRows(autoFillSelected)],
+      sfMap,
+      colors: cmdColors,
+      landTarget: landsTarget,
+      openSlots,
+    }).total
+    const projected = totalCards + added + basics
+    return { added, basics, projected, short: Math.max(0, afTarget - projected) }
+  }, [plan, autoFillSelected, afTarget, totalCards, deckCards, sfMap, cmdColors, landsTarget])
+
+  // Why the pool ran dry. Three different problems with three different fixes,
+  // and telling the user "the deck will be short" without saying which one is
+  // barely better than the silence this replaces: an empty collection, a
+  // commander we have no data for, and a budget that rejects everything look
+  // identical from the outside.
+  //
+  // Only computed when the build actually falls short, so the common path pays
+  // nothing for it.
+  const autoFillShortfall = useMemo(() => {
+    if (!plan || !autoFillProjection?.short) return null
+    return {
+      ...autoFillProjection,
+      ...describeAutoFillShortfall({
+        roles: plan.roles || [],
+        owned: autoFillSource === 'owned',
+        upgradesFor,
+        isOverBudget: cand => !passesBudget(cand.name, cand.sfCard),
+        isOverBracket: cand => {
+          if (targetBracket == null) return false
+          const flag = bracketFlagFor(cand.name, cand.sfCard, gameChangers)
+          return !!flag && flag.level > targetBracket
+        },
+        budgetLabel: maxPrice != null ? `≤ ${formatPrice(maxPrice, price_source)}` : null,
+        bracketLabel: targetBracket != null ? `Bracket ${targetBracket}` : null,
+      }),
+    }
+  }, [plan, autoFillProjection, autoFillSource, upgradesFor,
+      passesBudget, targetBracket, gameChangers, maxPrice, price_source])
 
   // A deck row that plays as a land (sfMap metadata first, row's own type_line
   // as fallback) — shared by the combo pass's cuttable filter and the GC
@@ -3651,9 +3702,29 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
                     <div className={styles.afMeterLegend}>
                       <span><i className={styles.afSwatchNow} /> In deck now</span>
                       <span><i className={styles.afSwatchAdd} /> +{autoFillSelected.length} from auto-fill</span>
-                      <span><i className={styles.afSwatchBasics} /> basics finish to {afTarget}</span>
+                      {/* Only promised when it is true. Basics fill toward the
+                          land target, so they finish the deck only when the
+                          candidate pool covers the spell slots. */}
+                      <span>
+                        <i className={styles.afSwatchBasics} />
+                        {autoFillShortfall
+                          ? `+${autoFillShortfall.basics} basics`
+                          : `basics finish to ${afTarget}`}
+                      </span>
                     </div>
                   </div>
+                  {/* The build will not reach the target. Said before the click,
+                      not after: the projection is already known here, and the
+                      fixes (widen a filter, switch source, pick another
+                      commander) are all things the user can still do. */}
+                  {autoFillShortfall && (
+                    <div className={`${styles.afNote} ${styles.afNoteWarn}`} role="status">
+                      <strong>
+                        This will stop at {autoFillShortfall.projected} of {afTarget} cards.
+                      </strong>{' '}
+                      {autoFillShortfall.cause}
+                    </div>
+                  )}
                   {/* Tune the build — same theme / bracket / budget knobs as the
                       main controls bar; changing them re-plans the picks live. */}
                   <div className={styles.afTune}>

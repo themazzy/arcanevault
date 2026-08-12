@@ -561,6 +561,76 @@ export function basicsForAutoFill({ deckCards = [], sfMap = {}, colors = [], lan
   return planBasicLands({ deckCards, sfMap, colors, landTarget: landTarget - planned.total + slots })
 }
 
+/**
+ * Why auto-fill cannot reach the target deck size.
+ *
+ * "The deck will be short" on its own is barely better than the silence this
+ * replaces: an empty collection, a commander we hold no data for, and a budget
+ * that rejects every candidate are indistinguishable from the outside, and each
+ * one has a different fix. This walks the candidate pools the chosen source
+ * would draw from and names which of the three it is.
+ *
+ * The budget/bracket gates are passed in as predicates rather than reused from
+ * the caller's own exclude function on purpose: that one also rejects cards
+ * already in the deck, which is not a filter problem, and counting those would
+ * report a number of "ruled out" cards that is simply untrue.
+ *
+ * Returns { pool, byBudget, byBracket, filtered, cause }, where `pool` is the
+ * distinct candidates the source could have offered.
+ */
+export function describeAutoFillShortfall({
+  roles = [],
+  owned = false,                    // true when filling from binders only
+  upgradesFor = () => [],           // role → its suggestion list (deep)
+  isOverBudget = () => false,
+  isOverBracket = () => false,
+  budgetLabel = null,               // e.g. "≤ €5" — omitted when no cap is set
+  bracketLabel = null,              // e.g. "Bracket 2"
+} = {}) {
+  const seen = new Set()
+  let pool = 0
+  let byBudget = 0
+  let byBracket = 0
+
+  for (const role of roles) {
+    const candidates = owned
+      ? (role?.ownedCandidates || [])
+      : [...(role?.ownedCandidates || []), ...(upgradesFor(role) || [])]
+    for (const cand of candidates) {
+      const key = (cand?.name || '').toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      pool++
+      // Budget first and exclusively: a card over both gates is one card the
+      // user cannot have, not two, and double-counting inflates the total.
+      if (isOverBudget(cand)) byBudget++
+      else if (isOverBracket(cand)) byBracket++
+    }
+  }
+
+  const filtered = byBudget + byBracket
+  let cause
+  if (pool === 0) {
+    cause = owned
+      ? 'You have no cards in your collection to draw from — pick “the best cards” above, or add cards to a binder first.'
+      : 'We have no recommendation data for this commander yet.'
+  } else if (filtered > 0) {
+    const gates = [
+      byBudget > 0 && budgetLabel && `your ${budgetLabel} per-card budget`,
+      byBracket > 0 && bracketLabel && `the ${bracketLabel} limit`,
+    ].filter(Boolean)
+    const by = gates.length ? gates.join(' and ') : 'your filters'
+    const widen = gates.length > 1 ? 'either' : 'it'
+    cause = `${filtered} candidate${filtered === 1 ? ' is' : 's are'} ruled out by ${by} — widening ${widen} will find more.`
+  } else {
+    cause = owned
+      ? 'Everything else you own is already in this deck or outside its colours.'
+      : 'Everything we can suggest for this commander is already in this deck.'
+  }
+
+  return { pool, byBudget, byBracket, filtered, cause }
+}
+
 // True for a basic land by name (used to keep basics out of the nonbasic step).
 // Re-exported from basicLands.js so the assistant shares the canonical set —
 // including Wastes and Snow-Covered variants, which a local 5-color set once

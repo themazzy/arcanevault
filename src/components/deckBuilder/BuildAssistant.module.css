@@ -951,6 +951,19 @@
   color: var(--text-faint);
 }
 
+/* The build will not reach the target deck size. Caution, not danger: the
+   button still works and the result is a real (if short) deck — same token the
+   Unsynced badge uses for "this needs your attention, nothing has failed". */
+.afNoteWarn {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--orange) 30%, transparent);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--orange) 10%, transparent);
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.afNoteWarn strong { color: var(--orange); }
+
 .afActions {
   display: flex;
   justify-content: flex-end;

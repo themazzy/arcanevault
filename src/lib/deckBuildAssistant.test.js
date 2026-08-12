@@ -37,6 +37,7 @@ import {
   countColorPips,
   planBasicLands,
   basicsForAutoFill,
+  describeAutoFillShortfall,
   isBasicLandName,
   rankCutCandidates,
   CUT_TIER,
@@ -1303,6 +1304,87 @@ describe('planBasicLands', () => {
     const { counts, total } = planBasicLands({ deckCards: ownedCards, sfMap, colors: ['W', 'U'], landTarget: 40 })
     expect(total).toBe(4)
     expect(counts).toEqual({ Plains: 3, Island: 1 })
+  })
+})
+
+describe('describeAutoFillShortfall', () => {
+  const role = (name, candidates = [], upgrades = []) => ({
+    role: name,
+    ownedCandidates: candidates.map(n => ({ name: n })),
+    __upgrades: upgrades.map(n => ({ name: n })),
+  })
+  const upgradesFor = r => r.__upgrades || []
+
+  // The case that produced the original report: a user with no collection, on a
+  // commander EDHREC returned nothing for. Both pools empty, so the deck could
+  // not be finished and nothing on screen said why.
+  it('blames missing recommendation data when no source has anything', () => {
+    const res = describeAutoFillShortfall({ roles: [role('Ramp'), role('Removal')], upgradesFor })
+    expect(res.pool).toBe(0)
+    expect(res.cause).toMatch(/no recommendation data/i)
+  })
+
+  it('blames an empty collection on the binders source', () => {
+    const res = describeAutoFillShortfall({ roles: [role('Ramp', [], ['Sol Ring'])], owned: true, upgradesFor })
+    expect(res.pool).toBe(0)
+    expect(res.cause).toMatch(/no cards in your collection/i)
+  })
+
+  it('names the budget when it is what rejected the candidates', () => {
+    const res = describeAutoFillShortfall({
+      roles: [role('Ramp', [], ['Mana Crypt', 'Chrome Mox'])],
+      upgradesFor,
+      isOverBudget: () => true,
+      budgetLabel: '≤ €5',
+    })
+    expect(res.filtered).toBe(2)
+    expect(res.cause).toBe('2 candidates are ruled out by your ≤ €5 per-card budget — widening it will find more.')
+  })
+
+  it('names both gates when both rejected something', () => {
+    const res = describeAutoFillShortfall({
+      roles: [role('Ramp', [], ['Mana Crypt', 'Thassa\'s Oracle'])],
+      upgradesFor,
+      isOverBudget: c => c.name === 'Mana Crypt',
+      isOverBracket: c => c.name === 'Thassa\'s Oracle',
+      budgetLabel: '≤ €5',
+      bracketLabel: 'Bracket 2',
+    })
+    expect(res.cause).toMatch(/your ≤ €5 per-card budget and the Bracket 2 limit/)
+    expect(res.cause).toMatch(/widening either/)
+  })
+
+  // A card over both gates is one card the user cannot have, not two. Counting
+  // it twice would report more rejections than there are candidates.
+  it('counts a candidate rejected by both gates once', () => {
+    const res = describeAutoFillShortfall({
+      roles: [role('Ramp', [], ['Mana Crypt'])],
+      upgradesFor,
+      isOverBudget: () => true,
+      isOverBracket: () => true,
+      budgetLabel: '≤ €5',
+      bracketLabel: 'Bracket 2',
+    })
+    expect(res.pool).toBe(1)
+    expect(res.filtered).toBe(1)
+  })
+
+  // Nothing was filtered and the pool was non-empty: the candidates are simply
+  // already in the deck. Saying "your filters ruled them out" here would send
+  // the user to widen a budget that is not the problem.
+  it('does not blame filters when nothing was filtered', () => {
+    const res = describeAutoFillShortfall({ roles: [role('Ramp', [], ['Sol Ring'])], upgradesFor })
+    expect(res.filtered).toBe(0)
+    expect(res.cause).toMatch(/already in this deck/i)
+    expect(res.cause).not.toMatch(/budget|bracket/i)
+  })
+
+  it('counts a candidate offered by several roles once', () => {
+    const res = describeAutoFillShortfall({
+      roles: [role('Ramp', [], ['Sol Ring']), role('Synergy', [], ['Sol Ring'])],
+      upgradesFor,
+    })
+    expect(res.pool).toBe(1)
   })
 })
 
