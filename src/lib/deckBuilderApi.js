@@ -517,14 +517,39 @@ function edhCacheSet(key, value) {
  */
 // EDHRec: the /pages/ path allows direct browser requests (no CORS block).
 // The old /commanders/ path was blocked by Cloudflare; /pages/commanders/ is not.
-async function edhrecFetch(path) {
+//
+// A slug EDHREC knows but does not consider canonical answers **200 with a body
+// of `{"redirect": "/commanders/<canonical>"}`** rather than a 404 or an HTTP
+// redirect. Only the response status was checked, so that stub counted as a
+// successful page: the caller stopped trying other slugs and got a result with
+// zero card lists. Follow the pointer instead — it names the page we wanted.
+//
+// Depth-capped at one hop. EDHREC should never chain these, and a loop here
+// would hang the build assistant rather than degrade it.
+async function edhrecFetch(path, { depth = 0 } = {}) {
   try {
     const res = await fetch(`${EDHREC}/pages/${path}`)
     if (!res.ok) return null
-    return await res.json()
+    const data = await res.json()
+    if (data?.redirect && typeof data.redirect === 'string') {
+      if (depth >= 1) return null
+      const target = data.redirect.replace(/^\/+/, '').replace(/\.json$/, '')
+      if (!target) return null
+      return await edhrecFetch(`${target}.json`, { depth: depth + 1 })
+    }
+    return data
   } catch {
     return null
   }
+}
+
+// A page is only usable if it actually carries recommendations. Anything else
+// (a redirect stub we could not follow, a stripped payload) must fall through
+// to the next slug candidate — accepting it strands the build assistant with no
+// suggestions at all, which looks like "auto-fill stopped working" rather than
+// like a failed fetch.
+function hasCardlists(data) {
+  return (data?.container?.json_dict?.cardlists || []).some(cl => cl?.cardviews?.length)
 }
 
 export async function fetchEdhrecCommander(commanderName, formatId = 'commander', { themeSlug = '', partnerName = '' } = {}) {
@@ -549,8 +574,9 @@ export async function fetchEdhrecCommander(commanderName, formatId = 'commander'
     let resolvedSlug = null
 
     for (const slug of slugs) {
-      data = await edhrecFetch(`commanders/${slug}${subPath}.json`)
-      if (data) {
+      const page = await edhrecFetch(`commanders/${slug}${subPath}.json`)
+      if (hasCardlists(page)) {
+        data = page
         resolvedSlug = slug
         break
       }
@@ -559,8 +585,9 @@ export async function fetchEdhrecCommander(commanderName, formatId = 'commander'
     // Theme/brawl-specific page may not exist — fall back to the base commander page.
     if (!data && subPath) {
       for (const slug of slugs) {
-        data = await edhrecFetch(`commanders/${slug}.json`)
-        if (data) {
+        const page = await edhrecFetch(`commanders/${slug}.json`)
+        if (hasCardlists(page)) {
+          data = page
           resolvedSlug = slug
           break
         }

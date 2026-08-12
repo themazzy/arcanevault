@@ -576,6 +576,55 @@ describe('fetchEdhrecCommander', () => {
     expect(cards[0]).toMatchObject({ name: 'Slick Sequence', inclusion: 2525, potentialDecks: 2782 })
     expect(cards[1].inclusion).toBe(2487)
   })
+
+  // EDHREC answers a non-canonical slug with 200 and a `{redirect}` body, not a
+  // 404. Only the status was checked, so the stub counted as the commander's
+  // page: the caller stopped trying slugs and the build assistant got zero
+  // recommendations. Observed on Rasaad yn Bashir + Guild Artisan, where the
+  // alphabetical pair slug is tried first and is the non-canonical one.
+  const pathsFetched = () => global.fetch.mock.calls.map(c => c[0])
+
+  it('follows a redirect stub to the canonical page', async () => {
+    global.fetch = vi.fn().mockImplementation(async url => ({
+      ok: true,
+      json: async () => (url.includes('guild-artisan-rasaad-yn-bashir')
+        ? { redirect: '/commanders/rasaad-yn-bashir-guild-artisan' }
+        : edhrecPage),
+    }))
+
+    const res = await fetchEdhrecCommander('Rasaad yn Bashir', 'commander', { partnerName: 'Guild Artisan' })
+
+    expect(res.categories[0].cards).toHaveLength(2)
+    expect(pathsFetched().some(u => u.endsWith('commanders/rasaad-yn-bashir-guild-artisan.json'))).toBe(true)
+  })
+
+  it('stops after one redirect hop rather than following a loop', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ redirect: '/commanders/loop' }) })
+    const res = await fetchEdhrecCommander('Looping Commander')
+    expect(res).toBeNull()
+    expect(global.fetch.mock.calls.length).toBeLessThan(10)
+  })
+
+  // Belt and braces for the same failure: even if a stub cannot be followed,
+  // a page carrying no card lists must not end the slug search. The pair page
+  // returning nothing has to fall through to the commander's solo page.
+  // Distinct names from the redirect test above — the module's slug cache is
+  // per-session, and reusing them would answer from it without fetching.
+  it('falls through to the next slug when a page has no card lists', async () => {
+    global.fetch = vi.fn().mockImplementation(async url => ({
+      ok: true,
+      json: async () => (url.includes('agent-of-the-iron-throne')
+        ? { container: { json_dict: { cardlists: [] } } }
+        : edhrecPage),
+    }))
+
+    const res = await fetchEdhrecCommander('Wilson, Refined Grizzly', 'commander', {
+      partnerName: 'Agent of the Iron Throne',
+    })
+
+    expect(res.categories[0].cards).toHaveLength(2)
+    expect(pathsFetched().some(u => u.endsWith('commanders/wilson-refined-grizzly.json'))).toBe(true)
+  })
 })
 
 describe('fetchRandomCommander', () => {

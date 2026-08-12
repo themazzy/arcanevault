@@ -1814,6 +1814,13 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   // happens post-fill in runComboPass, which cuts filler to make room.
   const autoFillSelected = autoFillSource === 'recommended' ? autoFillPicksRec : autoFillPicksOwned
 
+  // Either source having something to add is what makes Auto-fill actionable —
+  // the dialog lets the user switch between them, so an empty owned pool alone
+  // is not a dead end. `autoFillDeckShort` separates "nothing left to add" from
+  // "the deck is already full", which are the same empty pick list.
+  const autoFillHasPicks = autoFillPicksOwned.length > 0 || autoFillPicksRec.length > 0
+  const autoFillDeckShort = !!plan && totalCards < (plan.deckSize || 0)
+
   // Pseudo-rows for the sequential fallback (no bulk-add return): built from the
   // picks so the basics predictor sees real mana_cost / type_line before the
   // deckCards prop round-trips. Owned picks carry sfCard for pips.
@@ -3553,13 +3560,20 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
           <div className={styles.footerSpacer} />
           {/* Auto-fill sits with the forward actions, not beside Back: it builds
               the deck, and a button on the "retreat" side reads as one. */}
-          {!loading && !error && plan && (autoFilling || autoFillPicksOwned.length > 0 || autoFillPicksRec.length > 0) && (
+          {/* Kept mounted (disabled) while the deck is still short of its target
+              but nothing can be picked. It used to unmount, so a build that ran
+              out of candidates part-way — binders exhausted and no
+              recommendations for the commander — simply lost its Auto-fill
+              button mid-build, with no way to tell that apart from a bug. */}
+          {!loading && !error && plan && (autoFilling || autoFillHasPicks || autoFillDeckShort) && (
             <Button
               variant="ghost"
               className={styles.autoFillBtn}
               onClick={() => { setAutoFillResult(null); setAutoFillOpen(true) }}
-              disabled={!!autoFilling}
-              title="Fill every remaining role automatically — from your binders only, or topped up with suggestions"
+              disabled={!!autoFilling || !autoFillHasPicks}
+              title={autoFillHasPicks
+                ? 'Fill every remaining role automatically — from your binders only, or topped up with suggestions'
+                : 'Nothing left to add: no owned card or suggestion fits the remaining slots for this commander'}
             >
               <LightningIcon size={13} />
               {autoFilling

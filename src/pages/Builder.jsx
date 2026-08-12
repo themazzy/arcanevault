@@ -10,6 +10,7 @@ import { useDeckArts, enrichDecksWithCommanderArt } from '../lib/deckArt'
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
+import { useGuidedDeckName } from '../hooks/useGuidedDeckName'
 import { useToast } from '../components/ToastContext'
 import {
   CheckIcon, CloseIcon, DeleteIcon, ChevronDownIcon, ChevronUpIcon, ChevronLeftIcon, ChevronRightIcon,
@@ -673,7 +674,12 @@ export default function BuilderPage() {
   const [decks, setDecks]         = useState([])
   const [loading, setLoading]     = useState(true)
   const [showNew, setShowNew]     = useState(() => getBuilderIndexIntent(location.search).openNewDeck)
-  const [newName, setNewName]     = useState('')
+  const {
+    name: newName,
+    setName: setNewName,
+    syncToCommander: syncNewNameToCommander,
+    reset: resetNewName,
+  } = useGuidedDeckName()
   const [newFormat, setNewFormat] = useState('commander')
   const [creating, setCreating]   = useState(false)
   const [newMode, setNewMode]     = useState('blank')   // 'blank' | 'guided' | 'import'
@@ -899,11 +905,10 @@ export default function BuilderPage() {
 
   function resetNewDeckForm() {
     setShowNew(false)
-    setNewName('')
+    resetNewName()
     setNewMode('blank')
     setGuidedCmd(null)
     setGuidedPartner(null)
-    autoDeckNameRef.current = ''
     const nextSearch = clearNewDeckIntent(location.search)
     if (nextSearch !== location.search) {
       navigate({ pathname: location.pathname, search: nextSearch }, { replace: true })
@@ -912,18 +917,12 @@ export default function BuilderPage() {
 
   // Stable so typing the deck name doesn't hand GuidedCommanderPicker a fresh
   // onSelect each keystroke (which would re-render its whole owned-commander
-  // list — the source of the input-lag violations). Functional setNewName keeps
-  // it independent of the current name value.
-  //
-  // The name a commander pick filled in is tracked so a later pick can replace
-  // it — re-rolling a random commander would otherwise leave the first roll's
-  // name on the deck. A name the user typed themselves is never overwritten.
-  const autoDeckNameRef = useRef('')
+  // list — the source of the input-lag violations). The name-vs-commander rule
+  // itself lives in useGuidedDeckName, where it is unit-tested.
   const handleGuidedSelect = useCallback(sf => {
     setGuidedCmd(sf)
-    setNewName(prev => (prev.trim() && prev !== autoDeckNameRef.current ? prev : sf.name))
-    autoDeckNameRef.current = sf.name
-  }, [])
+    syncNewNameToCommander(sf.name)
+  }, [syncNewNameToCommander])
 
   async function createDeck() {
     const guided = newMode === 'guided'
