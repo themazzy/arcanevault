@@ -74,7 +74,7 @@ import {
 } from './saveDestinations'
 import { useSettings } from '../components/SettingsContext'
 import styles from './CardScanner.module.css'
-import { playMatchSound } from './scanSounds'
+import { playMatchSound, shouldPlayScanSound } from './scanSounds'
 import { formatAttractionLights } from '../lib/attractions'
 
 const MATCH_THRESHOLD        = 122
@@ -845,8 +845,14 @@ export default function CardScanner({ onMatch, onClose }) {
   // ── Scan sound — plays when price data arrives for a newly scanned card ─────
   useEffect(() => {
     if (!scanSounds) return
-    if (!latestPending || !latestPrintingData) return
-    if (lastSoundCardUidRef.current === latestPending.uid) return
+    // Guards on the printing data belonging to THIS card, not merely existing —
+    // see shouldPlayScanSound. Clearing the row above is what makes the pairing
+    // possible; this is the check that enforces it.
+    if (!shouldPlayScanSound({
+      card: latestPending,
+      printingData: latestPrintingData,
+      lastSoundedUid: lastSoundCardUidRef.current,
+    })) return
     lastSoundCardUidRef.current = latestPending.uid
     const priceMeta = getPriceWithMeta(latestPrintingData, latestPending.foil, { price_source })
     playMatchSound(priceMeta?.value ?? 0)
@@ -1071,6 +1077,12 @@ export default function CardScanner({ onMatch, onClose }) {
     const cardId = latestPending?.id
     if (!cardId) { setLatestPrintingData(null); return }
     let cancelled = false
+    // Drop the previous card's row before fetching this one's. Until the fetch
+    // lands, latestPrintingData describes a DIFFERENT card while every consumer
+    // reads it as the current one's: the bottom bar showed the last card's
+    // price, the foil toggle read the wrong printing's finishes, and the
+    // printing search ran on a stale oracle_id.
+    setLatestPrintingData(null)
     ;(async () => {
       const data = await sfGet(`/cards/${cardId}`)
       if (!cancelled) setLatestPrintingData(data || null)

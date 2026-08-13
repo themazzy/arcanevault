@@ -6,6 +6,25 @@
  *   Tier 2 (> highThreshold): bright ascending chime
  */
 
+/**
+ * Should this scan sound? True only when `printingData` actually describes
+ * `card`, and the card has not already been sounded.
+ *
+ * The identity check is the point. The scanner fetches a card's printing data
+ * asynchronously, so between scans `latestPrintingData` still holds the
+ * PREVIOUS card's row while `latestPending` is already the new one. Sounding on
+ * that pair priced each card off its predecessor: scanning an expensive card
+ * was silent, and the valuable-card chime arrived on the next, ordinary card.
+ *
+ * `uid` is the basket entry (a second copy of the same card sounds again);
+ * `id` is the Scryfall printing (what the price belongs to). Both are needed.
+ */
+export function shouldPlayScanSound({ card, printingData, lastSoundedUid }) {
+  if (!card || !printingData) return false
+  if (!card.id || printingData.id !== card.id) return false
+  return lastSoundedUid !== card.uid
+}
+
 let _audioCtx = null
 
 function getAudioCtx() {
