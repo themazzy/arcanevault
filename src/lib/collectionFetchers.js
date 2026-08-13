@@ -1,13 +1,63 @@
 import { sb } from './supabase'
 import { loadCardMapWithSharedPrices } from './sharedCardPrices'
 import { assertOnline } from './networkUtils'
-import { getMeta, setMeta, getLocalCards, putCards, deleteCard, deleteAllCards } from './db'
+import { getMeta, setMeta, getLocalCards, getCardsByIds, putCards, deleteCard, deleteAllCards } from './db'
 import { fetchAllByKeyset, fetchAllByKeysetSharded } from './keysetPager'
+import { chunkIds } from './deckBuilderHelpers'
 
 const PAGE = 1000
 
 export function isGroupFolder(folder) {
   try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
+}
+
+/**
+ * Resolve owned-card rows by id, IDB first, fetching whatever is missing.
+ *
+ * For any caller that has just pulled fresh placement rows from Supabase: those
+ * rows can point at cards the local cache has never seen — created on another
+ * device, or by a surface that reached Supabase before IDB caught up. Joining
+ * them against `getCardsByIds` alone silently DROPS such placements, so the
+ * reconcile that was supposed to repair the view instead renders it empty. That
+ * is what made a freshly scanned binder show nothing until the user visited
+ * Collection and triggered syncOwnedCards.
+ *
+ * Anything fetched is written through, so the next paint is local again. Never
+ * use this for a first paint — it does a round trip; the IDB-only read is the
+ * right call there.
+ */
+export async function loadOwnedCardsByIds(userId, ids) {
+  const unique = [...new Set((ids || []).filter(Boolean))]
+  if (!unique.length) return []
+
+  const local = await getCardsByIds(unique)
+  const byId = new Map(local.map(row => [row.id, row]))
+  const missing = unique.filter(id => !byId.has(id))
+
+  if (missing.length && userId) {
+    try {
+      assertOnline()
+      const fetched = []
+      for (const batch of chunkIds(missing)) {
+        const { data, error } = await sb.from('owned_cards_view')
+          .select('*')
+          .eq('user_id', userId)
+          .in('id', batch)
+        if (error) throw error
+        if (data?.length) fetched.push(...data)
+      }
+      if (fetched.length) {
+        await putCards(fetched).catch(() => {})
+        for (const row of fetched) byId.set(row.id, row)
+      }
+    } catch (err) {
+      // Offline, or the fetch failed: fall back to whatever IDB had. Callers
+      // render fewer cards rather than none.
+      console.warn('[collection] could not resolve cards missing locally:', err?.message || err)
+    }
+  }
+
+  return unique.map(id => byId.get(id)).filter(Boolean)
 }
 
 // Read via owned_cards_view so name/set_code/scryfall_id are sourced from

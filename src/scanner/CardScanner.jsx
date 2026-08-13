@@ -43,7 +43,8 @@ import { useBottomBarClearance, SCANNER_BAR_HEIGHT } from '../components/bottomB
 import { SearchInput } from '../components/UI'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries, invalidateWishlistQueries } from '../lib/queryInvalidation'
-import { formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
+import { enrichCards, formatPriceMeta, getPriceWithMeta, sfGet } from '../lib/scryfall'
+import { putCards, putFolderCards, putDeckAllocations } from '../lib/db'
 import { searchCardNames, fetchPrintingsByName } from '../lib/cardSearch'
 import { filterPrintings } from '../lib/printingFilter'
 import { isCurrentManualSearchRequest } from './manualSearchRequest'
@@ -383,7 +384,8 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
     const items = aggregateListItems(cards, { folderId, userId })
       .map(row => withCardPrint(row, getCardPrint(printByScryfallId, row)))
     await additiveSaveWishlistItems(folderId, userId, items, 'Scanned card')
-    return
+    // Wishlists have no IDB mirror — Lists reads list_items over the network.
+    return { folderType: destinationType, cards: [], placements: [] }
   }
 
   // Binder or deck — upsert owned cards first
@@ -460,13 +462,34 @@ async function batchSaveCards({ userId, cards, folderId, folderType }) {
     throw new Error('Card was saved, but its destination placement could not be matched. Please retry the save.')
   }
 
+  let savedLinks = []
   if (links.length) {
-    const { error: linkErr } = await sb.from(table).upsert(links, { onConflict: `${fk},card_id` })
+    const { data: linkRows, error: linkErr } = await sb.from(table)
+      .upsert(links, { onConflict: `${fk},card_id` })
+      .select(destinationType === 'deck'
+        ? 'id,deck_id,user_id,card_id,qty'
+        : 'id,folder_id,card_id,qty,updated_at')
     if (linkErr) {
       if (insertedCardIds.length) await pruneUnplacedCards(insertedCardIds)
       throw new Error(linkErr.message)
     }
+    savedLinks = linkRows || []
   }
+
+  // Read the saved rows back through owned_cards_view rather than reshaping the
+  // upsert's return: the IDB `cards` store holds view rows (name, set_code,
+  // image_uri … sourced from card_prints), and hand-building that shape here
+  // would drift from syncOwnedCards the next time the view changes.
+  const ownedRows = []
+  for (const batch of chunkIds(savedIds)) {
+    const { data, error: viewErr } = await sb.from('owned_cards_view')
+      .select('*')
+      .in('id', batch)
+    if (viewErr) throw new Error(viewErr.message)
+    if (data?.length) ownedRows.push(...data)
+  }
+
+  return { folderType: destinationType, cards: ownedRows, placements: savedLinks }
 }
 
 // ── Detection helpers ─────────────────────────────────────────────────────────
@@ -1367,12 +1390,36 @@ export default function CardScanner({ onMatch, onClose }) {
     setAddFlowError(null)
     try {
       const savedQty = totalPendingQty(pendingCards)
-      await batchSaveCards({
+      const saved = await batchSaveCards({
         userId: user.id,
         cards: pendingCards,
         folderId: addFlowSelectedFolder,
         folderType: folder.type,
       })
+
+      // Write through to IDB before leaving the scanner.
+      //
+      // IDB is the first-paint cache for every collection surface, and the
+      // scanner is a full-screen route: Collection and Folders are not mounted,
+      // so invalidating the queries only marks them stale — nothing refetches
+      // until one of those pages is opened. Folders resolves a binder's cards
+      // from IDB alone and silently drops placements it cannot resolve, so a
+      // freshly scanned binder rendered EMPTY until the user happened to visit
+      // Collection and trigger syncOwnedCards. Every other save path in the app
+      // already writes through; this one did not.
+      if (saved?.cards?.length) {
+        await putCards(saved.cards).catch(() => {})
+        if (saved.placements.length) {
+          const writePlacements = saved.folderType === 'deck' ? putDeckAllocations : putFolderCards
+          await writePlacements(saved.placements).catch(() => {})
+        }
+        // Warm the metadata cache too, or the cards land with a name and a
+        // location but no art and no price until something else enriches them.
+        // ensureCardPrints has already inserted every scanned printing, so this
+        // resolves from card_prints without touching Scryfall.
+        await enrichCards(saved.cards).catch(() => {})
+      }
+
       if (folder.type === 'list') {
         await invalidateWishlistQueries(queryClient, user.id, { includeFolders: true }).catch(() => {})
       } else {

@@ -11,6 +11,7 @@ const idbState = { cards: [], meta: new Map() }
 function applyFilters(rows, filters) {
   let out = rows
   for (const [col, val] of Object.entries(filters.eq)) out = out.filter(r => r[col] === val)
+  for (const [col, vals] of Object.entries(filters.in)) out = out.filter(r => vals.includes(r[col]))
   // Shard bounds — the full-fetch path splits the id space and walks the
   // buckets concurrently.
   for (const [col, val] of Object.entries(filters.gte)) out = out.filter(r => r[col] >= val)
@@ -31,7 +32,7 @@ function applyFilters(rows, filters) {
 const requestLog = []
 
 function makeQuery(table) {
-  const filters = { eq: {}, gt: {}, gte: {}, lt: {} }
+  const filters = { eq: {}, gt: {}, gte: {}, lt: {}, in: {} }
   let orderCol = 'id'
   let rowLimit = Infinity
   let wantsCount = false
@@ -41,6 +42,7 @@ function makeQuery(table) {
       return q
     },
     eq(col, val) { filters.eq[col] = val; return q },
+    in(col, vals) { filters.in[col] = vals; return q },
     gt(col, val) { filters.gt[col] = val; return q },
     gte(col, val) { filters.gte[col] = val; return q },
     lt(col, val) { filters.lt[col] = val; return q },
@@ -70,6 +72,7 @@ vi.mock('./db', () => ({
   getMeta: vi.fn(async (key) => idbState.meta.get(key) ?? null),
   setMeta: vi.fn(async (key, value) => { idbState.meta.set(key, value) }),
   getLocalCards: vi.fn(async (userId) => idbState.cards.filter(c => c.user_id === userId)),
+  getCardsByIds: vi.fn(async (ids) => idbState.cards.filter(c => (ids || []).includes(c.id))),
   putCards: vi.fn(async (cards) => {
     for (const card of cards || []) {
       const i = idbState.cards.findIndex(c => c.id === card.id)
@@ -85,7 +88,7 @@ vi.mock('./db', () => ({
   }),
 }))
 
-import { computeIdsToDelete, syncOwnedCards, fetchCollectionCards } from './collectionFetchers'
+import { computeIdsToDelete, syncOwnedCards, fetchCollectionCards, loadOwnedCardsByIds } from './collectionFetchers'
 
 const USER = 'user-1'
 
@@ -295,5 +298,88 @@ describe('syncOwnedCards', () => {
 
     const result = await fetchCollectionCards(USER)
     expect(result.map(c => c.id)).toEqual(['c1'])
+  })
+})
+
+describe('loadOwnedCardsByIds', () => {
+  it('resolves entirely from IDB when the cache already has every card', async () => {
+    idbState.cards = [
+      { id: 'c1', user_id: USER, name: 'Forest' },
+      { id: 'c2', user_id: USER, name: 'Sol Ring' },
+    ]
+
+    const rows = await loadOwnedCardsByIds(USER, ['c1', 'c2'])
+
+    expect(rows.map(r => r.id)).toEqual(['c1', 'c2'])
+    // No round trip: this runs on every binder reconcile.
+    expect(requestLog).toHaveLength(0)
+  })
+
+  it('fetches the cards IDB has never seen instead of dropping them', async () => {
+    // The bug: a binder reconcile pulls fresh placements from Supabase, joins
+    // them against IDB alone, and renders empty because the scanner had written
+    // the cards to Supabase only.
+    idbState.cards = [{ id: 'c1', user_id: USER, name: 'Forest' }]
+    sbState.ownedCardsView = [
+      { id: 'c2', user_id: USER, name: 'Sol Ring' },
+      { id: 'c3', user_id: USER, name: 'Arcane Signet' },
+    ]
+
+    const rows = await loadOwnedCardsByIds(USER, ['c1', 'c2', 'c3'])
+
+    expect(rows.map(r => r.id)).toEqual(['c1', 'c2', 'c3'])
+  })
+
+  it('writes the fetched rows through so the next paint is local', async () => {
+    idbState.cards = []
+    sbState.ownedCardsView = [{ id: 'c2', user_id: USER, name: 'Sol Ring' }]
+
+    await loadOwnedCardsByIds(USER, ['c2'])
+    expect(idbState.cards.map(c => c.id)).toEqual(['c2'])
+
+    requestLog.length = 0
+    await loadOwnedCardsByIds(USER, ['c2'])
+    expect(requestLog).toHaveLength(0)
+  })
+
+  it('preserves the caller-supplied id order', async () => {
+    idbState.cards = [{ id: 'c3', user_id: USER, name: 'Arcane Signet' }]
+    sbState.ownedCardsView = [{ id: 'c1', user_id: USER, name: 'Forest' }]
+
+    const rows = await loadOwnedCardsByIds(USER, ['c1', 'c3'])
+    expect(rows.map(r => r.id)).toEqual(['c1', 'c3'])
+  })
+
+  it('never returns another user\u2019s rows', async () => {
+    sbState.ownedCardsView = [{ id: 'c9', user_id: 'someone-else', name: 'Black Lotus' }]
+
+    const rows = await loadOwnedCardsByIds(USER, ['c9'])
+    expect(rows).toEqual([])
+  })
+
+  it('deduplicates repeated ids', async () => {
+    idbState.cards = [{ id: 'c1', user_id: USER, name: 'Forest' }]
+
+    const rows = await loadOwnedCardsByIds(USER, ['c1', 'c1', 'c1'])
+    expect(rows.map(r => r.id)).toEqual(['c1'])
+  })
+
+  it('falls back to the local rows when the fetch fails, rather than returning none', async () => {
+    idbState.cards = [{ id: 'c1', user_id: USER, name: 'Forest' }]
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('navigator', { onLine: false })
+    try {
+      const rows = await loadOwnedCardsByIds(USER, ['c1', 'missing'])
+      expect(rows.map(r => r.id)).toEqual(['c1'])
+    } finally {
+      vi.stubGlobal('navigator', { onLine: true })
+      warn.mockRestore()
+    }
+  })
+
+  it('short-circuits on empty input', async () => {
+    expect(await loadOwnedCardsByIds(USER, [])).toEqual([])
+    expect(await loadOwnedCardsByIds(USER, null)).toEqual([])
+    expect(requestLog).toHaveLength(0)
   })
 })

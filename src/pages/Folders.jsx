@@ -28,6 +28,7 @@ import { useAllFolders } from '../hooks/useAllFolders'
 import { useVisibleOrder, useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import { getPlacedQtyByCardIds, pruneUnplacedCards, removeFolderCardPlacements } from '../lib/collectionOwnership'
 import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFolders, getCardsByIds, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
+import { loadOwnedCardsByIds } from '../lib/collectionFetchers'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
@@ -690,7 +691,11 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
         if (cancelled) return
         await replaceLocalFolderCards([folder.id], rows).catch(() => {})
         const cardIds = rows.map(row => row.card_id).filter(Boolean)
-        const localCards = await getCardsByIds(cardIds)
+        // Resolve against Supabase for anything IDB has not seen — these
+        // placements are fresh off the network and may name cards added from
+        // another device or another surface. An IDB-only join drops them and
+        // the binder renders empty despite a successful reconcile.
+        const localCards = await loadOwnedCardsByIds(user?.id, cardIds)
         if (cancelled) return
         const cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
         setCards(rows
@@ -703,7 +708,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     }
     reconcile()
     return () => { cancelled = true }
-  }, [folder?.id, isAllView])
+  }, [folder?.id, isAllView, user?.id])
 
   // Phase B: load prices in background after cards are visible. Don't clear
   // the existing sfMap while loading — keeping the previous entries means
@@ -1814,7 +1819,10 @@ export default function FoldersPage({ type }) {
       else await replaceLocalFolderCards(ids, remoteRows).catch(() => {})
       allRows = remoteRows
       uniqueCardIds = [...new Set(allRows.map(r => r.card_id).filter(Boolean))]
-      localCards = await getCardsByIds(uniqueCardIds)
+      // Same as the single-binder reconcile: an IDB-only join here left the
+      // index showing a correct card count with no value, because the cards
+      // behind the fresh placements were not in the local cache yet.
+      localCards = await loadOwnedCardsByIds(user.id, uniqueCardIds)
       cardById = Object.fromEntries(localCards.map(c => [c.id, c]))
       folderJoinRef.current = { allRows, cardById, foldersData }
       setFolderMeta(prev => computeMetaCounts(foldersData, allRows, prev))
