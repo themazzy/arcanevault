@@ -52,6 +52,7 @@ ownedmap-foil-plan.md
 /*review*.md
 /*migration*.md
 /*upgrade*.md
+/*findings*.md
 /PLAN.md
 /POST_MIGRATION_VALIDATION.md
 /REACT_QUERY_MIGRATION.md
