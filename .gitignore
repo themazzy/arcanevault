@@ -63,3 +63,6 @@ ownedmap-foil-plan.md
 
 # Build Assistant A/B harness report (npm run harness:build-assist)
 harness-build-assist.txt
+
+# Database RPC latency report (npm run harness:db-perf)
+harness-db-perf.txt
