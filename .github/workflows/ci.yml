@@ -1,0 +1,62 @@
+name: CI
+
+# The test suite and linter existed for a long time before anything ran them
+# automatically — every other workflow in this repo builds or deploys, so a
+# red suite only ever surfaced if someone ran `npm test` locally before
+# pushing. This workflow is the gate that was missing.
+#
+# It deliberately does NOT block the Pages deploy (deploy.yml triggers on the
+# same push and runs in parallel). Making deploys wait on tests is a separate
+# decision with its own trade-off — a flaky test would then hold up a hotfix.
+# Start by making failures visible; couple them later if that proves worth it.
+
+on:
+  push:
+    branches: "main"
+  pull_request:
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight run on the same ref; nothing here
+# deploys, so cancelling early is free.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # AGENTS.md pins the baseline at 0 errors / 35 warnings and says that
+      # number is meant to stay small enough to read: "If a change pushes it
+      # up, the change introduced the warning." --max-warnings encodes exactly
+      # that, so drift fails here instead of being discovered months later.
+      # Raise the number only alongside a deliberate decision to accept it.
+      - name: Lint
+        run: npx eslint src cloudflare --max-warnings 35
+
+      # Build runs BEFORE test, for two reasons: it is the only check that
+      # catches a broken import or a bad dynamic-import boundary (the unit
+      # suite never exercises those), and bundleBudget.test.js needs a real
+      # dist/ to measure — without one it skips itself and the budgets go
+      # unenforced exactly where enforcement matters most.
+      #
+      # Supabase env vars are absent on purpose: the build must not require
+      # them (they are read at runtime, not baked in as a build-time
+      # assertion), and a PR from a fork could not read the secrets anyway.
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
