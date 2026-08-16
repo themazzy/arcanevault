@@ -1,7 +1,12 @@
 import { sb } from './supabase'
+import { runWithConcurrency, withRetry } from './concurrency'
 
 const CARD_PRINT_UPSERT_BATCH = 200
 const CARD_PRINT_QUERY_BATCH = 200
+// Matches the price path's concurrency (sharedCardPrices CHUNK_CONCURRENCY).
+// Reads only — writes stay serial, since they are not the latency problem and
+// parallel upserts against the same table invite lock contention for nothing.
+const CARD_PRINT_READ_CONCURRENCY = 6
 
 function chunkRows(rows, size) {
   const chunks = []
@@ -262,17 +267,42 @@ export function cardPrintRowToSfEntry(row) {
 
 // Fetch card_prints rows for the supplied scryfall_ids and return them keyed
 // by scryfall_id. Batched to stay under PostgREST's row caps.
+// Runs the batches concurrently, not serially. The daily metadata refresh sends
+// every owned print through here: 11,354 distinct prints is 57 batches, and
+// awaiting each one in turn made that 57 sequential round-trips — ~6 s at a
+// 100 ms RTT and 11-23 s at the 200-400 ms seen in production. The server side
+// was never the constraint (2.5 ms cold / 1.2 ms warm per batch, ~140 ms for
+// all 57); it was purely the shape of the loop.
+//
+// Concurrency does not increase the work, only how it arrives, and the ceiling
+// is comfortable: PostgREST pools 8 connections, six requests at ~2.5 ms each
+// occupy it for ~15 ms, and the price path already runs 6-way against this same
+// table. It cannot stack with that path either — enrichCards() is awaited
+// before overlaySharedCardPrices() runs.
 export async function fetchCardPrintsByScryfallIds(scryfallIds) {
   if (!scryfallIds?.length) return new Map()
   const unique = [...new Set(scryfallIds.filter(Boolean))]
+  const batches = chunkRows(unique, CARD_PRINT_QUERY_BATCH)
+
+  // Retry per batch. The caller (enrichFromCardPrints) treats ANY throw here as
+  // "fall back to Scryfall for every card", which costs ~18 s of rate-limited
+  // requests, so one transient failure out of 57 batches must not decide that.
+  const results = await runWithConcurrency(batches, CARD_PRINT_READ_CONCURRENCY, batch =>
+    withRetry(async () => {
+      const { data, error } = await sb
+        .from('card_prints')
+        .select(CARD_PRINT_SELECT_COLUMNS)
+        .in('scryfall_id', batch)
+      if (error) throw error
+      return data || []
+    }),
+  )
+
+  // Merged after all batches resolve, so a late failure cannot leave a
+  // half-filled map that the caller would read as complete.
   const out = new Map()
-  for (const batch of chunkRows(unique, CARD_PRINT_QUERY_BATCH)) {
-    const { data, error } = await sb
-      .from('card_prints')
-      .select(CARD_PRINT_SELECT_COLUMNS)
-      .in('scryfall_id', batch)
-    if (error) throw error
-    for (const row of data || []) {
+  for (const rows of results) {
+    for (const row of rows) {
       if (row.scryfall_id) out.set(row.scryfall_id, row)
     }
   }
@@ -358,19 +388,31 @@ export async function fetchOracleTextByNames(names) {
 
 // Same, but keyed by `set_code|collector_number` for cards that have no
 // scryfall_id locally (legacy data).
+// Batched by set code rather than id, so this is only a handful of requests
+// (~900 sets exist in total) and the concurrency matters far less than it does
+// above. The retry is the point: this runs inside the same enrichFromCardPrints
+// call, and a throw from here triggers the identical "send all 12k cards to
+// Scryfall" fallback.
 export async function fetchCardPrintsBySetCollector(pairs) {
   if (!pairs?.length) return new Map()
-  const out = new Map()
   const setCodes = [...new Set(pairs.map(p => p.set_code).filter(Boolean))]
-  for (const batch of chunkRows(setCodes, CARD_PRINT_QUERY_BATCH)) {
-    const { data, error } = await sb
-      .from('card_prints')
-      .select(CARD_PRINT_SELECT_COLUMNS)
-      .in('set_code', batch)
-    if (error) throw error
-    for (const row of data || []) {
-      const key = `${row.set_code}|${row.collector_number}`
-      out.set(key, row)
+  const batches = chunkRows(setCodes, CARD_PRINT_QUERY_BATCH)
+
+  const results = await runWithConcurrency(batches, CARD_PRINT_READ_CONCURRENCY, batch =>
+    withRetry(async () => {
+      const { data, error } = await sb
+        .from('card_prints')
+        .select(CARD_PRINT_SELECT_COLUMNS)
+        .in('set_code', batch)
+      if (error) throw error
+      return data || []
+    }),
+  )
+
+  const out = new Map()
+  for (const rows of results) {
+    for (const row of rows) {
+      out.set(`${row.set_code}|${row.collector_number}`, row)
     }
   }
   return out
