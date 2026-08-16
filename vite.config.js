@@ -32,7 +32,22 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: {
               cacheName: 'scryfall-card-images',
-              expiration: { maxEntries: 3000, maxAgeSeconds: 60 * 60 * 24 * 30, purgeOnQuotaError: true },
+              // 12,000 rather than the original 3,000, which was a third of one
+              // real collection (11,354 distinct prints). A cap below the
+              // collection size does not "limit" the cache so much as guarantee
+              // permanent churn: browsing to the bottom of Collection evicted
+              // roughly two-thirds of what it had just stored, so scrolling back
+              // re-downloaded images the user already had — on every visit,
+              // forever. The pathology is the re-download, so the cap has to
+              // clear the collection at least once.
+              //
+              // Sizing: the grid renders the `grid` WebP tier, measured at
+              // ~78 KB/card (vs 156 KB for `normal` JPEG), so 12,000 is ~936 MB
+              // worst case. That is a ceiling, not a reservation — entries only
+              // appear as they are browsed, eviction is LRU, and
+              // purgeOnQuotaError yields the whole cache if the browser pushes
+              // back, which matters on mobile where quotas are far tighter.
+              expiration: { maxEntries: 12000, maxAgeSeconds: 60 * 60 * 24 * 30, purgeOnQuotaError: true },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
