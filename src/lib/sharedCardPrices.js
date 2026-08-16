@@ -6,25 +6,17 @@ import {
 } from './db'
 import { enrichCards, getInstantCache, consumePrefetchedPriceRows } from './scryfall'
 import { perfSpan } from './perf'
+// runWithConcurrency moved to ./concurrency so cardPrints.js can use it too —
+// importing it from here would close the cycle
+// cardPrints -> sharedCardPrices -> scryfall -> cardPrints. Re-exported because
+// it was part of this module's public surface.
+import { runWithConcurrency, withRetry } from './concurrency'
+
+export { runWithConcurrency }
 
 const ID_CHUNK_SIZE = 400
 const SET_CHUNK_SIZE = 25
 const CHUNK_CONCURRENCY = 6
-
-/** Map `items` through async `worker`, at most `limit` in flight. Results
- *  keep input order. Exported for tests. */
-export async function runWithConcurrency(items, limit, worker) {
-  const results = new Array(items.length)
-  let next = 0
-  async function lane() {
-    while (next < items.length) {
-      const index = next++
-      results[index] = await worker(items[index], index)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane))
-  return results
-}
 
 // Per-set-code price row cache — avoids re-fetching card_prices on every navigation.
 // Prices only change daily; 10-minute in-memory TTL is safe.
@@ -98,25 +90,29 @@ async function fetchSharedPriceRowsByIds(ids, snapshotDates, now) {
     const chunkKey = `${datesKey}:${chunk.join(',')}`
     let promise = _idChunkInflight.get(chunkKey)
     if (!promise) {
-      promise = sb
-        .from('card_prices')
-        .select(`
-          scryfall_id,
-          set_code,
-          collector_number,
-          snapshot_date,
-          price_regular_eur,
-          price_foil_eur,
-          price_regular_usd,
-          price_foil_usd,
-          updated_at
-        `)
-        .in('scryfall_id', chunk)
-        .in('snapshot_date', snapshotDates)
-        .then(({ data, error }) => {
-          if (error) throw error
-          return data || []
-        })
+      // Retried per chunk. A price chunk that fails is not fatal — the caller
+      // warns and returns the base map — but the failure is silent to the user,
+      // who just sees cards priced "-" with no indication anything went wrong.
+      // A transient blip should not cost a whole load's prices.
+      promise = withRetry(async () => {
+        const { data, error } = await sb
+          .from('card_prices')
+          .select(`
+            scryfall_id,
+            set_code,
+            collector_number,
+            snapshot_date,
+            price_regular_eur,
+            price_foil_eur,
+            price_regular_usd,
+            price_foil_usd,
+            updated_at
+          `)
+          .in('scryfall_id', chunk)
+          .in('snapshot_date', snapshotDates)
+        if (error) throw error
+        return data || []
+      })
         .finally(() => {
           _idChunkInflight.delete(chunkKey)
         })

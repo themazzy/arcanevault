@@ -221,7 +221,81 @@ it('database RPC latency', async () => {
   line('disk, and the fix is usually to touch fewer rows — not to add an index')
   line('that is already there.')
 
+  // ── Collection's daily metadata refresh ──────────────────────────────────
+  //
+  // Measured separately from the probes above because it is not one query — it
+  // is the SHAPE of many. On the first Collection visit after the 24 h Scryfall
+  // TTL lapses, every owned print goes through fetchCardPrintsByScryfallIds in
+  // 200-id batches: 57 of them for an 11,354-print collection.
+  //
+  // That path used to await each batch in turn, and no probe here would have
+  // caught it — every individual query was fast (2.5 ms cold, 1.2 ms warm), so
+  // a per-query harness reports a healthy system while the user waits 11-23 s.
+  // The cost lives entirely in the round-trip count, which is why this measures
+  // both arrangements over the same ids and reports the ratio rather than an
+  // absolute number: RTT varies by where the harness runs, the speed-up does not.
+  const batchIds = await collectionBatchIds()
+  if (batchIds.length) {
+    const batches = []
+    for (let i = 0; i < batchIds.length; i += 200) batches.push(batchIds.slice(i, i + 200))
+
+    const fetchBatch = ids => sb.from('card_prints').select('scryfall_id,name,type_line').in('scryfall_id', ids)
+
+    const tSerial = performance.now()
+    for (const batch of batches) await fetchBatch(batch)
+    const serialMs = performance.now() - tSerial
+
+    const tConc = performance.now()
+    await runLanes(batches, 6, fetchBatch)
+    const concMs = performance.now() - tConc
+
+    line('')
+    line('COLLECTION METADATA REFRESH — batch arrangement')
+    line('-'.repeat(100))
+    line(`  ${batches.length} batches × 200 ids (${batchIds.length} prints)`)
+    line(`  serial      ${Math.round(serialMs)}ms`)
+    line(`  6-way       ${Math.round(concMs)}ms`)
+    line(`  speed-up    ${(serialMs / Math.max(concMs, 1)).toFixed(1)}×`)
+    line('')
+    line('  A ratio near 1.0 means the concurrency was lost — check that')
+    line('  fetchCardPrintsByScryfallIds still routes through runWithConcurrency.')
+  }
+
   const dest = process.env.HARNESS_OUT || path.join(process.cwd(), 'harness-db-perf.txt')
   fs.writeFileSync(dest, out.join('\n'))
   console.log(`\nreport → ${dest}`)
 }, 10 * 60 * 1000)
+
+/**
+ * Real scryfall_ids to batch over. Sampled from card_prints rather than from a
+ * user's collection: `cards` is RLS owner-only and this harness runs as anon,
+ * and the arrangement being measured does not depend on which ids they are.
+ */
+async function collectionBatchIds() {
+  const want = Number(process.env.HARNESS_BATCH_IDS || 11354) // one real collection
+  const ids = []
+  // Paged with an explicit .range(). A bare .limit() is silently truncated to
+  // 1000 rows by PostgREST's max-rows, which is how the first version of this
+  // probe ended up measuring 5 batches instead of 57 — and 5 batches badly
+  // understates a cost whose entire nature is the round-trip count.
+  const PAGE = 1000
+  for (let from = 0; from < want; from += PAGE) {
+    const to = Math.min(from + PAGE, want) - 1
+    const { data, error } = await sb.from('card_prints').select('scryfall_id').range(from, to)
+    if (error) {
+      console.warn(`[harness] could not sample card_prints ids: ${error.message}`)
+      break
+    }
+    if (!data?.length) break
+    ids.push(...data.map(r => r.scryfall_id).filter(Boolean))
+    if (data.length < to - from + 1) break
+  }
+  return ids
+}
+
+/** Local copy of runWithConcurrency — the harness measures the arrangement, not the app's helper. */
+async function runLanes(items, limit, worker) {
+  let next = 0
+  const lane = async () => { while (next < items.length) await worker(items[next++]) }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane))
+}

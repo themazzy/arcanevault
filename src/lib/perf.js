@@ -1,6 +1,10 @@
-// Tiny performance-span helper for the startup hot paths (see
-// performance-upgrade-plan.md Phase 0). Spans land in the Performance
-// timeline as `av:<name>` measures and log to console when slow.
+// Tiny performance-span helper for the startup hot paths. Spans land in the
+// Performance timeline as `av:<name>` measures and log to console when slow.
+//
+// Read them in DevTools → Performance, or filter the console for `[perf]`.
+// Current callers: Home, Collection, scryfall, sharedCardPrices, homeMode,
+// CardScanner. `av:price-overlay` and `av:collection-display-cards` are the two
+// that matter for Collection's load.
 
 const enabled = typeof performance !== 'undefined' && typeof performance.now === 'function'
 
