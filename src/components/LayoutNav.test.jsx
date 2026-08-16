@@ -14,7 +14,6 @@ vi.mock('./SettingsContext', () => ({
 vi.mock('./FeedbackModal', () => ({ default: () => null }))
 vi.mock('./FeedbackNudge', () => ({ default: () => null }))
 vi.mock('./community/NotificationBell', () => ({ default: () => null }))
-vi.mock('./ActivityStatusBadge', () => ({ default: () => null }))
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => false } }))
 vi.mock('@capacitor/app', () => ({ App: { addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }) } }))
 

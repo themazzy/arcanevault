@@ -80,8 +80,7 @@
      so the two cannot drift apart. */
   --scanner-bottom-bar-height: 74px;
   /* Floating bulk-action bar (select mode, ≤620px). Taller than the toolbar it
-     replaces — two rows of controls. The value is the measured offset the
-     ActivityStatusBadge already used to lift itself clear of this bar. */
+     replaces — two rows of controls. */
   --bulk-bar-height: 92px;
   --card-name-size: 0.68rem;
   --card-name-size-tight: 0.6rem;

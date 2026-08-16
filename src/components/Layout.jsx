@@ -8,7 +8,6 @@ import { maskEmailAddress, useSettings } from './SettingsContext'
 import FeedbackModal from './FeedbackModal'
 import FeedbackNudge from './FeedbackNudge'
 import NotificationBell from './community/NotificationBell'
-import ActivityStatusBadge from './ActivityStatusBadge'
 import BRAND_MARK from '../icons/DeckLoom_logo.png'
 import styles from './Layout.module.css'
 import {
@@ -540,7 +539,6 @@ export default function Layout({ children }) {
         {children}
       </main>
 
-      {user && <ActivityStatusBadge />}
       {user && !showFeedback && !isNativeScannerRoute && (
         <FeedbackNudge onOpenFeedback={() => openFeedback('feature')} />
       )}

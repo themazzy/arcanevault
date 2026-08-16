@@ -1,4 +1,10 @@
-// Global activity counter feeding the app-wide ActivityStatusBadge.
+// Global activity counter.
+//
+// Fed the app-wide ActivityStatusBadge until that pill was removed on
+// 2026-08-16. The counter itself is kept because trackActivity() wraps real
+// Supabase work in DeckBuilder, Folders, Lists and Trading, and is the ready
+// hook for any future activity indicator — but nothing currently subscribes,
+// so subscribeActivity/getActivityCount have no consumer.
 // Pages that write through raw Supabase calls (outside React Query) wrap their
 // slow operations in trackActivity() so the badge shows "Syncing…" for them too.
 

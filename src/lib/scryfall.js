@@ -367,7 +367,7 @@ function mergeSfEntry(existing, next) {
 // subset of input cards that still need a Scryfall fetch. Entries that come
 // from card_prints are merged into _sfMap and persisted to IDB so future
 // loads hit the in-memory cache directly.
-async function enrichFromCardPrints(cards) {
+async function enrichFromCardPrints(cards, onProgress) {
   if (!cards?.length) return []
   if (!_sfMap) _sfMap = {}
 
@@ -382,7 +382,7 @@ async function enrichFromCardPrints(cards) {
   let rowsByScryfallId = new Map()
   let rowsBySetCol = new Map()
   try {
-    if (scryfallIds.length)  rowsByScryfallId = await fetchCardPrintsByScryfallIds(scryfallIds)
+    if (scryfallIds.length)  rowsByScryfallId = await fetchCardPrintsByScryfallIds(scryfallIds, onProgress)
     if (setColPairs.length)  rowsBySetCol     = await fetchCardPrintsBySetCollector(setColPairs)
   } catch (err) {
     console.warn('[card_prints] enrich query failed, falling back to Scryfall', err?.message || err)
@@ -452,7 +452,7 @@ export async function enrichCards(cards, onProgress) {
         // type_line/mana/etc., so this pass completes most cards without any
         // Scryfall call. Re-check who still lacks oracle text (residual /
         // pre-migration rows) and send only those to Scryfall.
-        await enrichFromCardPrints(missing)
+        await enrichFromCardPrints(missing, onProgress)
         const stillMissing = cardsNeedingScryfall(missing)
         if (stillMissing.length) {
           console.log(`[SF] ${stillMissing.length}/${missing.length} cards need Scryfall after card_prints`)
@@ -461,7 +461,7 @@ export async function enrichCards(cards, onProgress) {
         return _sfMap
       }
       // Metadata expired — try card_prints first, Scryfall for the rest.
-      await enrichFromCardPrints(cards)
+      await enrichFromCardPrints(cards, onProgress)
       const stillMissing = cardsNeedingScryfall(cards)
       if (stillMissing.length) {
         console.log(`[SF] metadata expired, refetching ${stillMissing.length}/${cards.length} via Scryfall`)
@@ -477,7 +477,7 @@ export async function enrichCards(cards, onProgress) {
       onProgress?.(100, '')
       return _sfMap
     }
-    await enrichFromCardPrints(missing)
+    await enrichFromCardPrints(missing, onProgress)
     const stillMissing = cardsNeedingScryfall(missing)
     if (stillMissing.length) {
       console.log(`[SF] ${stillMissing.length} cards need Scryfall after card_prints`)
@@ -489,7 +489,7 @@ export async function enrichCards(cards, onProgress) {
   }
 
   // Nothing in IDB at all — try card_prints, then Scryfall for the residual.
-  await enrichFromCardPrints(cards)
+  await enrichFromCardPrints(cards, onProgress)
   const stillMissing = cardsNeedingScryfall(cards)
   if (stillMissing.length) {
     console.log(`[SF] cold start: ${stillMissing.length}/${cards.length} cards need Scryfall`)

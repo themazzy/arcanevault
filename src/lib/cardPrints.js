@@ -279,24 +279,31 @@ export function cardPrintRowToSfEntry(row) {
 // occupy it for ~15 ms, and the price path already runs 6-way against this same
 // table. It cannot stack with that path either — enrichCards() is awaited
 // before overlaySharedCardPrices() runs.
-export async function fetchCardPrintsByScryfallIds(scryfallIds) {
+export async function fetchCardPrintsByScryfallIds(scryfallIds, onProgress) {
   if (!scryfallIds?.length) return new Map()
   const unique = [...new Set(scryfallIds.filter(Boolean))]
   const batches = chunkRows(unique, CARD_PRINT_QUERY_BATCH)
 
+  // Reported per completed batch rather than per request started: with six in
+  // flight the latter jumps to 100% while five are still outstanding.
+  let done = 0
+
   // Retry per batch. The caller (enrichFromCardPrints) treats ANY throw here as
   // "fall back to Scryfall for every card", which costs ~18 s of rate-limited
   // requests, so one transient failure out of 57 batches must not decide that.
-  const results = await runWithConcurrency(batches, CARD_PRINT_READ_CONCURRENCY, batch =>
-    withRetry(async () => {
+  const results = await runWithConcurrency(batches, CARD_PRINT_READ_CONCURRENCY, async (batch) => {
+    const rows = await withRetry(async () => {
       const { data, error } = await sb
         .from('card_prints')
         .select(CARD_PRINT_SELECT_COLUMNS)
         .in('scryfall_id', batch)
       if (error) throw error
       return data || []
-    }),
-  )
+    })
+    done += 1
+    onProgress?.((done / batches.length) * 100)
+    return rows
+  })
 
   // Merged after all batches resolve, so a late failure cannot leave a
   // half-filled map that the caller would read as complete.

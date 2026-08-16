@@ -58,7 +58,7 @@ function getScryfallId(card) {
   return card?.scryfall_id ? String(card.scryfall_id).trim() : null
 }
 
-async function fetchSharedPriceRowsByIds(ids, snapshotDates, now) {
+async function fetchSharedPriceRowsByIds(ids, snapshotDates, now, onProgress) {
   const datesKey = snapshotDates.join('|')
   const rows = []
   // Prefer rows the hydrate worker already read off-thread this page load;
@@ -125,7 +125,16 @@ async function fetchSharedPriceRowsByIds(ids, snapshotDates, now) {
   // Fetch chunks with bounded parallelism (a cold cache on a large collection
   // is ~30 chunks — running them serially stacked up round-trip latency), and
   // write the IDB cache once at the end instead of per chunk.
-  const chunkResults = await runWithConcurrency(chunks, CHUNK_CONCURRENCY, fetchChunk)
+  // Counted per completed chunk, so six in flight cannot report 100% while
+  // five are still outstanding. A fully cached load has no chunks at all, in
+  // which case the caller's stage jumps straight to done — which is correct.
+  let doneChunks = 0
+  const chunkResults = await runWithConcurrency(chunks, CHUNK_CONCURRENCY, async (chunk, i) => {
+    const rows = await fetchChunk(chunk, i)
+    doneChunks += 1
+    onProgress?.((doneChunks / chunks.length) * 100)
+    return rows
+  })
 
   const toCache = []
   for (let i = 0; i < chunks.length; i++) {
@@ -193,16 +202,16 @@ function rowToPrices(row) {
   return prices
 }
 
-export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup = 'exact' } = {}) {
+export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup = 'exact', onProgress = null } = {}) {
   const endOverlay = perfSpan('price-overlay')
   try {
-    return await overlaySharedCardPricesInner(cards, baseMap, { priceLookup })
+    return await overlaySharedCardPricesInner(cards, baseMap, { priceLookup, onProgress })
   } finally {
     endOverlay()
   }
 }
 
-async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup: _priceLookup = 'exact' } = {}) {
+async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup: _priceLookup = 'exact', onProgress = null } = {}) {
   const requestedKeys = new Set(cards.map(getCardKey).filter(Boolean))
   const requestedIds = [...new Set(cards.map(getScryfallId).filter(Boolean))]
   if (!requestedKeys.size) return { ...baseMap }
@@ -218,7 +227,7 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup: 
   // leaves valid prices out of the response.
   if (requestedIds.length) {
     try {
-      rows.push(...await fetchSharedPriceRowsByIds(requestedIds, snapshotDates, now))
+      rows.push(...await fetchSharedPriceRowsByIds(requestedIds, snapshotDates, now, onProgress))
     } catch (error) {
       console.warn('[Prices] Could not load shared card prices:', error.message)
       return { ...baseMap }
@@ -342,13 +351,46 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup: 
   return merged
 }
 
+// Progress is split into three weighted stages, because until 2026-08-16 the
+// bar reported nothing at all on the path everyone actually takes: onProgress
+// reached only fetchAndMerge, the Scryfall fallback, which no longer runs once
+// card_prints covers a collection. Collection renders the bar as
+// `enriching && progLabel`, so an empty label meant a silent 10-15s wait.
+//
+// Weights approximate observed cost, so the bar does not stall in one stage and
+// sprint through another: the local read is quick, metadata is the bulk of the
+// network work, prices are a smaller batch on top.
+const STAGE_CACHE = { from: 0, to: 8, label: 'Reading local cache' }
+const STAGE_META = { from: 8, to: 72, label: 'Loading card details' }
+const STAGE_PRICES = { from: 72, to: 100, label: 'Updating prices' }
+
+/**
+ * Map a stage-local 0-100 onto its slice of the overall bar.
+ *
+ * An inner reporter may supply its own label — fetchAndMerge counts cards
+ * ("Fetching card data… (150 / 900)"), which is more informative than the
+ * stage name, so it wins when present. An empty label is treated as absent
+ * rather than passed through: several inner callers signal "this stage is
+ * done" with `(100, '')`, and forwarding that blank would hide the bar while
+ * later stages are still running.
+ */
+function stageReporter(onProgress, stage) {
+  if (!onProgress) return null
+  return (pct = 0, label = '') => {
+    const clamped = Math.max(0, Math.min(100, pct))
+    onProgress(Math.round(stage.from + (clamped / 100) * (stage.to - stage.from)), label || stage.label)
+  }
+}
+
 export async function loadCardMapWithSharedPrices(cards, { onProgress = null, priceLookup = 'exact', requireOracle = false } = {}) {
   if (!cards?.length) return {}
 
   // Shared-price pages should not trigger Scryfall price TTL refreshes.
   // getInstantCache only reads the cache, so this never refetches — we just need
   // the cached metadata/art, plus fetches for cards missing locally.
+  onProgress?.(STAGE_CACHE.from, STAGE_CACHE.label)
   let map = await getInstantCache() || {}
+  onProgress?.(STAGE_CACHE.to, STAGE_CACHE.label)
   // A card needs enrichment if its entry is absent or stripped of filter-
   // critical metadata (clearScryfallCache nulls type_line/rarity/etc). The
   // deck builder additionally needs oracle_text for category inference and
@@ -363,7 +405,7 @@ export async function loadCardMapWithSharedPrices(cards, { onProgress = null, pr
   }))
   if (missing.length) {
     try {
-      const enriched = await enrichCards(missing, onProgress)
+      const enriched = await enrichCards(missing, stageReporter(onProgress, STAGE_META))
       if (enriched) map = enriched
     } catch (err) {
       // Partial enrichment is still useful — pick up whatever made it into
@@ -373,9 +415,23 @@ export async function loadCardMapWithSharedPrices(cards, { onProgress = null, pr
       const partial = await getInstantCache()
       if (partial) map = partial
     }
-  } else {
-    onProgress?.(100, '')
   }
+  // Nothing missing means the metadata stage is simply already complete; the
+  // bar should advance past it rather than report 100% and vanish while the
+  // price overlay is still running.
+  onProgress?.(STAGE_META.to, STAGE_META.label)
 
-  return overlaySharedCardPrices(cards, map, { priceLookup })
+  // Announced before the work, not only from the per-chunk callback. A load
+  // whose prices are entirely IDB-cached does zero chunks, and a failed price
+  // fetch returns early — in both cases the per-chunk reporter never fires, so
+  // the stage would silently never appear.
+  onProgress?.(STAGE_PRICES.from, STAGE_PRICES.label)
+  const priced = await overlaySharedCardPrices(cards, map, {
+    priceLookup,
+    onProgress: stageReporter(onProgress, STAGE_PRICES),
+  })
+  // Empty label is the signal Collection uses to hide the bar (it renders on
+  // `enriching && progLabel`), so this is what dismisses it.
+  onProgress?.(100, '')
+  return priced
 }
