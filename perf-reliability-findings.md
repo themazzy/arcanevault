@@ -155,10 +155,36 @@ while dropping the `sourceMappingURL` comment.
 
 ---
 
-## 5. CI never ran the tests
+## 5. CI never ran the tests — and the suite couldn't run without a local `.env`
 
 None of the five workflows referenced `npm test` or `npm run lint`. 2,550 tests only
 ran when someone remembered to run them locally. Closed by `.github/workflows/ci.yml`.
+
+**The first CI run failed, and the failure was itself a finding.** 45 of 176 suites
+died at import:
+
+```
+Error: supabaseUrl is required.
+ ❯ createClient  node_modules/@supabase/supabase-js/src/index.ts:65:9
+ ❯ src/lib/supabase.js:6:19
+```
+
+`src/lib/supabase.js` calls `createClient()` at module scope, and supabase-js throws
+on undefined input. Every suite that transitively imports it therefore required a
+populated `.env` — so **the suite had never been runnable on a clean checkout**. It
+went unnoticed because every machine that ran it had a `.env`; CI was the first
+environment without one. A 46th suite failed the same way for a different reason:
+`scripts/sync-oracle-cards.mjs` calls `process.exit(1)` at import when its service
+key is absent, taking `oracleSyncSkip.test.js` with it.
+
+Fixed with stub credentials in `vite.config.js`'s `test.env`, which also closes a
+latent hazard: with a real `.env` loaded, any test that forgets to mock Supabase
+talks to **production** using the developer's own credentials. The stub URL is
+deliberately non-resolvable (`https://stub.supabase.invalid`) so such a test fails
+loudly instead. Verified by running the suite with `.env` moved aside — 176/176.
+
+The harnesses are unaffected: they run on `vitest.harness.config.js`, which does not
+set these, and still reach real Supabase.
 
 ---
 

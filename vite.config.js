@@ -74,6 +74,32 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.{js,jsx}'],
     globals: false,
+    // Stub credentials, for two reasons.
+    //
+    // 1. The suite did not run on a clean checkout. `src/lib/supabase.js`
+    //    calls createClient() at module scope and supabase-js throws
+    //    "supabaseUrl is required" on undefined input, so all 45 suites that
+    //    transitively import it died at import time wherever no .env existed.
+    //    That went unnoticed for as long as it did precisely because every
+    //    machine running the tests happened to have one; CI was the first
+    //    environment without.
+    //
+    // 2. Hermeticity. With a real .env loaded, any test that forgets to mock
+    //    Supabase silently talks to PRODUCTION using the developer's own
+    //    credentials. These values are deliberately non-resolvable so such a
+    //    test fails loudly instead.
+    //
+    // Tests mock the client, so nothing here is ever dialled. The harnesses
+    // under scripts/ need real credentials and are unaffected — they run on
+    // vitest.harness.config.js, which does not set these.
+    env: {
+      VITE_SUPABASE_URL: 'https://stub.supabase.invalid',
+      VITE_SUPABASE_ANON_KEY: 'stub-anon-key',
+      // scripts/sync-oracle-cards.mjs process.exit(1)s at import without
+      // these, which took oracleSyncSkip.test.js down with it. It falls back
+      // to the VITE_ URL above, so only the service key is needed here.
+      SUPABASE_SERVICE_KEY: 'stub-service-key',
+    },
   },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
