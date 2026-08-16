@@ -27,13 +27,30 @@ export function useCardSearch({ debounceMs = 350, priceSource = 'cardmarket_tren
     const id = ++requestId.current
     setLoading(true)
     setError(false)
-    const { cards, hasMore: more, error: err } = await searchCards({ query: q, page: p, priceSource })
-    if (id !== requestId.current) return
-    setPage(p)
-    setResults(prev => p === 1 ? cards : [...prev, ...cards])
-    setHasMore(more)
-    if (err) setError(true)
-    setLoading(false)
+    // searchCards normally reports RPC failure as `{ error: true }` rather
+    // than throwing, but it can still reject — a fetch rejection (offline,
+    // DNS, aborted connection) surfaces that way. Without this catch the
+    // rejection skips setLoading(false) and the panel spins forever, which
+    // is the worst of the three outcomes because it never resolves into
+    // anything the user can act on. The search RPC has been measured hitting
+    // its statement timeout in production, so this path is reachable.
+    try {
+      const { cards, hasMore: more, error: err } = await searchCards({ query: q, page: p, priceSource })
+      if (id !== requestId.current) return
+      setPage(p)
+      setResults(prev => p === 1 ? cards : [...prev, ...cards])
+      setHasMore(more)
+      if (err) setError(true)
+    } catch {
+      if (id !== requestId.current) return
+      // Leave page/results as they are: on a load-more failure the already
+      // loaded pages are still valid, and clearing them would lose data the
+      // user can see.
+      setError(true)
+      setHasMore(false)
+    } finally {
+      if (id === requestId.current) setLoading(false)
+    }
   }, [priceSource])
 
   const handleInput = useCallback((q) => {
