@@ -29,6 +29,7 @@ export default [
         ...globals.browser,
         ...globals.worker,
         __APP_VERSION__: 'readonly',
+        __BUILD_SHA__: 'readonly',
       },
     },
     plugins: {

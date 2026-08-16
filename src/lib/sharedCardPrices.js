@@ -382,7 +382,7 @@ function stageReporter(onProgress, stage) {
   }
 }
 
-export async function loadCardMapWithSharedPrices(cards, { onProgress = null, priceLookup = 'exact', requireOracle = false } = {}) {
+export async function loadCardMapWithSharedPrices(cards, { onProgress = null, priceLookup = 'exact', requireOracle = false, onMetadataReady = null } = {}) {
   if (!cards?.length) return {}
 
   // Shared-price pages should not trigger Scryfall price TTL refreshes.
@@ -420,6 +420,25 @@ export async function loadCardMapWithSharedPrices(cards, { onProgress = null, pr
   // bar should advance past it rather than report 100% and vanish while the
   // price overlay is still running.
   onProgress?.(STAGE_META.to, STAGE_META.label)
+
+  // Publish the map now, before prices. Card art is already in it — image_uri
+  // comes from the metadata pass — and images do not depend on prices in any
+  // way, so making them wait for the price overlay is pure dead time. Until
+  // 2026-08-17 the only publish was the return value below, so on a cold cache
+  // (a private tab, a new device) the grid sat imageless through the entire
+  // load and every image appeared the instant the price stage finished.
+  //
+  // The IDB seed in idbQueryBridge covers the warm case, where the cached map
+  // is available before any of this runs. This covers the cold one, which the
+  // seed by definition cannot: there is nothing local to seed from.
+  //
+  // Costs one extra render pass over the collection. That is the deliberate
+  // trade — two publishes rather than the 57 a per-batch stream would have
+  // caused (see plan 1.4).
+  if (onMetadataReady && Object.keys(map).length) {
+    try { onMetadataReady(map) }
+    catch (err) { console.warn('[loadCardMap] onMetadataReady threw', err?.message || err) }
+  }
 
   // Announced before the work, not only from the per-chunk callback. A load
   // whose prices are entirely IDB-cached does zero chunks, and a failed price

@@ -47,8 +47,17 @@ export function ToastProvider({ children }) {
       actionLabel: opts.actionLabel || null,
       onAction: typeof opts.onAction === 'function' ? opts.onAction : null,
     }])
-    const timeout = window.setTimeout(() => dismissToast(id), opts.duration ?? 3200)
-    timers.current.set(id, timeout)
+    // `duration: 0` (or Infinity) keeps a toast up until it is acted on or
+    // dismissed. Needed for the service-worker update prompt, whose entire
+    // value is still being there when the user is ready to reload.
+    //
+    // Passing Infinity to setTimeout does NOT do this: the spec coerces a
+    // non-finite delay to 0, so the toast would vanish on the next tick —
+    // looking like a flicker rather than a notification.
+    const duration = opts.duration ?? 3200
+    if (Number.isFinite(duration) && duration > 0) {
+      timers.current.set(id, window.setTimeout(() => dismissToast(id), duration))
+    }
     return id
   }, [dismissToast])
 

@@ -5,6 +5,8 @@ import { App as CapApp } from '@capacitor/app'
 import { sb } from '../lib/supabase'
 import { useAuth } from './Auth'
 import { maskEmailAddress, useSettings } from './SettingsContext'
+import { useToast } from './ToastContext'
+import { SW_UPDATE_EVENT } from '../lib/swUpdate'
 import FeedbackModal from './FeedbackModal'
 import FeedbackNudge from './FeedbackNudge'
 import NotificationBell from './community/NotificationBell'
@@ -36,10 +38,29 @@ const DESKTOP_TABS = TABS.filter(t => !['/', '/collection', '/decks', '/binders'
 export default function Layout({ children }) {
   const { user } = useAuth()
   const { keep_screen_awake, premium, nickname } = useSettings()
+  const { showToast } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
   const isNative = Capacitor.isNativePlatform()
   const isScannerRoute = location.pathname === '/scanner'
+
+  // A new build took over silently. The page is still running the old code, so
+  // say so and offer the reload rather than leaving the user to discover it by
+  // wondering why a fix they were told shipped is not there.
+  //
+  // No auto-dismiss: this is the one notification whose whole value is being
+  // actionable later. Vanishing after 3.2s would put the user right back to
+  // guessing.
+  useEffect(() => {
+    const onUpdate = () => showToast('New version available', {
+      tone: 'info',
+      duration: Infinity,
+      actionLabel: 'Reload',
+      onAction: () => window.location.reload(),
+    })
+    window.addEventListener(SW_UPDATE_EVENT, onUpdate)
+    return () => window.removeEventListener(SW_UPDATE_EVENT, onUpdate)
+  }, [showToast])
   const isDeckBuilderRoute = /^\/builder\/[^/]+\/?$/.test(location.pathname)
   const isNativeScannerRoute = isNative && isScannerRoute
   const [menuOpen, setMenuOpen] = useState(false)

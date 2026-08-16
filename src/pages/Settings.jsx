@@ -24,6 +24,7 @@ import styles from './Settings.module.css'
 import { useNow } from '../hooks/useNow'
 
 const APP_VERSION = __APP_VERSION__
+const BUILD_SHA = __BUILD_SHA__
 const CLEAR_BATCH_SIZE = 100
 
 const CLEAR_TARGETS = [
@@ -1383,8 +1384,8 @@ export default function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection title="App" keywords={KW_APP} query={search}>
-        <SettingRow label="Version" description="Installed app version for this build.">
-          <span className={styles.appVersion}>v{APP_VERSION}</span>
+        <SettingRow label="Version" description="Installed app version, and the commit this build came from. Quote the build when reporting a bug — it identifies exactly which code you are running.">
+          <span className={styles.appVersion}>v{APP_VERSION} · {BUILD_SHA}</span>
         </SettingRow>
         <SettingRow
           label="Keep Screen Awake"

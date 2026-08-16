@@ -11,6 +11,10 @@ vi.mock('./SettingsContext', () => ({
   useSettings: () => ({ keep_screen_awake: false, premium: false, nickname: 'Tester' }),
   maskEmailAddress: () => 'masked',
 }))
+// Layout subscribes to the service-worker update event and raises a toast, so
+// it needs the context. These tests render it bare, outside the ToastProvider
+// that wraps PrivateApp in App.jsx.
+vi.mock('./ToastContext', () => ({ useToast: () => ({ showToast: vi.fn() }) }))
 vi.mock('./FeedbackModal', () => ({ default: () => null }))
 vi.mock('./FeedbackNudge', () => ({ default: () => null }))
 vi.mock('./community/NotificationBell', () => ({ default: () => null }))

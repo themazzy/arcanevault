@@ -145,3 +145,71 @@ describe('loadCardMapWithSharedPrices progress', () => {
     expect(blanks).toEqual([[100, '']])
   })
 })
+
+describe('loadCardMapWithSharedPrices metadata publish', () => {
+  it('publishes the map before prices so images need not wait', async () => {
+    // The cold-cache case: a private tab or a new device has nothing to seed
+    // from, so without this the grid stays imageless for the whole load and
+    // every image appears at once when the price stage ends.
+    const order = []
+    getInstantCache.mockResolvedValue({})
+    enrichCards.mockImplementation(async () => {
+      order.push('enrich')
+      return CACHED
+    })
+
+    await loadCardMapWithSharedPrices(
+      [{ set_code: 'lea', collector_number: '9', scryfall_id: 'sf-9' }],
+      {
+        priceLookup: 'set',
+        onProgress: (_p, label) => { if (label === 'Updating prices') order.push('prices') },
+        onMetadataReady: () => order.push('publish'),
+      },
+    )
+
+    expect(order.indexOf('publish')).toBeGreaterThan(order.indexOf('enrich'))
+    expect(order.indexOf('publish')).toBeLessThan(order.indexOf('prices'))
+  })
+
+  it('hands over a map that actually carries card art', async () => {
+    // Publishing early is only useful if image_uri is present by then.
+    let published = null
+    getInstantCache.mockResolvedValue({})
+    enrichCards.mockResolvedValue({ 'lea-9': { key: 'lea-9', type_line: 'Instant', image_uris: { normal: 'art.jpg' } } })
+
+    await loadCardMapWithSharedPrices(
+      [{ set_code: 'lea', collector_number: '9', scryfall_id: 'sf-9' }],
+      { priceLookup: 'set', onMetadataReady: m => { published = m } },
+    )
+
+    expect(published?.['lea-9']?.image_uris?.normal).toBe('art.jpg')
+  })
+
+  it('does not publish an empty map', async () => {
+    // An empty publish would blank a grid that the IDB seed may already have
+    // populated.
+    const seen = []
+    getInstantCache.mockResolvedValue({})
+    enrichCards.mockResolvedValue({})
+
+    await loadCardMapWithSharedPrices(
+      [{ set_code: 'lea', collector_number: '9', scryfall_id: 'sf-9' }],
+      { priceLookup: 'set', onMetadataReady: m => seen.push(m) },
+    )
+
+    expect(seen).toEqual([])
+  })
+
+  it('still returns the priced map when the consumer throws', async () => {
+    // A render error in the early publish must not take down the whole load.
+    getInstantCache.mockResolvedValue(CACHED)
+
+    const result = await loadCardMapWithSharedPrices(CARDS, {
+      priceLookup: 'set',
+      onMetadataReady: () => { throw new Error('render blew up') },
+    })
+
+    expect(result).toBeTruthy()
+    expect(result['lea-1']).toBeTruthy()
+  })
+})

@@ -261,10 +261,17 @@ export default function CollectionPage() {
 
   const sfMapQuery = useQuery({
     queryKey: ['sfMap', user?.id],
-    queryFn: () => fetchSfMap(cards, (pct, lbl) => {
-      setProgress(pct)
-      setProgLabel(lbl)
-    }),
+    queryFn: () => fetchSfMap(
+      cards,
+      (pct, lbl) => {
+        setProgress(pct)
+        setProgLabel(lbl)
+      },
+      // Paint card art as soon as metadata lands, without waiting for the
+      // price stage that follows it. The query's own result still arrives
+      // below with prices attached and replaces this.
+      metadataMap => setSfMap(metadataMap),
+    ),
     staleTime: SCRYFALL_CACHE_TTL_MS,
     enabled: !!user?.id && cards.length > 0,
     placeholderData: {},

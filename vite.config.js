@@ -2,6 +2,24 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import pkg from './package.json'
+import { execSync } from 'node:child_process'
+
+/**
+ * Short commit SHA for the build stamp.
+ *
+ * GITHUB_SHA is preferred because Actions checks out a detached HEAD, where
+ * `git rev-parse` still works but the env var is the authoritative answer.
+ * Falls back to 'dev' rather than throwing — a missing stamp must never be
+ * able to break a build.
+ */
+function buildSha() {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7)
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || 'dev'
+  } catch {
+    return 'dev'
+  }
+}
 
 export default defineConfig({
   base: '/',
@@ -118,6 +136,13 @@ export default defineConfig({
   },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+    // The commit the running bundle was built from. package.json's version is
+    // effectively static, so it cannot distinguish two builds — which made
+    // "am I on the fix, or on a cached older build?" unanswerable from the
+    // device. That question came up for real on 2026-08-16, where a stale
+    // service worker was indistinguishable from a fix that had not worked.
+    // Surfaced in Settings → App → Version.
+    __BUILD_SHA__: JSON.stringify(buildSha()),
   },
   server: {
     // EDHREC and the deck-import sources no longer need dev proxies: EDHREC's

@@ -290,6 +290,9 @@ export async function fetchFolderPlacements({ queryKey }) {
   return { folders, folderCards, deckAllocations }
 }
 
-export async function fetchSfMap(cards, onProgress) {
-  return loadCardMapWithSharedPrices(cards, { onProgress, priceLookup: 'set' })
+// `onMetadataReady` fires once the card metadata (art included) is resolved but
+// before prices are overlaid, so the grid can paint images instead of waiting
+// out the price stage for pixels it already has.
+export async function fetchSfMap(cards, onProgress, onMetadataReady) {
+  return loadCardMapWithSharedPrices(cards, { onProgress, priceLookup: 'set', onMetadataReady })
 }
