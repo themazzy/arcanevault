@@ -22,7 +22,7 @@ import uiStyles from '../components/UI.module.css'
 import { useBottomBarClearance, MOBILE_TOOLBAR_HEIGHT, HEADER_TOOLBAR_QUERY } from '../components/bottomBarClearance'
 import { pruneUnplacedCards, findUnplacedCardIds } from '../lib/collectionOwnership'
 import { hydrateCollectionQueriesFromIdb } from '../lib/idbQueryBridge'
-import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap } from '../lib/collectionFetchers'
+import { fetchCollectionCards, fetchFolders, fetchFolderPlacements, fetchSfMap, hasUnrequestedCards } from '../lib/collectionFetchers'
 import { isNetworkLikeError } from '../lib/networkUtils'
 import { fetchAllByKeyset } from '../lib/keysetPager'
 import { perfSpan } from '../lib/perf'
@@ -259,23 +259,53 @@ export default function CollectionPage() {
     enabled: !!user?.id,
   })
 
+  // Which card keys the last metadata fetch was ASKED for — not which it
+  // returned. That distinction is what keeps the refetch below from looping:
+  // ~0.3% of owned prints have no metadata available at all, so "did we get an
+  // entry?" would mark them permanently missing and retrigger forever, while
+  // "did we ask?" settles after one pass.
+  const fetchedSfKeys = useRef(new Set())
+
   const sfMapQuery = useQuery({
     queryKey: ['sfMap', user?.id],
-    queryFn: () => fetchSfMap(
-      cards,
-      (pct, lbl) => {
-        setProgress(pct)
-        setProgLabel(lbl)
-      },
-      // Paint card art as soon as metadata lands, without waiting for the
-      // price stage that follows it. The query's own result still arrives
-      // below with prices attached and replaces this.
-      metadataMap => setSfMap(metadataMap),
-    ),
+    queryFn: () => {
+      // Snapshotted so the record matches exactly what was sent.
+      const requested = cards
+      fetchedSfKeys.current = new Set(requested.map(getScryfallKey).filter(Boolean))
+      return fetchSfMap(
+        requested,
+        (pct, lbl) => {
+          setProgress(pct)
+          setProgLabel(lbl)
+        },
+        // Paint card art as soon as metadata lands, without waiting for the
+        // price stage that follows it. The query's own result still arrives
+        // below with prices attached and replaces this.
+        metadataMap => setSfMap(metadataMap),
+      )
+    },
     staleTime: SCRYFALL_CACHE_TTL_MS,
     enabled: !!user?.id && cards.length > 0,
     placeholderData: {},
   })
+
+  // Cards added on ANOTHER device arrive through the cards sync, but nothing
+  // re-runs this query: its key is ['sfMap', userId] with no card dependency
+  // and a 24h staleTime, and invalidateOwnedCollectionQueries only fires for
+  // mutations made on THIS device. So a binder filled on a phone showed up on
+  // a laptop as rows with no art and no price, until the next full page load
+  // reseeded `cards` from IDB.
+  //
+  // Guarded three ways against refetch storms: nothing while a fetch is in
+  // flight, nothing before the first fetch has completed, and the comparison
+  // is against what was requested rather than what came back.
+  useEffect(() => {
+    if (!user?.id || !cards.length) return
+    if (sfMapQuery.isFetching || !sfMapQuery.isSuccess) return
+    if (hasUnrequestedCards(cards, fetchedSfKeys.current)) {
+      queryClient.invalidateQueries({ queryKey: ['sfMap', user.id] })
+    }
+  }, [cards, user?.id, queryClient, sfMapQuery.isFetching, sfMapQuery.isSuccess])
 
   const invalidateCollectionQueries = useCallback(() => {
     invalidateOwnedCollectionQueries(queryClient, user.id, {

@@ -1,5 +1,6 @@
 import { sb } from './supabase'
 import { loadCardMapWithSharedPrices } from './sharedCardPrices'
+import { getScryfallKey } from './scryfall'
 import { assertOnline } from './networkUtils'
 import { getMeta, setMeta, getLocalCards, getCardsByIds, putCards, deleteCard, deleteAllCards } from './db'
 import { fetchAllByKeyset, fetchAllByKeysetSharded } from './keysetPager'
@@ -295,4 +296,28 @@ export async function fetchFolderPlacements({ queryKey }) {
 // out the price stage for pixels it already has.
 export async function fetchSfMap(cards, onProgress, onMetadataReady) {
   return loadCardMapWithSharedPrices(cards, { onProgress, priceLookup: 'set', onMetadataReady })
+}
+
+/**
+ * True when `cards` contains a card the last metadata fetch never asked about.
+ *
+ * The metadata query is keyed on the user alone, so cards that arrive from
+ * another device's sync do not re-trigger it and render with no art or price.
+ * This is the signal to refetch.
+ *
+ * Compares against what was REQUESTED, not what came back. Around 0.3% of
+ * owned prints have no metadata available at all; keying off the response
+ * would leave them permanently uncovered and refetch forever.
+ */
+export function hasUnrequestedCards(cards, requestedKeys) {
+  if (!cards?.length || !requestedKeys) return false
+  for (const card of cards) {
+    // getScryfallKey joins set and collector number unconditionally, so a row
+    // missing either still yields a truthy string ("-" for a fully empty one).
+    // Such a card can never match an sfMap entry, so letting it count as
+    // "unrequested" would spend a refetch that cannot possibly satisfy it.
+    if (!card?.set_code || !card?.collector_number) continue
+    if (!requestedKeys.has(getScryfallKey(card))) return true
+  }
+  return false
 }
