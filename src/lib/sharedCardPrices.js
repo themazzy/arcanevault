@@ -202,6 +202,70 @@ function rowToPrices(row) {
   return prices
 }
 
+/**
+ * Merge price rows onto a card map. Pure — no IO, no network.
+ *
+ * Today's row wins; yesterday's is the fallback when today has not published
+ * yet, and is also kept as `prices_prev` so the UI can show a day-over-day
+ * delta. A card with neither is left untouched rather than written with an
+ * empty `prices`, so "no price" stays distinguishable from "zero".
+ */
+export function applyPriceRowsToMap(rows, baseMap, requestedKeys, today, yesterday) {
+  const currentByKey = {}
+  const previousByKey = {}
+  for (const row of rows) {
+    const key = getRowKey(row)
+    if (!requestedKeys.has(key)) continue
+    if (row.snapshot_date === today) currentByKey[key] = row
+    else if (row.snapshot_date === yesterday) previousByKey[key] = row
+  }
+
+  const merged = { ...baseMap }
+  for (const key of requestedKeys) {
+    const [set_code, collector_number] = key.split('-')
+    const current = currentByKey[key] || previousByKey[key]
+    const previous = currentByKey[key] ? previousByKey[key] : null
+    if (!current && !previous) continue
+
+    const existing = merged[key] || { key, set_code, collector_number }
+    const sharedPrices = rowToPrices(current)
+    const sharedPricesPrev = previous ? rowToPrices(previous) : null
+    merged[key] = {
+      ...existing,
+      ...(sharedPrices && Object.keys(sharedPrices).length ? { prices: { ...existing.prices, ...sharedPrices }, shared_price_updated_at: current.updated_at } : {}),
+      ...(sharedPricesPrev && Object.keys(sharedPricesPrev).length ? { prices_prev: { ...existing.prices_prev, ...sharedPricesPrev } } : {}),
+    }
+  }
+  return merged
+}
+
+/**
+ * Overlay prices already in IndexedDB. No network, ever.
+ *
+ * The full overlay runs at the END of the card-map load, behind the metadata
+ * enrichment round trip — so even though yesterday's and today's prices were
+ * sitting in IDB the whole time, tiles showed no market price until the
+ * network work finished. Prices depend on none of that work.
+ *
+ * This is the first-paint half: whatever is already local, applied
+ * immediately. The full overlay still runs afterwards and fills in anything
+ * missing, so this can only ever be a head start, never the final answer.
+ */
+export async function overlayCachedPricesOnly(cards, baseMap = {}) {
+  if (!cards?.length) return baseMap
+  const requestedKeys = new Set(cards.map(getCardKey).filter(Boolean))
+  const ids = [...new Set(cards.map(getScryfallId).filter(Boolean))]
+  if (!requestedKeys.size || !ids.length) return baseMap
+
+  const today = isoDateUtc(0)
+  const yesterday = isoDateUtc(-1)
+  const rows = await getLocalCardPriceRowsByIds(ids, [today, yesterday])
+  const usable = rows.filter(row => !row.missing)
+  if (!usable.length) return baseMap
+
+  return applyPriceRowsToMap(usable, baseMap, requestedKeys, today, yesterday)
+}
+
 export async function overlaySharedCardPrices(cards, baseMap = {}, { priceLookup = 'exact', onProgress = null } = {}) {
   const endOverlay = perfSpan('price-overlay')
   try {
@@ -308,31 +372,7 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup: 
     rows.push(...(_setRowCache.get(s)?.rows || []))
   }
 
-  const currentByKey = {}
-  const previousByKey = {}
-  for (const row of rows) {
-    const key = getRowKey(row)
-    if (!requestedKeys.has(key)) continue
-    if (row.snapshot_date === today) currentByKey[key] = row
-    else if (row.snapshot_date === yesterday) previousByKey[key] = row
-  }
-
-  const merged = { ...baseMap }
-  for (const key of requestedKeys) {
-    const [set_code, collector_number] = key.split('-')
-    const current = currentByKey[key] || previousByKey[key]
-    const previous = currentByKey[key] ? previousByKey[key] : null
-    if (!current && !previous) continue
-
-    const existing = merged[key] || { key, set_code, collector_number }
-    const sharedPrices = rowToPrices(current)
-    const sharedPricesPrev = previous ? rowToPrices(previous) : null
-    merged[key] = {
-      ...existing,
-      ...(sharedPrices && Object.keys(sharedPrices).length ? { prices: { ...existing.prices, ...sharedPrices }, shared_price_updated_at: current.updated_at } : {}),
-      ...(sharedPricesPrev && Object.keys(sharedPricesPrev).length ? { prices_prev: { ...existing.prices_prev, ...sharedPricesPrev } } : {}),
-    }
-  }
+  const merged = applyPriceRowsToMap(rows, baseMap, requestedKeys, today, yesterday)
 
   // Remember fallback cards that still have no shared price so we don't repeat
   // the expensive set-code lookup for them on every load today.
@@ -340,7 +380,11 @@ async function overlaySharedCardPricesInner(cards, baseMap = {}, { priceLookup: 
     let changed = false
     for (const card of fallbackCards) {
       const key = getCardKey(card)
-      if (key && !currentByKey[key] && !previousByKey[key] && !noPriceKeys.has(key)) {
+      // `merged` only gains a `prices` entry for keys that actually resolved to
+      // a row, so its absence is the same signal the old currentByKey /
+      // previousByKey lookups gave — those locals now live inside
+      // applyPriceRowsToMap and are no longer in scope here.
+      if (key && !merged[key]?.prices && !merged[key]?.prices_prev && !noPriceKeys.has(key)) {
         noPriceKeys.add(key)
         changed = true
       }

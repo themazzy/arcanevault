@@ -1391,7 +1391,7 @@ export default function CollectionPage() {
         <div className={styles.gridViewport}>
           {viewMode === 'table' ? (
             <VirtualCardTable
-              cards={displayCards} sfMap={sfMap}
+              cards={displayCards} sfMap={sfMap} loading={enriching}
               onSelect={c => setDetailCardKey(c._displayKey || c.id)}
               selectMode={selectMode} selected={selected} onToggleSelect={toggleSelect}
               splitState={splitState} onAdjustQty={onAdjustQty}

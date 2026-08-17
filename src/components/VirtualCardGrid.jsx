@@ -5,6 +5,7 @@ import CardImg from './CardImg'
 import { FolderTypeIcon } from '../icons'
 import { FOLDER_TAG_COLOR, FOLDER_TAG_BORDER } from '../lib/folderTagColors'
 import { Badge } from './UI'
+import { ValueSkeleton } from './Skeletons'
 import styles from './VirtualCardGrid.module.css'
 import { useLongPress } from '../hooks/useLongPress'
 import {
@@ -63,8 +64,6 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
   const img = getImageUri(sfCard, 'normal')
   const displayQty = card._folder_qty ?? card.qty ?? 1
   const priceMeta = getPriceWithMeta(sfCard, card.foil, { price_source: priceSource })
-  const buyPrice = parseFloat(card.purchase_price) || null
-  const isBuyFallback = priceMeta == null && buyPrice != null
   const totalPriceMeta = priceMeta ? { ...priceMeta, value: priceMeta.value * displayQty } : null
   const plPct = (card.purchase_price > 0 && priceMeta?.value)
     ? ((priceMeta.value - card.purchase_price) / card.purchase_price) * 100
@@ -128,11 +127,31 @@ function CardItem({ card, sfCard, loading, onClick, selectMode, isSelected, tota
         </div>
         <div className={styles.cardMeta}>
           <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
+          {/* Price has three states, deliberately distinct.
+
+              The market price when we have one. A shimmer while the price phase
+              is still running — 99.7% of owned prints do have a daily price, so
+              "not yet" is overwhelmingly the right reading of an empty slot, and
+              a static "-" is indistinguishable from the 0.3% that genuinely have
+              none. And "-" only once loading has settled.
+
+              What is NOT shown here any more is purchase_price. It stood in
+              whenever the market price was missing, which in practice meant it
+              filled the whole pre-price window with what the user paid — a real
+              number, in the right currency, for the wrong question. It still
+              drives Stats' P&L, the CSV export, and the ± badge beside this
+              price; it just no longer impersonates a market value. */}
           {showPrice && (
             <span className={styles.priceWrap}>
-              <span className={`${styles.price}${(totalPriceMeta == null && !isBuyFallback) ? ' ' + styles.priceNa : (totalPriceMeta?.isFallback || isBuyFallback ? ' ' + styles.priceFallback : '')}`}>
-                {totalPriceMeta ? formatPriceMeta(totalPriceMeta) : isBuyFallback ? `${priceSource === 'tcgplayer_market' ? '$' : 'EUR '}${(buyPrice * displayQty).toFixed(2)}` : loading ? '...' : '-'}
-              </span>
+              {totalPriceMeta ? (
+                <span className={`${styles.price}${totalPriceMeta.isFallback ? ' ' + styles.priceFallback : ''}`}>
+                  {formatPriceMeta(totalPriceMeta)}
+                </span>
+              ) : loading ? (
+                <ValueSkeleton label="Price loading" />
+              ) : (
+                <span className={`${styles.price} ${styles.priceNa}`}>-</span>
+              )}
               {plPct != null && (
                 <span className={`${styles.pricePct} ${plPct >= 0 ? styles.pricePctUp : styles.pricePctDown}`}>
                   ({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)

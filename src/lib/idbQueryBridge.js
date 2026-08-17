@@ -6,6 +6,7 @@ import {
   getAllLocalListItems,
 } from './db'
 import { getInstantCache } from './scryfall'
+import { overlayCachedPricesOnly } from './sharedCardPrices'
 
 function isGroupFolder(folder) {
   try { return JSON.parse(folder?.description || '{}').isGroup === true } catch { return false }
@@ -41,7 +42,7 @@ export async function hydrateCollectionQueriesFromIdb(queryClient, userId) {
     // that put cards on screen, and this must not delay them. It is also
     // fire-and-forget — a cold Scryfall cache returns null and the grid simply
     // behaves as it did before.
-    seedScryfallMap(queryClient, userId)
+    seedScryfallMap(queryClient, userId, localCards)
   }
 
   if (!localFolders.length) return
@@ -78,19 +79,29 @@ export async function hydrateCollectionQueriesFromIdb(queryClient, userId) {
  * Never rejects and never blocks its caller: an empty or unreadable cache just
  * means the grid waits for the query, which is the pre-existing behaviour.
  */
-function seedScryfallMap(queryClient, userId) {
+function seedScryfallMap(queryClient, userId, localCards) {
   getInstantCache()
-    .then(map => {
+    .then(async map => {
       // An empty object would still count as data and satisfy the query, so
       // only seed when there is something real to show.
       if (!map || !Object.keys(map).length) return
+      // Prices live in their own IDB store and are merged into this map by the
+      // overlay, which runs at the very END of the network load. Seeding art
+      // without them meant tiles painted immediately but priceless, so the
+      // grid still visibly changed twice. Applying the cached rows here is a
+      // second local read and no network.
+      //
+      // On a new day there is no row for today yet, so this yields yesterday's
+      // — already the documented fallback, and already marked in the UI. A
+      // day-old market price is a far better answer than none.
+      const withPrices = await overlayCachedPricesOnly(localCards, map).catch(() => map)
       // Lost the race: the network query already resolved while this local read
       // was in flight. Its map is the same one plus current prices, so seeding
       // now would replace a complete map with a staler one and un-price the
       // grid. Rare (an IDB read normally beats a round trip) but not
       // impossible on a warm cache and a fast connection.
       if (queryClient.getQueryData(['sfMap', userId]) !== undefined) return
-      queryClient.setQueryData(['sfMap', userId], map, { updatedAt: 0 })
+      queryClient.setQueryData(['sfMap', userId], withPrices, { updatedAt: 0 })
     })
     .catch(() => { /* cold cache — the query fills it in */ })
 }

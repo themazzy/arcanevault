@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { formatPrice, getPrice, getScryfallKey } from '../lib/scryfall'
+import { ValueSkeleton } from './Skeletons'
 import styles from './VirtualCardTable.module.css'
 
 const ROW_HEIGHT = 56
@@ -18,6 +19,7 @@ export default function VirtualCardTable({
   showPrice = true,
   cardFolders,
   onScroll,
+  loading = false,
 }) {
   const parentRef = useRef(null)
   // Actual scrollbar width (0 on overlay-scrollbar platforms), exposed as
@@ -53,7 +55,9 @@ export default function VirtualCardTable({
             const selectedQty = splitState?.get(key) ?? 1
             const isSelected = selectMode && selected?.has(key)
             const sfCard = sfMap?.[getScryfallKey(card)]
-            const unitPrice = getPrice(sfCard, card.foil, { price_source: priceSource }) ?? (parseFloat(card.purchase_price) || null)
+            // No purchase_price stand-in: it answered "what you paid", not
+            // "what it is worth". Matches the grid view — see VirtualCardGrid.
+            const unitPrice = getPrice(sfCard, card.foil, { price_source: priceSource })
             const folders = card._displayFolder ? [card._displayFolder] : (cardFolders?.[card.id] || [])
 
             const activate = () => {
@@ -79,7 +83,12 @@ export default function VirtualCardTable({
                 <button type="button" className={styles.rowAction} onClick={activate} aria-pressed={selectMode ? isSelected : undefined}>
                   <span className={styles.cardName}>{card.name}{card.foil ? <em>Foil</em> : null}</span>
                   <span className={styles.setCode}>{(card.set_code || '').toUpperCase()} {card.collector_number ? `#${card.collector_number}` : ''}</span>
-                  <span className={styles.value}>{showPrice && unitPrice != null ? formatPrice(unitPrice * qty, priceSource) : '—'}</span>
+                  <span className={styles.value}>
+                    {!showPrice ? '—'
+                      : unitPrice != null ? formatPrice(unitPrice * qty, priceSource)
+                      : loading ? <ValueSkeleton label="Price loading" />
+                      : '—'}
+                  </span>
                   <span className={styles.locations} title={folders.map(folder => folder.name).join(', ')}>
                     {folders.length ? folders.slice(0, 2).map(folder => folder.name).join(', ') : 'Unassigned'}{folders.length > 2 ? ` +${folders.length - 2}` : ''}
                   </span>
