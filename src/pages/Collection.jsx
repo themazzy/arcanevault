@@ -698,6 +698,14 @@ export default function CollectionPage() {
     // cardFolderMap: buildCardFolderMap drops placements for folders that aren't
     // in `folders` yet (e.g. a just-created binder), which would otherwise flag
     // freshly-added cards as orphans and prune them.
+    //
+    // These ids are CANDIDATES only. Do not treat this list as authoritative:
+    // `folderMembershipSynced` flips true on placementsQuery.isSuccess, and a
+    // setQueryData seed from IndexedDB satisfies that as readily as a network
+    // fetch — so this can run while the placements it judges against are purely
+    // local and behind another device. pruneUnplacedCards re-checks every
+    // candidate against Supabase before deleting anything, which is what makes
+    // that survivable. Keep it that way.
     const orphanIds = findUnplacedCardIds(cards, placementsQuery.data, cardFolderMap)
     if (!orphanIds.length) return
     const orphanIdSet = new Set(orphanIds)

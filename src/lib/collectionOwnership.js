@@ -27,6 +27,29 @@ function chunk(items, size = PRUNE_BATCH_SIZE) {
   return chunks
 }
 
+/**
+ * Delete owned cards that have no placement left anywhere.
+ *
+ * ⚠ The two Supabase reads below are NOT an optimization and must not be
+ * removed. They are the only thing separating a stale cache from real data
+ * loss, and this is the one path in the app that hard-deletes `cards` rows.
+ *
+ * `cardIds` is a list of CANDIDATES derived from local state, and local state
+ * is routinely behind the server. Fill a binder on one device and open the app
+ * on another: the cards arrive through the sync before their placements do, so
+ * for a moment they look unplaced to that second device. Worse,
+ * `folderMembershipSynced` in Collection flips true on
+ * `placementsQuery.isSuccess`, which a setQueryData seed from IndexedDB
+ * satisfies just as well as a network fetch — so the caller's "placements are
+ * synced" gate can be true while the placements are purely local.
+ *
+ * Re-querying folder_cards and deck_allocations here makes that safe: the
+ * local view only nominates, and Supabase decides. A card placed on another
+ * device appears in these results and survives, whatever the cache believed.
+ *
+ * Trusting the caller instead would delete a user's cards on a device that
+ * simply had not caught up yet — silently, and with no way back.
+ */
 export async function pruneUnplacedCards(cardIds) {
   const uniqueIds = [...new Set((cardIds || []).filter(Boolean))]
   if (!uniqueIds.length) return []

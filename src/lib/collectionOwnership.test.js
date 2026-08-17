@@ -9,7 +9,7 @@ vi.mock('./db', () => ({
 }))
 
 const { sb } = await import('./supabase')
-const { removeFolderCardPlacements, findUnplacedCardIds } = await import('./collectionOwnership')
+const { removeFolderCardPlacements, findUnplacedCardIds, pruneUnplacedCards } = await import('./collectionOwnership')
 
 // Records every folder_cards delete as { folderId, cardIds }.
 function mockDeleteChain(calls) {
@@ -107,5 +107,98 @@ describe('findUnplacedCardIds', () => {
     expect(findUnplacedCardIds([], undefined)).toEqual([])
     expect(findUnplacedCardIds(undefined, undefined)).toEqual([])
     expect(findUnplacedCardIds(cards, null, undefined)).toEqual(['a', 'b', 'c'])
+  })
+})
+
+describe('pruneUnplacedCards', () => {
+  /**
+   * Stands in for Supabase during a prune.
+   *
+   * `placedOnServer` is what the SERVER says is placed — deliberately allowed
+   * to disagree with the candidate list, because that disagreement is the
+   * whole point of the re-check.
+   */
+  function mockPrune({ placedOnServer = [], deletes = [] }) {
+    sb.from.mockImplementation(table => {
+      if (table === 'cards') {
+        return { delete: () => ({ in: (_c, ids) => { deletes.push(...ids); return Promise.resolve({ error: null }) } }) }
+      }
+      return {
+        select: () => ({
+          in: (_col, ids) => Promise.resolve({
+            data: ids.filter(id => placedOnServer.includes(id)).map(id => ({ card_id: id })),
+            error: null,
+          }),
+        }),
+      }
+    })
+  }
+
+  it('does NOT delete a candidate that is placed on the server', async () => {
+    // The multi-device case. A card placed on another device looks unplaced to
+    // this one until its placements sync, so it gets nominated — and must
+    // survive anyway. If this test fails, a user's cards are being deleted
+    // because one device had not caught up.
+    const deletes = []
+    mockPrune({ placedOnServer: ['card-on-other-device'], deletes })
+
+    const pruned = await pruneUnplacedCards(['card-on-other-device'])
+
+    expect(deletes).toEqual([])
+    expect(pruned).toEqual([])
+  })
+
+  it('deletes only the candidates the server also considers unplaced', async () => {
+    const deletes = []
+    mockPrune({ placedOnServer: ['keep-me'], deletes })
+
+    const pruned = await pruneUnplacedCards(['keep-me', 'genuinely-orphaned'])
+
+    expect(deletes).toEqual(['genuinely-orphaned'])
+    expect(pruned).toEqual(['genuinely-orphaned'])
+  })
+
+  it('counts a deck allocation as placed, not just a binder row', async () => {
+    // Both tables are checked; a card living only in a collection deck is placed.
+    const deletes = []
+    let call = 0
+    sb.from.mockImplementation(table => {
+      if (table === 'cards') {
+        return { delete: () => ({ in: (_c, ids) => { deletes.push(...ids); return Promise.resolve({ error: null }) } }) }
+      }
+      return {
+        select: () => ({
+          in: (_col, ids) => {
+            call += 1
+            // folder_cards: nothing. deck_allocations: holds it.
+            return Promise.resolve({ data: call === 1 ? [] : ids.map(id => ({ card_id: id })), error: null })
+          },
+        }),
+      }
+    })
+
+    expect(await pruneUnplacedCards(['deck-only-card'])).toEqual([])
+    expect(deletes).toEqual([])
+  })
+
+  it('throws rather than deleting when the placement check fails', async () => {
+    // Fail closed. Treating an errored read as "no placements" would delete
+    // the user's collection on a transient network blip.
+    const deletes = []
+    sb.from.mockImplementation(table => {
+      if (table === 'cards') {
+        return { delete: () => ({ in: (_c, ids) => { deletes.push(...ids); return Promise.resolve({ error: null }) } }) }
+      }
+      return { select: () => ({ in: () => Promise.resolve({ data: null, error: { message: 'network down' } }) }) }
+    })
+
+    await expect(pruneUnplacedCards(['some-card'])).rejects.toBeTruthy()
+    expect(deletes).toEqual([])
+  })
+
+  it('no-ops on empty input without touching the database', async () => {
+    sb.from.mockImplementation(() => { throw new Error('should not query') })
+    expect(await pruneUnplacedCards([])).toEqual([])
+    expect(await pruneUnplacedCards(null)).toEqual([])
   })
 })
