@@ -4,6 +4,7 @@ import { formatAttractionLights } from '../lib/attractions'
 import { getImageUri, getPrice, formatPrice, getScryfallKey } from '../lib/scryfall'
 import CardImg from './CardImg'
 import { Modal, Badge, Button, Input, ResponsiveMenu, Select, SearchInput } from './UI'
+import { ValueSkeleton } from './Skeletons'
 import styles from './CardComponents.module.css'
 import uiStyles from './UI.module.css'
 import { useBottomBarClearance, BULK_BAR_HEIGHT, BULK_BAR_QUERY } from './bottomBarClearance'
@@ -57,11 +58,13 @@ function scryfallLargeUrl() {
 function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, onToggleSelect, onEnterSelectMode, onAdjustQty, splitState, loading }) {
   const displayKey = card._displayKey || card.id
   const img = getImageUri(sfCard, 'normal') // CardImg re-tiers; detail view uses large
-  const scryfallPrice = getPrice(sfCard, card.foil)
-  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  // Market price only. purchase_price used to stand in when this was null,
+  // which showed what the user PAID where the card's value belongs. It still
+  // drives Stats' P&L and the CSV export; it just no longer impersonates a
+  // market value. Matches Collection and the binder/deck browsers.
+  const unitPrice = getPrice(sfCard, card.foil)
   const price = unitPrice != null ? unitPrice * totalQty : null
-  const isBuyFallback = scryfallPrice == null && unitPrice != null
-  const priceClass = price == null ? styles.priceNa : isBuyFallback ? styles.priceFallback : ''
+  const priceClass = price == null ? styles.priceNa : ''
 
   const selQty = splitState?.get(displayKey) ?? 1
 
@@ -117,9 +120,15 @@ function CardItem({ card, sfCard, selectMode, isSelected, totalQty, onSelect, on
         </div>
         <div className={styles.cardMeta}>
           <span className={styles.setCode}>{(card.set_code || '').toUpperCase()}</span>
-          <span className={`${styles.price} ${priceClass}`}>
-            {price != null ? fmt(price) : loading ? '…' : '—'}
-          </span>
+          {price != null ? (
+            <span className={`${styles.price} ${priceClass}`}>{fmt(price)}</span>
+          ) : loading ? (
+            // A static dash during loading is indistinguishable from a card
+            // that genuinely has no market price, so shimmer instead.
+            <ValueSkeleton label="Price loading" />
+          ) : (
+            <span className={`${styles.price} ${priceClass}`}>—</span>
+          )}
         </div>
         {card._folderName && <div className={styles.folderName}>{card._folderName}</div>}
       </div>

@@ -603,7 +603,6 @@
 .gridSetRow { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .gridSet { font-size: 0.64rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
 .gridPrice { font-size: 0.64rem; color: var(--green); font-family: var(--font-display); flex-shrink: 0; }
-.gridPriceFallback { font-size: 0.64rem; color: var(--text-dim); font-family: var(--font-display); flex-shrink: 0; }
 
 /* ── Color Stack Bar (Archidekt-style) ───────────────────────────────────── */
 .stackBarWrap { display: flex; flex-direction: column; gap: 4px; }
@@ -924,7 +923,6 @@
 .stackCardName { display: none; }
 .foilMark { display: none; }
 .stackPrice { display: none; }
-.stackPriceFallback { display: none; }
 
 @keyframes stackHoverReveal {
   from { opacity: 0; transform: translateY(4px) scale(0.96); }

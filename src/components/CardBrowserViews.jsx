@@ -238,7 +238,12 @@ function TableRow({ card, sf, priceSource, isSelected, selectMode, onClick, onEn
   }, { delay: 500 })
   const { onMouseLeave: lpLeave, consumeFired, ...lpRest } = longPress
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
-  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  // Market price only. purchase_price used to stand in when this was null,
+  // which showed what the user PAID where the card's value belongs — a real
+  // number, in the right currency, answering the wrong question. It still
+  // drives Stats' P&L and the CSV export. Collection dropped the same
+  // stand-in; this keeps the browsers consistent with it.
+  const unitPrice = scryfallPrice
   const price = unitPrice != null ? unitPrice * totalQty : null
   const mc = sf?.mana_cost || sf?.card_faces?.[0]?.mana_cost || ''
   const hoverEnter = CAN_HOVER && !lastInputWasTouch && !selectMode && img ? () => onHover?.(img) : undefined
@@ -560,9 +565,13 @@ function StackCard({ card, sf, idx, isPushedDown, priceSource, stackWidth, selec
   const img = getBrowserCardImage(card, sf, 'normal')
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
-  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  // Market price only. purchase_price used to stand in when this was null,
+  // which showed what the user PAID where the card's value belongs — a real
+  // number, in the right currency, answering the wrong question. It still
+  // drives Stats' P&L and the CSV export. Collection dropped the same
+  // stand-in; this keeps the browsers consistent with it.
+  const unitPrice = scryfallPrice
   const price = unitPrice != null ? unitPrice * totalQty : null
-  const isBuyFallback = scryfallPrice == null && unitPrice != null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
   const cardRef = useRef(null)
@@ -653,7 +662,7 @@ function StackCard({ card, sf, idx, isPushedDown, priceSource, stackWidth, selec
         )}
       </div>
       {price != null && (
-        <div className={isBuyFallback ? styles.stackPriceFallback : styles.stackPrice}>
+        <div className={styles.stackPrice}>
           {formatPrice(price, priceSource)}
         </div>
       )}
@@ -750,9 +759,13 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
   const img = getBrowserCardImage(card, sf, 'normal')
   const totalQty = card._folder_qty ?? card.qty ?? 1
   const scryfallPrice = getPrice(sf, card.foil, { price_source: priceSource })
-  const unitPrice = scryfallPrice ?? (parseFloat(card.purchase_price) || null)
+  // Market price only. purchase_price used to stand in when this was null,
+  // which showed what the user PAID where the card's value belongs — a real
+  // number, in the right currency, answering the wrong question. It still
+  // drives Stats' P&L and the CSV export. Collection dropped the same
+  // stand-in; this keeps the browsers consistent with it.
+  const unitPrice = scryfallPrice
   const price = unitPrice != null ? unitPrice * totalQty : null
-  const isBuyFallback = scryfallPrice == null && unitPrice != null
   const key = getDisplayKey(card)
   const selQty = splitState?.get(key) ?? 1
   const longPress = useLongPress(() => {
@@ -800,7 +813,7 @@ function GridCard({ card, sf, priceSource, selectMode, isSelected, onSelect, onT
         <div className={styles.gridSetRow}>
           <span className={styles.gridSet}>{(card.set_code || '').toUpperCase()}</span>
           {price != null && (
-            <span className={isBuyFallback ? styles.gridPriceFallback : styles.gridPrice}>
+            <span className={styles.gridPrice}>
               {formatPrice(price, priceSource)}
             </span>
           )}
