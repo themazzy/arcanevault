@@ -303,7 +303,13 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
       if (localRows.length) {
         const sorted = [...localRows].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
         setItems(sorted)
-        const map = await loadCardMapWithSharedPrices(sorted, { priceLookup: 'set' })
+        const map = await loadCardMapWithSharedPrices(sorted, {
+          priceLookup: 'set',
+        // Publish art as soon as metadata resolves — it does not depend on
+        // the price overlay that follows. On a warm cache this fires before
+        // any network call at all.
+          onMetadataReady: m => setSfMap(prev => ({ ...prev, ...m })),
+        })
         if (map) setSfMap(prev => ({ ...prev, ...map }))
         setLoading(false)
         seeded = true
@@ -341,7 +347,10 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
 
     setItems(rows)
     if (rows.length) {
-      const map = await loadCardMapWithSharedPrices(rows, { priceLookup: 'set' })
+      const map = await loadCardMapWithSharedPrices(rows, {
+        priceLookup: 'set',
+        onMetadataReady: m => setSfMap(prev => ({ ...prev, ...m })),
+      })
       if (map) setSfMap(prev => ({ ...prev, ...map }))
     } else {
       setSfMap({})

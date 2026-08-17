@@ -717,7 +717,20 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   useEffect(() => {
     if (!cards.length) return
     let cancelled = false
-    loadCardMapWithSharedPrices(cards, { priceLookup: 'set' }).then(map => {
+    loadCardMapWithSharedPrices(cards, {
+      priceLookup: 'set',
+      // Paint card art without waiting for prices. Art comes from the metadata
+      // pass and does not depend on the price overlay that follows it, so
+      // publishing only at the end left a binder imageless for the whole load —
+      // and the largest here holds 1,288 cards.
+      //
+      // This doubles as the warm-cache path: when nothing needs enriching, it
+      // fires straight after the IndexedDB read, before any network call at all.
+      onMetadataReady: map => {
+        if (cancelled || !map) return
+        setSfMap(prev => ({ ...prev, ...map }))
+      },
+    }).then(map => {
       if (cancelled || !map) return
       setSfMap(prev => ({ ...prev, ...map }))
     })

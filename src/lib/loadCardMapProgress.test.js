@@ -200,6 +200,23 @@ describe('loadCardMapWithSharedPrices metadata publish', () => {
     expect(seen).toEqual([])
   })
 
+  it('publishes even when nothing needs enriching', async () => {
+    // The warm-cache path, and the one the binder/deck/wishlist browsers hit
+    // most: everything is already in IndexedDB, enrichCards never runs, and the
+    // publish must still fire — before any network — or those browsers gain
+    // nothing from the early hand-off.
+    let published = null
+    getInstantCache.mockResolvedValue(CACHED)
+
+    await loadCardMapWithSharedPrices(CARDS, {
+      priceLookup: 'set',
+      onMetadataReady: m => { published = m },
+    })
+
+    expect(enrichCards).not.toHaveBeenCalled()
+    expect(published).toEqual(CACHED)
+  })
+
   it('still returns the priced map when the consumer throws', async () => {
     // A render error in the early publish must not take down the whole load.
     getInstantCache.mockResolvedValue(CACHED)

@@ -406,7 +406,11 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
       setCards(cardList)
       // Drop the spinner as soon as cards are on screen — remote reconcile can run async.
       setLoading(false)
-      const map = await loadCardMapWithSharedPrices(cardList)
+      const map = await loadCardMapWithSharedPrices(cardList, {
+        // Art does not depend on the price overlay that follows it, so publish
+        // it early rather than leaving the deck imageless for the whole load.
+        onMetadataReady: m => setSfMap(prev => ({ ...prev, ...m })),
+      })
       if (map) setSfMap(prev => ({ ...prev, ...map }))
     } else {
       setCards([])
