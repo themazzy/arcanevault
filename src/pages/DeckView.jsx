@@ -286,12 +286,35 @@ function DeckViewSkeleton({ user, onBack }) {
               ))}
             </div>
           </div>
+          {/* A signed-out visitor always gets the viewer banner; a signed-in one
+              gets the compact action row. Sizing the placeholder to whichever
+              will land keeps the header from jumping on the swap. */}
+          <div className={styles.skelHeaderAside}>
+            <span
+              className={`${styles.skelBar} ${user ? styles.skelHeaderAction : styles.skelHeaderBanner}`}
+            />
+          </div>
         </div>
       </div>
-      <div className={styles.skelGrid} aria-hidden="true">
-        {Array.from({ length: 9 }).map((_, i) => (
-          <span key={i} className={`${styles.skelBar} ${styles.skelCard}`} />
-        ))}
+
+      {/* Same two-column body as the loaded page: the card grid is a third of
+          the deck-list column, not a third of the viewport. */}
+      <div className={styles.skelBody} aria-hidden="true">
+        <div className={styles.skelListPanel}>
+          <div className={styles.skelListHeader}>
+            <span className={`${styles.skelBar} ${styles.skelListLabel}`} />
+            <span className={`${styles.skelBar} ${styles.skelListToolbar}`} />
+          </div>
+          <div className={styles.skelGrid}>
+            {Array.from({ length: 9 }).map((_, i) => (
+              <span key={i} className={`${styles.skelBar} ${styles.skelCard}`} />
+            ))}
+          </div>
+        </div>
+        <div className={styles.skelSidebar}>
+          <span className={`${styles.skelBar} ${styles.skelPanel}`} />
+          <span className={`${styles.skelBar} ${styles.skelPanelShort}`} />
+        </div>
       </div>
     </div>
   )

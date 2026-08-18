@@ -1400,16 +1400,62 @@
 .skelPillRow {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
   margin-top: 16px;
 }
-.skelPill { width: 84px; height: 22px; border-radius: 999px; }
+.skelPill { width: 84px; height: 24px; border-radius: 4px; }
 
+/* Right column of .deckHeaderInner — viewer banner (guest) or action row. */
+.skelHeaderAside {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.skelHeaderBanner { width: 100%; height: 118px; border-radius: 8px; }
+.skelHeaderAction { width: 130px; height: 30px; border-radius: 5px; }
+
+/* Mirrors .body: the grid lives inside the deck-list column, so a placeholder
+   card is the width of a real one rather than a third of the viewport. */
+.skelBody {
+  padding: 28px 40px 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 460px);
+  gap: 40px;
+  align-items: start;
+}
+
+.skelListPanel {
+  min-width: 0;
+  /* Same viewport clamp as .deckListPanel, so the skeleton never adds page
+     scroll that the loaded page does not have. */
+  max-height: calc(100vh - var(--nav-h) - 60px - 20px);
+  overflow: hidden;
+}
+
+/* Mirrors .listHeader */
+.skelListHeader {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) minmax(0, 1fr);
+  gap: 12px 16px;
+  align-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 16px;
+  padding: 10px;
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(201,168,76,0.035), transparent 45%),
+    var(--s1);
+}
+.skelListLabel   { width: 110px; height: 12px; }
+.skelListToolbar { width: 100%; height: 30px; border-radius: 5px; }
+
+/* Mirrors .cardGrid */
 .skelGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
-  padding: 24px 40px 40px;
 }
 .skelCard {
   width: 100%;
@@ -1417,8 +1463,24 @@
   border-radius: 5px;
 }
 
-@media (max-width: 900px) {
-  .skelGrid { padding: 18px 16px 32px; }
+/* Mirrors .sidebar */
+.skelSidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  min-width: 0;
+}
+.skelPanel      { height: 320px; border-radius: 8px; }
+.skelPanelShort { height: 160px; border-radius: 8px; }
+
+@media (max-width: 1100px) {
+  .skelBody {
+    grid-template-columns: 1fr;
+    padding: 20px 20px 60px;
+    gap: 32px;
+  }
+  .skelListPanel { max-height: none; }
+  .skelHeaderAside { justify-content: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
