@@ -134,10 +134,23 @@ export function BrowserSkeleton({ viewMode = 'grid', count, label = 'Loading', d
  * history, proposals, deck win rates. One shared shape rather than a bespoke
  * shimmer per panel, because a bespoke one is another set of hand-copied
  * heights to drift.
+ *
+ * `height` and `gap` are per-caller because each of those lists has its own:
+ * a trade-log entry is a single 46px line, a proposal card is a head plus a
+ * row of chips. A shared default would be right in one place and wrong in the
+ * rest, which is the failure this component exists to stop.
+ *
+ * `className` replaces the flex-column container, for a caller whose list is
+ * not one — Stats' game history is a `minmax(320px, 1fr)` grid. Handing over
+ * the real class beats restating its columns here.
  */
-export function RowsSkeleton({ count = 4, height = 56, label = 'Loading' }) {
+export function RowsSkeleton({ count = 4, height = 56, gap, className, label = 'Loading' }) {
   return (
-    <div className={styles.rowList} aria-busy="true">
+    <div
+      className={className ?? styles.rowList}
+      style={gap == null ? undefined : { gap: `${gap}px` }}
+      aria-busy="true"
+    >
       <span className="sr-only" role="status">{label}</span>
       {times(count, i => (
         <Block key={i} kind="row" className={styles.row} style={{ height: `${height}px` }} />

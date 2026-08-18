@@ -153,6 +153,21 @@ describe('RowsSkeleton', () => {
     render(<RowsSkeleton count={4} label="Loading trade history" />)
     expect(screen.getByRole('status').textContent).toBe('Loading trade history')
   })
+
+  // The four panels using this have gaps of 8, 10, 12 and 14px. Left to one
+  // shared value the placeholder would be a different height from the list it
+  // stands in for everywhere but one of them.
+  it('takes its gap from the caller', () => {
+    const { container } = render(<RowsSkeleton count={3} gap={12} />)
+    expect(container.firstChild.style.gap).toBe('12px')
+  })
+
+  // Stats' game history is a `minmax(320px, 1fr)` grid, not a column. Handing
+  // over the real class beats restating its columns inside this component.
+  it('yields its container class to a caller whose list is not a column', () => {
+    const { container } = render(<RowsSkeleton count={2} className="historyGrid" />)
+    expect(container.firstChild.className).toBe('historyGrid')
+  })
 })
 
 describe('AppBootSkeleton', () => {

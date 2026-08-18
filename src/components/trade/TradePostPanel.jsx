@@ -15,6 +15,36 @@ import {
 } from '../../lib/tradeProposals'
 import TradePostWizard from './TradePostWizard'
 import styles from './TradePostPanel.module.css'
+import { RowsSkeleton } from '../Skeletons'
+
+// Shown while the trade post loads. Built from .statusCard and the rows inside
+// it rather than a sized block, so the card is already the right height before
+// the counts arrive — the same rule the profile and deck-view skeletons follow.
+export function TradePostStatusSkeleton() {
+  return (
+    <div className={styles.statusCard} aria-busy="true">
+      <span className="sr-only" role="status">Loading your trade post</span>
+      <div className={styles.statusHead} aria-hidden="true">
+        <div className={styles.statusWho}>
+          <span className={styles.statusDot} />
+          <span className={`${styles.skelBar} ${styles.skelStatusTitle}`} />
+        </div>
+        <span className={`${styles.skelBar} ${styles.skelStatusBtn}`} />
+      </div>
+      <div className={styles.statusStats} aria-hidden="true">
+        {[0, 1].map(i => (
+          <div key={i} className={styles.statusStat}>
+            <span className={`${styles.skelBar} ${styles.skelStatusNum}`} />
+            <span className={`${styles.skelBar} ${styles.skelStatusLabel}`} />
+          </div>
+        ))}
+      </div>
+      <div className={styles.linkRow} aria-hidden="true">
+        <span className={`${styles.skelBar} ${styles.skelStatusLink}`} />
+      </div>
+    </div>
+  )
+}
 
 // ── Owner: your Trade Post at a glance ───────────────────────────────────────
 // Deliberately a summary, not a form. All the editing lives in TradePostWizard,
@@ -56,7 +86,7 @@ export function TradePostManager() {
     } catch { /* clipboard unavailable — the field is selectable */ }
   }
 
-  if (!state) return <EmptyState>Loading your trade post…</EmptyState>
+  if (!state) return <TradePostStatusSkeleton />
 
   const live = state.open && !!nickname && state.haveCount > 0
   // What's missing, in the order the wizard asks for it.
@@ -271,7 +301,9 @@ export function ProposalsInbox({ data, setData }) {
 
   const onSettle = (proposal) => navigate(`/trading?tab=compare&settle=${proposal.id}`)
 
-  if (data === null) return <EmptyState>Loading proposals…</EmptyState>
+  // 92px is a .proposal: 14px padding each side of the head row and the chip
+  // row beneath it. Gap matches .propList.
+  if (data === null) return <RowsSkeleton count={3} height={92} gap={12} label="Loading proposals" />
 
   const rows = sortProposals(data.incoming, data.outgoing)
   if (!rows.length) {

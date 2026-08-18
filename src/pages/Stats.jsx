@@ -13,6 +13,7 @@ import { useSettings } from '../components/SettingsContext'
 import { CardDetail } from '../components/CardComponents'
 import { useCardDetailNav, cardPeek } from '../hooks/useCardDetailNav'
 import { EmptyState, SectionHeader, ProgressBar, Select } from '../components/UI'
+import { RowsSkeleton } from '../components/Skeletons'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { hasDeckArtSource, mergeDeckCommanderArt, useDeckArt } from '../lib/deckArt'
 import { MILESTONES } from '../lib/milestones'
@@ -956,7 +957,15 @@ function GameHistorySection({ rows, loading, deckMap, onRefresh, onEdit, onDelet
       </div>
 
       {loading ? (
-        <div className={styles.historyEmpty}>Loading game history…</div>
+        // The real .historyList is a grid, not a column, so it is handed over
+        // rather than restated. 360px is .historyCard's min-height.
+        <RowsSkeleton
+          count={4}
+          height={360}
+          gap={14}
+          className={styles.historyList}
+          label="Loading game history"
+        />
       ) : rows.length === 0 ? (
         <div className={styles.historyEmpty}>No saved game history yet.</div>
       ) : (
@@ -1029,10 +1038,12 @@ function DeckWinratesSection({ rows, loading, deckMap }) {
   const leaderboard = useMemo(() => computePlaygroupLeaderboard(rows), [rows])
   const streaks     = useMemo(() => computeOwnerStreaks(rows), [rows])
 
+  // 104px is a .winrateEntry: 14px padding each side of a name line and the
+  // bar/placement row beneath it. Gap matches .winrateLeaderboard.
   if (loading) return (
     <div className={styles.chartBox}>
       <SLabel>Deck Win Rates</SLabel>
-      <div className={styles.historyEmpty}>Loading game history…</div>
+      <RowsSkeleton count={3} height={104} gap={10} label="Loading game history" />
     </div>
   )
 

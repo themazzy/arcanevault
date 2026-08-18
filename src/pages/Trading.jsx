@@ -26,6 +26,7 @@ import {
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
 import { EmptyState, Modal, ProgressBar, SectionHeader, SearchInput } from '../components/UI'
+import { RowsSkeleton } from '../components/Skeletons'
 import { TradePostManager, ProposalsInbox } from '../components/trade/TradePostPanel'
 import { getTradeProposals, markTradeSettled } from '../lib/tradePost'
 import {
@@ -434,9 +435,10 @@ function OptionPickerModal({ title, options, onClose, onSelect, mode, priceSourc
 function TradeLogSection({ rows, loading, onRefresh, fmt }) {
   const [expanded, setExpanded] = useState(null)
 
-  if (loading) return (
-    <div className={styles.logEmpty}>Loading trade history…</div>
-  )
+  // 46px is a .logEntry collapsed: 12px of padding each side of one line, plus
+  // its border. Expanding is the user's move, so the placeholder never guesses
+  // at an open one.
+  if (loading) return <RowsSkeleton count={3} height={46} gap={8} label="Loading trade history" />
 
   if (!rows.length) return (
     <div className={styles.logEmpty}>

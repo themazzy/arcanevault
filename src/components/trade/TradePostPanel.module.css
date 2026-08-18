@@ -155,3 +155,32 @@
   .propActions { flex-direction: column-reverse; }
   .propActions > * { width: 100%; }
 }
+
+/* ── Loading skeleton ──────────────────────────────────────────────────────
+   See TradePostStatusSkeleton in TradePostPanel.jsx. The card, its head row,
+   its stat cells and the link row are the real classes; only these bars are
+   placeholders, so the card's height comes from the same padding and gaps the
+   loaded one uses. */
+.skelBar {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 50%, var(--s2) 75%);
+  background-size: 200% 100%;
+  animation: tradePostShimmer 1.5s infinite;
+}
+
+@keyframes tradePostShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skelStatusTitle { width: 190px; height: 15px; }
+/* Button `sm` — the head row's height is set by it, so it has to be its size. */
+.skelStatusBtn   { width: 68px; height: 30px; border-radius: var(--radius-sm); }
+.skelStatusNum   { width: 44px; height: 1.35rem; }
+.skelStatusLabel { width: 96px; height: 10px; }
+.skelStatusLink  { flex: 1; min-width: 0; height: 34px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skelBar { animation: none; }
+}
