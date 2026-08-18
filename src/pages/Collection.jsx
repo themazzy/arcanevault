@@ -1299,7 +1299,7 @@ export default function CollectionPage() {
   })
 
   if (collectionInitialLoading) {
-    return <BrowserSkeleton viewMode={viewMode} label="Loading your collection" />
+    return <BrowserSkeleton viewMode={viewMode} density={grid_density} label="Loading your collection" />
   }
 
   return (

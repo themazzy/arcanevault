@@ -777,7 +777,7 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
     }
   }, [selectedCard, folder.id, markCurrentLinkedDeckUnsynced, invalidatePlacementCaches, loadCards, toast])
 
-  if (loading) return <BrowserSkeleton viewMode={viewMode} label="Loading deck" />
+  if (loading) return <BrowserSkeleton viewMode={viewMode} density={grid_density} label="Loading deck" />
 
   // The verb stays constant once a pair exists, and drift is shown beside it rather
   // than replacing it — a button should keep saying where it goes. The unpaired case

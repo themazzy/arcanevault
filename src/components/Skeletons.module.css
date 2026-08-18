@@ -73,16 +73,38 @@
 .headerMeta  { width: 180px; height: 12px; }
 .headerControls { width: 100%; max-width: 420px; height: 36px; border-radius: var(--radius-sm); }
 
-/* ── Card grid ─────────────────────────────────────────────────────────── */
+/* ── Card grid ─────────────────────────────────────────────────────────────
+   Columns, column-gap and the mobile column count are set inline from the
+   shared density contract (see BrowserSkeleton) — the same helper the live
+   grid uses before it measures itself. Only what the density does not decide
+   lives here. `row-gap` tracks .cardGrid in DeckBrowser.module.css. */
 .cardGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
+  row-gap: 12px;
 }
+/* A cell, not a block: the real cell is art plus a name and a price line, and
+   an art-only placeholder made every row ~90px too short. Height is derived
+   from the same structure rather than pinned to a number. */
 .card {
-  width: 100%;
-  aspect-ratio: 5 / 7;
-  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* 63/88 is .gridImgWrap's aspect ratio, not an approximation of it. */
+.cardArt  { width: 100%; aspect-ratio: 63 / 88; border-radius: var(--radius-sm); }
+.cardName { width: 82%; height: 11px; }
+.cardMeta { width: 46%; height: 9px; }
+
+/* The live grid switches on *container* width, which CSS cannot ask about;
+   the viewport is a close proxy because these grids run near full width on a
+   phone. The old rule here used a 900px breakpoint and a column width the real
+   grid has at no size at all. */
+@media (max-width: 430px) {
+  .cardGrid {
+    grid-template-columns: repeat(var(--skel-mobile-cols, 2), minmax(0, 1fr));
+    column-gap: var(--skel-mobile-gap, 8px);
+  }
 }
 
 /* ── Row list (stacks / table / text views) ────────────────────────────── */
@@ -91,13 +113,10 @@
   flex-direction: column;
   gap: 6px;
 }
-.row { height: 40px; }
+/* ROW_HEIGHT in VirtualCardTable.jsx. RowsSkeleton overrides it per panel. */
+.row { height: 56px; }
 
 .page { padding: 4px 0 24px; }
-
-@media (max-width: 900px) {
-  .cardGrid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .block { animation: none; }

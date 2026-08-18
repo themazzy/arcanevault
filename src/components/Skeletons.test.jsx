@@ -2,7 +2,8 @@
 
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AppBootSkeleton, BrowserSkeleton, TileGridSkeleton, ValueSkeleton } from './Skeletons'
+import { AppBootSkeleton, BrowserSkeleton, RowsSkeleton, TileGridSkeleton, ValueSkeleton } from './Skeletons'
+import { CARD_GRID_DENSITY, gridColumnsForDensity, getCardGridDensity } from '../lib/cardGridDensity'
 
 afterEach(() => {
   cleanup()
@@ -94,6 +95,63 @@ describe('BrowserSkeleton', () => {
   it('defaults to grid when no preference is passed', () => {
     const { container } = render(<BrowserSkeleton count={3} />)
     expect(ofKind(container, 'card')).toHaveLength(3)
+  })
+
+  // The live grid's column width is a user setting, so a fixed placeholder grid
+  // showed the wrong number of columns to anyone not on the default: `cozy`
+  // laid out roughly 1.6x too many, then swapped into far fewer, larger cards.
+  //
+  // Asserted against the helper rather than against literal strings — a literal
+  // here would be the same copied-number mistake one level up, and would keep
+  // passing after the density contract changed underneath it.
+  it('lays out the grid at the density the browser is set to', () => {
+    for (const density of Object.keys(CARD_GRID_DENSITY)) {
+      cleanup()
+      const { container } = render(<BrowserSkeleton viewMode="grid" count={3} density={density} />)
+      const grid = container.querySelector('[data-skeleton="card"]').parentElement
+
+      expect(grid.style.gridTemplateColumns).toBe(gridColumnsForDensity(density))
+      expect(grid.style.columnGap).toBe(`${getCardGridDensity(density).desktopGap}px`)
+      expect(grid.style.getPropertyValue('--skel-mobile-cols'))
+        .toBe(String(getCardGridDensity(density).mobileCols))
+    }
+  })
+
+  it('falls back to the default density rather than an unstyled grid', () => {
+    const { container } = render(<BrowserSkeleton viewMode="grid" count={1} />)
+    const grid = container.querySelector('[data-skeleton="card"]').parentElement
+    expect(grid.style.gridTemplateColumns).toBe(gridColumnsForDensity('comfortable'))
+  })
+
+  // The real cell is art plus a name and a price line. An art-only placeholder
+  // was ~90px short per row, so a screenful of them collapsed upward on load.
+  it('gives every card placeholder the art, name and meta the real cell has', () => {
+    const { container } = render(<BrowserSkeleton viewMode="grid" count={4} />)
+    expect(ofKind(container, 'card-art')).toHaveLength(4)
+    expect(ofKind(container, 'card-name')).toHaveLength(4)
+    expect(ofKind(container, 'card-meta')).toHaveLength(4)
+  })
+})
+
+describe('RowsSkeleton', () => {
+  it('renders one row per requested count', () => {
+    const { container } = render(<RowsSkeleton count={5} />)
+    expect(ofKind(container, 'row')).toHaveLength(5)
+  })
+
+  // Each panel that uses it has a different row height, so the height has to
+  // travel with the call — a single shared number would be wrong everywhere
+  // but one place.
+  it('takes its row height from the caller', () => {
+    const { container } = render(<RowsSkeleton count={2} height={72} />)
+    for (const row of ofKind(container, 'row')) {
+      expect(row.style.height).toBe('72px')
+    }
+  })
+
+  it('announces itself once rather than per row', () => {
+    render(<RowsSkeleton count={4} label="Loading trade history" />)
+    expect(screen.getByRole('status').textContent).toBe('Loading trade history')
   })
 })
 

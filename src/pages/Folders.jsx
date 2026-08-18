@@ -980,7 +980,7 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'card' : 'cards'} to ${targetFolder.name}.`)
   })
 
-  if (loading) return <BrowserSkeleton viewMode={viewMode} label={`Loading ${noun.toLowerCase()}`} />
+  if (loading) return <BrowserSkeleton viewMode={viewMode} density={grid_density} label={`Loading ${noun.toLowerCase()}`} />
 
   return (
     <div className={styles.browserPage} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>

@@ -594,7 +594,7 @@ function ListBrowser({ folder = null, folders = [], title = '', onBack, onDelete
     if (movedQty > 0) toast.success(`Moved ${movedQty} ${movedQty === 1 ? 'item' : 'items'} to ${targetFolder.name}.`)
   })
 
-  if (loading) return <BrowserSkeleton viewMode={viewMode} label="Loading wishlist" />
+  if (loading) return <BrowserSkeleton viewMode={viewMode} density={grid_density} label="Loading wishlist" />
 
   return (
     <div className={styles.browserPage} onMouseMove={handleMouseMove} onMouseLeave={handleHoverEnd}>

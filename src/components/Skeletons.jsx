@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react'
 import styles from './Skeletons.module.css'
+import {
+  DEFAULT_CARD_GRID_DENSITY,
+  MOBILE_CARD_GRID_GAP,
+  getCardGridDensity,
+  gridColumnsForDensity,
+} from '../lib/cardGridDensity'
 
 // Shared loading skeletons for the collection surfaces.
 //
@@ -15,8 +21,8 @@ import styles from './Skeletons.module.css'
 // `kind` is emitted as a data attribute rather than relying on the class name:
 // CSS-module classes are hashed at build time, so they are not a stable handle
 // for tests or for anyone inspecting the DOM.
-function Block({ kind, className }) {
-  return <span data-skeleton={kind} className={`${styles.block} ${className}`} />
+function Block({ kind, className, style }) {
+  return <span data-skeleton={kind} className={`${styles.block} ${className}`} style={style} />
 }
 
 function times(count, render) {
@@ -79,9 +85,22 @@ export function ValueSkeleton({ label = 'Value loading' }) {
  * text) so the placeholder is the shape the user actually has selected —
  * showing a card grid to someone who browses in table view would reflow twice.
  */
-export function BrowserSkeleton({ viewMode = 'grid', count, label = 'Loading' }) {
+export function BrowserSkeleton({ viewMode = 'grid', count, label = 'Loading', density = DEFAULT_CARD_GRID_DENSITY }) {
   const isGrid = viewMode === 'grid'
   const items = count ?? (isGrid ? 12 : 10)
+  const spec = getCardGridDensity(density)
+
+  // Not copied metrics — `gridColumnsForDensity` is the same helper the live
+  // grid renders while its ResizeObserver has not fired yet
+  // (ResponsiveCardGrid in CardBrowserViews.jsx), so the placeholder and the
+  // first real paint are the same layout by construction rather than by
+  // agreement. The two mobile values come off the same density spec.
+  const gridStyle = {
+    gridTemplateColumns: gridColumnsForDensity(density),
+    columnGap: `${spec.desktopGap}px`,
+    '--skel-mobile-cols': spec.mobileCols,
+    '--skel-mobile-gap': `${MOBILE_CARD_GRID_GAP}px`,
+  }
 
   return (
     <div className={styles.page} aria-busy="true">
@@ -92,14 +111,37 @@ export function BrowserSkeleton({ viewMode = 'grid', count, label = 'Loading' })
         <Block kind="header-controls" className={styles.headerControls} />
       </div>
       {isGrid ? (
-        <div className={styles.cardGrid} aria-hidden="true">
-          {times(items, i => <Block key={i} kind="card" className={styles.card} />)}
+        <div className={styles.cardGrid} style={gridStyle} aria-hidden="true">
+          {times(items, i => (
+            <div key={i} data-skeleton="card" className={styles.card}>
+              <Block kind="card-art" className={styles.cardArt} />
+              <Block kind="card-name" className={styles.cardName} />
+              <Block kind="card-meta" className={styles.cardMeta} />
+            </div>
+          ))}
         </div>
       ) : (
         <div className={styles.rowList} aria-hidden="true">
           {times(items, i => <Block key={i} kind="row" className={styles.row} />)}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * A plain list of rows, for panels whose loaded content is a list — trade
+ * history, proposals, deck win rates. One shared shape rather than a bespoke
+ * shimmer per panel, because a bespoke one is another set of hand-copied
+ * heights to drift.
+ */
+export function RowsSkeleton({ count = 4, height = 56, label = 'Loading' }) {
+  return (
+    <div className={styles.rowList} aria-busy="true">
+      <span className="sr-only" role="status">{label}</span>
+      {times(count, i => (
+        <Block key={i} kind="row" className={styles.row} style={{ height: `${height}px` }} />
+      ))}
     </div>
   )
 }
