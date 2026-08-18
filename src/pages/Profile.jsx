@@ -780,6 +780,62 @@ function Zone({ id, className, children }) {
   )
 }
 
+// Shown while the profile loads.
+//
+// Built out of the page's own containers — .banner, .bannerInner, .identity,
+// .ledger, .panels — with shimmer bars where the text goes, rather than out of
+// two blocks sized by hand. The banner's height is not a number here; it comes
+// from the same `calc(var(--nav-h) + 96px)` padding and the same 68px avatar
+// that the loaded banner uses, so it cannot drift away from them. The previous
+// version guessed 220px against a real banner of 280px+, and left the whole
+// bento showcase below it with no placeholder at all.
+export function ProfileSkeleton() {
+  return (
+    <div className={styles.page} aria-busy="true">
+      <span className="sr-only" role="status">Loading profile</span>
+      <header className={styles.banner} aria-hidden="true">
+        <div className={styles.bannerFallback} />
+        <div className={styles.bannerScrim} />
+
+        <div className={`${styles.shell} ${styles.bannerInner}`}>
+          <div className={styles.identity}>
+            <div className={`${styles.avatar} ${styles.skelAvatar}`} />
+            <div className={styles.identityText}>
+              <span className={`${styles.skelBar} ${styles.skelName}`} />
+              <span className={`${styles.skelBar} ${styles.skelBio}`} />
+            </div>
+          </div>
+
+          <dl className={styles.ledger}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className={styles.ledgerEntry}>
+                {/* Term before definition, as a <dl> requires; .skelLedgerValue
+                    lifts the value above its label the way .ledgerValue does. */}
+                <dt className={`${styles.skelBar} ${styles.skelLedgerLabel}`} />
+                <dd className={`${styles.skelBar} ${styles.skelLedgerValue}`} />
+              </div>
+            ))}
+          </dl>
+        </div>
+      </header>
+
+      <div className={styles.shell} aria-hidden="true">
+        <div className={styles.panels}>
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className={styles.section}>
+              <div className={styles.sectionHead}>
+                <span className={`${styles.skelBar} ${styles.skelSectionMarker}`} />
+                <span className={styles.sectionRule} />
+              </div>
+              <span className={`${styles.skelBar} ${styles.skelPanelBody}`} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ProfilePage() {
   const { username } = useParams()
@@ -1148,14 +1204,7 @@ export default function ProfilePage() {
     .map(b => { const s = ledgerStat(b.id); return s ? { id: b.id, ...s } : null })
     .filter(Boolean)
 
-  if (profileQuery.isLoading) {
-    return (
-      <div className={styles.page}>
-        <div className={styles.skeletonBanner} />
-        <div className={styles.shell}><div className={styles.skeletonLedger} /></div>
-      </div>
-    )
-  }
+  if (profileQuery.isLoading) return <ProfileSkeleton />
 
   if (notFound) return (
     <div className={styles.page}>

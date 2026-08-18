@@ -1647,20 +1647,41 @@
 }
 
 /* ── Loading / empty ──────────────────────────────────────────────────────── */
-.skeletonBanner {
-  height: 220px;
-  margin-bottom: 28px;
+/* ── Loading skeleton ──────────────────────────────────────────────────────
+   See ProfileSkeleton in Profile.jsx. It renders the page's real containers
+   (.banner, .bannerInner, .identity, .ledger, .panels) and only fills them
+   with these bars, so the placeholder's height follows the real padding and
+   gaps instead of a number that has to be kept in step with them. */
+.skelBar {
+  display: block;
+  border-radius: var(--radius-sm);
   background: linear-gradient(90deg, var(--shimmer-base) 25%, var(--shimmer-hi) 37%, var(--shimmer-base) 63%);
   background-size: 400% 100%;
   animation: shimmer 1.4s ease infinite;
 }
 
-.skeletonLedger {
-  height: 86px;
-  border-radius: var(--radius-md);
+/* Composed onto the real .avatar, which already carries the 68px box and the
+   accent ring — only the letter inside is missing. */
+.skelAvatar {
+  border-color: var(--s-border2);
   background: linear-gradient(90deg, var(--shimmer-base) 25%, var(--shimmer-hi) 37%, var(--shimmer-base) 63%);
   background-size: 400% 100%;
   animation: shimmer 1.4s ease infinite;
+}
+
+/* Tracks .name's clamp so the nameplate does not resize on the swap. */
+.skelName { width: min(340px, 62%); height: clamp(2.1rem, 5.5vw, 3.4rem); }
+.skelBio  { width: min(420px, 80%); height: 14px; margin-top: 16px; }
+
+.skelLedgerValue { order: -1; width: 62px; height: var(--font-2xl); margin: 0; }
+.skelLedgerLabel { width: 86px; height: 10px; }
+
+.skelSectionMarker { width: 132px; height: 13px; }
+.skelPanelBody     { height: 220px; border-radius: var(--radius-md); }
+
+@media (prefers-reduced-motion: reduce) {
+  .skelBar,
+  .skelAvatar { animation: none; }
 }
 
 @keyframes shimmer {
