@@ -12,11 +12,22 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
 const BULK_DATA_TYPE = 'oracle_cards'
 const USER_AGENT = 'DeckLoomOracleSync/1.0'
-const UPSERT_BATCH = 500
+// oracle_cards carries three GIN indexes — the name trigram, the face-name
+// trigram and the face_names array — so every changed row writes four index
+// entries on top of its heap tuple. Batches of 500 exceed the role's statement
+// timeout while the instance is busy. sync-card-prints.mjs hit the identical
+// wall on card_prints' trigram GIN and settled on 100; same table shape, same
+// number.
+const UPSERT_BATCH = 100
+// A batch that still times out gets split rather than abandoned, down to this.
+const MIN_UPSERT_BATCH = 25
+const WRITE_ATTEMPTS = 4
+const RETRY_BASE_MS = 1000
 const DOWNLOAD_DIR = path.join(process.cwd(), '.tmp')
 const SYNCED_AT = new Date().toISOString()
 const ORACLE_TEXT_CAP = 600
 const FETCH_PAGE = 1000
+const LOG_EVERY = 5000
 
 // `--force` rewrites every row. Needed whenever oracleCardRow() itself changes
 // shape (new column, different slimming), because the skip below only knows
@@ -138,12 +149,81 @@ async function fetchExistingTimestamps() {
   return map
 }
 
+/**
+ * A cancelled statement says the instance was busy, not that the row was bad.
+ * Retrying matters more here than it looks: the job runs weekly, so a single
+ * cancelled batch used to abandon every remaining row for seven days.
+ *
+ * Postgres reports a statement timeout as SQLSTATE 57014. The transport errors
+ * below are what fetch surfaces when the connection drops mid-write, and are
+ * equally safe to repeat because the upsert is idempotent.
+ */
+export function isRetryableWriteError(error) {
+  if (!error) return false
+  if (error.code === '57014') return true
+  const message = String(error?.message || '')
+  return /canceling statement|statement timeout|deadlock detected|server closed the connection|fetch failed|socket hang up|ECONNRESET|ETIMEDOUT|EAI_AGAIN/i.test(message)
+}
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+/**
+ * Writes one batch, halving it on a retryable failure before falling back to
+ * plain backoff. Halving is the load-bearing half: a statement timeout means the
+ * statement asked for too much work at once, so a smaller statement is an actual
+ * fix, where repeating the same oversized one only waits for a quieter moment.
+ * Below MIN_UPSERT_BATCH the batch size is no longer the problem, so it backs off
+ * instead and eventually gives up.
+ *
+ * `upsert` is injected so this can be tested without a database.
+ *
+ * @param {object[]} rows
+ * @param {(rows: object[]) => Promise<{error: any}>} upsert
+ */
+export async function upsertWithRetry(rows, upsert, opts = {}) {
+  const {
+    minBatch = MIN_UPSERT_BATCH,
+    attempts = WRITE_ATTEMPTS,
+    baseDelayMs = RETRY_BASE_MS,
+    wait = sleep,
+    onRetry,
+  } = opts
+  if (!rows.length) return
+
+  for (let attempt = 1; ; attempt++) {
+    const { error } = await upsert(rows)
+    if (!error) return
+    if (!isRetryableWriteError(error)) throw error
+
+    if (rows.length > minBatch) {
+      const half = Math.ceil(rows.length / 2)
+      onRetry?.({ reason: 'split', size: rows.length, next: half, error })
+      await upsertWithRetry(rows.slice(0, half), upsert, opts)
+      await upsertWithRetry(rows.slice(half), upsert, opts)
+      return
+    }
+    if (attempt >= attempts) throw error
+
+    const delay = baseDelayMs * 2 ** (attempt - 1)
+    onRetry?.({ reason: 'backoff', size: rows.length, attempt, delay, error })
+    await wait(delay)
+  }
+}
+
 async function flush(rows) {
   if (!rows.length) return
-  const { error } = await sb
-    .from('oracle_cards')
-    .upsert(rows, { onConflict: 'oracle_id', ignoreDuplicates: false })
-  if (error) throw error
+  await upsertWithRetry(
+    rows,
+    batch => sb.from('oracle_cards').upsert(batch, { onConflict: 'oracle_id', ignoreDuplicates: false }),
+    {
+      onRetry: ({ reason, size, next, attempt, delay, error }) => {
+        const detail = reason === 'split'
+          ? 'splitting into ' + next
+          : 'retry ' + attempt + ' of ' + WRITE_ATTEMPTS + ' in ' + delay + 'ms'
+        console.warn('[Oracle Sync] write of ' + size + ' rows failed (' + error?.message + ') — ' + detail + '.')
+      },
+    },
+  )
 }
 
 async function processBulkFile(bulk) {
@@ -151,7 +231,28 @@ async function processBulkFile(bulk) {
   let upserted = 0
   let skipped = 0
   let pending = []
+  let nextLogAt = LOG_EVERY
   const seen = new Set()
+
+  // Batches vary in size once upsertWithRetry splits one, so progress is logged
+  // on crossing a threshold rather than on an exact multiple.
+  const noteProgress = () => {
+    if (upserted < nextLogAt) return
+    console.log(`[Oracle Sync] upserted ${upserted.toLocaleString()} oracle cards.`)
+    nextLogAt = Math.ceil((upserted + 1) / LOG_EVERY) * LOG_EVERY
+  }
+
+  // Everything flushed so far is already committed, so a failure here is partial
+  // progress, not a no-op. Say so — the bare message this used to die with gave
+  // no way to tell a first-batch failure from a near-complete run.
+  const flushPending = async batch => {
+    try {
+      await flush(batch)
+    } catch (error) {
+      error.message = `${error.message} (after ${upserted.toLocaleString()} rows upserted, ${scanned.toLocaleString()} scanned)`
+      throw error
+    }
+  }
 
   const existing = FORCE ? new Map() : await fetchExistingTimestamps()
   if (!FORCE) {
@@ -168,17 +269,16 @@ async function processBulkFile(bulk) {
     pending.push(row)
 
     if (pending.length >= UPSERT_BATCH) {
-      await flush(pending)
-      upserted += pending.length
+      const batch = pending
       pending = []
-      if (upserted % 5000 === 0) {
-        console.log(`[Oracle Sync] upserted ${upserted.toLocaleString()} oracle cards.`)
-      }
+      await flushPending(batch)
+      upserted += batch.length
+      noteProgress()
     }
   }
 
   if (pending.length) {
-    await flush(pending)
+    await flushPending(pending)
     upserted += pending.length
   }
   return { scanned, upserted, skipped }

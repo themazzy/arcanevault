@@ -2,7 +2,11 @@ name: Sync Oracle Card Data
 
 on:
   schedule:
-    - cron: '45 4 * * 0'
+    # Deliberately hours after the daily 03:20 card-price sync, not the 85
+    # minutes this used to leave. That sync rewrites card_prices and card_prints
+    # wholesale, and the autovacuum it triggers has a history of pushing
+    # unrelated statements past their timeout.
+    - cron: '15 7 * * 0'
   workflow_dispatch:
 
 permissions:
