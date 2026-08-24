@@ -1,5 +1,5 @@
-import { Component, Suspense, lazy } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Component, Suspense, lazy, useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth, LoginPage } from './components/Auth'
 import { SettingsProvider } from './components/SettingsContext'
@@ -7,6 +7,9 @@ import { SetupWizardProvider } from './components/SetupWizard'
 import { ToastProvider } from './components/ToastContext'
 import { queryClient } from './lib/queryClient'
 import { handleChunkLoadError, isChunkLoadError } from './lib/chunkRecovery'
+import { builderDeckIdFromPath } from './lib/builderRoute'
+import { isDeckPubliclyViewable } from './lib/deckViewData'
+import { AppBootSkeleton } from './components/Skeletons'
 import Layout from './components/Layout'
 import MilestoneWatcher from './components/MilestoneWatcher'
 
@@ -104,10 +107,37 @@ const ScannerPage = lazy(() => import('./pages/Scanner'))
 const ProfilePage = lazy(() => import('./pages/Profile'))
 const RulebookPage = lazy(() => import('./pages/Rulebook'))
 
+// A signed-out visitor on a builder deck URL: someone shared the editor link
+// instead of the /d/:id share link. A public deck goes to the public view; a
+// private or unknown one falls through to the normal login page, deliberately
+// still at /builder/:id — so signing in lands the owner in their own builder
+// rather than a read-only copy of it.
+function SignedOutBuilderDeck({ deckId }) {
+  const [isPublic, setIsPublic] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    setIsPublic(null)
+    isDeckPubliclyViewable({ id: deckId }).then(ok => { if (active) setIsPublic(ok) })
+    return () => { active = false }
+  }, [deckId])
+
+  // AppBootSkeleton paints nothing for its first 150 ms, so a fast answer here
+  // never flashes a loading state on the way to the login page.
+  if (isPublic === null) return <AppBootSkeleton />
+  if (isPublic) return <Navigate to={`/d/${deckId}`} replace />
+  return <LoginPage />
+}
+
 function PrivateApp() {
   const { user, authEvent } = useAuth()
+  const { pathname } = useLocation()
   if (authEvent === 'PASSWORD_RECOVERY') return <LoginPage forcedMode="recovery" />
-  if (!user) return <LoginPage />
+  if (!user) {
+    const builderDeckId = builderDeckIdFromPath(pathname)
+    if (builderDeckId) return <SignedOutBuilderDeck deckId={builderDeckId} />
+    return <LoginPage />
+  }
   return (
     <SettingsProvider>
       <SetupWizardProvider>

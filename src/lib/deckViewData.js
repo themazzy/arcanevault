@@ -34,3 +34,19 @@ export async function fetchDeckForView({ client = sb, id, viewerId = null } = {}
     cards: Array.isArray(rpcCards) ? rpcCards : (rpcCards || []),
   }
 }
+
+// Answers "may a signed-out visitor see this deck?" without loading it.
+// get_deck_og_meta is the existing anon-callable oracle for exactly that — it is
+// SECURITY DEFINER and returns null for a deck that is missing OR not public, so
+// a private deck is indistinguishable from a bad id here, same as everywhere
+// else. Any failure answers false: the caller's fallback is a login page, and a
+// network blip must never send someone to a public view we could not verify.
+export async function isDeckPubliclyViewable({ client = sb, id } = {}) {
+  if (!id) return false
+  try {
+    const { data, error } = await client.rpc('get_deck_og_meta', { p_deck_id: id })
+    return !error && data != null
+  } catch {
+    return false
+  }
+}

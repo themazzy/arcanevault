@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { fetchDeckForView } from './deckViewData'
+import { beforeEach, describe, it, expect } from 'vitest'
+import { fetchDeckForView, isDeckPubliclyViewable } from './deckViewData'
 
 // Minimal PostgREST-shaped stub. `settle` lets a test hold both requests open at
 // once so it can observe whether they were issued concurrently.
@@ -103,5 +103,29 @@ describe('fetchDeckForView', () => {
     settle()
 
     expect((await pending).cards).toEqual([])
+  })
+})
+
+describe('isDeckPubliclyViewable', () => {
+  const id = 'b29724b0-b79c-4cc0-b64b-dba7a5db17d8'
+  const clientReturning = result => ({ rpc: async (name, args) => { calls.push([name, args]); return result } })
+  let calls
+  beforeEach(() => { calls = [] })
+
+  it('asks get_deck_og_meta, which answers null for a deck nobody may see', async () => {
+    expect(await isDeckPubliclyViewable({ client: clientReturning({ data: null, error: null }), id })).toBe(false)
+    expect(calls).toEqual([['get_deck_og_meta', { p_deck_id: id }]])
+  })
+
+  it('is true only when the RPC returns deck metadata', async () => {
+    const client = clientReturning({ data: { name: 'Atraxa' }, error: null })
+    expect(await isDeckPubliclyViewable({ client, id })).toBe(true)
+  })
+
+  it('answers false when the lookup fails, so the caller shows a login page', async () => {
+    expect(await isDeckPubliclyViewable({ client: clientReturning({ data: null, error: { message: 'boom' } }), id })).toBe(false)
+    const throwing = { rpc: async () => { throw new Error('offline') } }
+    expect(await isDeckPubliclyViewable({ client: throwing, id })).toBe(false)
+    expect(await isDeckPubliclyViewable({ client: throwing, id: null })).toBe(false)
   })
 })
