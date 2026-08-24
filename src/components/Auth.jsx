@@ -4,6 +4,7 @@ import { sb } from '../lib/supabase'
 import { getPublicBaseUrl, getProdAppUrl } from '../lib/publicUrl'
 import { isNativeApp, openNativeOAuth, NATIVE_AUTH_ERROR_EVENT } from '../lib/nativeAuth'
 import { reconcileActiveUser } from '../lib/accountReset'
+import { describePasswordProblem, evaluatePassword, DEFAULT_MIN_PASSWORD_LENGTH } from '../lib/passwordFeedback'
 import {
   parseEmailOtpParams,
   isRecoveryRedirect,
@@ -232,6 +233,26 @@ function CardArtFan({ cards }) {
   )
 }
 
+function PasswordRules({ label, items, optional = false }) {
+  return (
+    <div className={styles.passwordRuleGroup}>
+      {label && <p className={styles.passwordRuleLabel}>{label}</p>}
+      <ul>
+        {items.map((rule) => {
+          const state = rule.met ? styles.ruleMet : optional ? styles.ruleOptional : styles.ruleUnmet
+          return (
+            <li key={rule.id} className={state}>
+              <span className={styles.ruleMark} aria-hidden="true">{rule.met ? <CheckIcon size={10} /> : null}</span>
+              {rule.label}
+              <span className={styles.visuallyHidden}>{rule.met ? ' — done' : optional ? ' — optional, not yet' : ' — still needed'}</span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 export function LoginPage({ forcedMode = null }) {
   const { user, clearAuthEvent, recoveryError } = useAuth()
   const [mode, setMode] = useState(forcedMode || 'login')
@@ -239,11 +260,44 @@ export function LoginPage({ forcedMode = null }) {
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
   const [error, setError] = useState('')
+  const [errorRequirements, setErrorRequirements] = useState(null)
+  // The password policy lives in Supabase's Auth config and is not exposed to the client,
+  // so anything beyond our own minimum is only learnable from a rejection. Once learned,
+  // it joins the live checklist for the rest of the session.
+  const [serverRuleIds, setServerRuleIds] = useState([])
+  const [minLength, setMinLength] = useState(DEFAULT_MIN_PASSWORD_LENGTH)
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
   const formRef = useRef(null)
   const artNames = useMemo(() => CARD_ART_NAMES, [])
   const cardArt = useCardArt(artNames)
+
+  const needsNewPassword = mode === 'register' || mode === 'recovery'
+  const passwordCheck = useMemo(
+    () => evaluatePassword(password, { minLength, confirmation: password2, requiredRuleIds: serverRuleIds }),
+    [password, password2, minLength, serverRuleIds],
+  )
+
+  // Supabase spells out a rejected password as a raw list of required character sets;
+  // show it as a checklist instead of dumping the alphabets into the card.
+  const showError = (nextError) => {
+    const detail = describePasswordProblem(nextError, { minLength })
+    if (detail) {
+      setError(detail.title)
+      setErrorRequirements(detail.requirements)
+      if (detail.ruleIds.length) setServerRuleIds((prev) => [...new Set([...prev, ...detail.ruleIds])])
+      if (detail.minLength > minLength) setMinLength(detail.minLength)
+      return
+    }
+    const message = typeof nextError === 'string' ? nextError : nextError?.message
+    setError(message || 'Something went wrong. Please try again.')
+    setErrorRequirements(null)
+  }
+
+  const clearError = () => {
+    setError('')
+    setErrorRequirements(null)
+  }
 
   useEffect(() => {
     if (forcedMode) setMode(forcedMode)
@@ -279,12 +333,16 @@ export function LoginPage({ forcedMode = null }) {
   }, [])
 
   useEffect(() => {
-    if (recoveryError) setError(recoveryError)
+    if (recoveryError) {
+      setError(recoveryError)
+      setErrorRequirements(null)
+    }
   }, [recoveryError])
 
   useEffect(() => {
     const onNativeAuthError = (event) => {
       setError(event?.detail || 'Sign-in could not be completed. Please try again.')
+      setErrorRequirements(null)
       setLoading(false)
     }
     window.addEventListener(NATIVE_AUTH_ERROR_EVENT, onNativeAuthError)
@@ -292,7 +350,7 @@ export function LoginPage({ forcedMode = null }) {
   }, [])
 
   const submit = async () => {
-    setError('')
+    clearError()
     setSuccess('')
     setLoading(true)
 
@@ -302,8 +360,8 @@ export function LoginPage({ forcedMode = null }) {
         setLoading(false)
         return
       }
-      if (password.length < 8) {
-        setError('Password must be at least 8 characters.')
+      if (password.length < minLength) {
+        showError(`Password should be at least ${minLength} characters.`)
         setLoading(false)
         return
       }
@@ -312,7 +370,7 @@ export function LoginPage({ forcedMode = null }) {
         password,
         options: { emailRedirectTo: getProdAppUrl('/') },
       })
-      if (nextError) setError(nextError.message)
+      if (nextError) showError(nextError)
       else setSuccess('Account created. Check your email to confirm, then sign in.')
     } else if (mode === 'forgot') {
       if (!email) {
@@ -323,7 +381,7 @@ export function LoginPage({ forcedMode = null }) {
       const { error: nextError } = await sb.auth.resetPasswordForEmail(email, {
         redirectTo: getProdAppUrl('/'),
       })
-      if (nextError) setError(nextError.message)
+      if (nextError) showError(nextError)
       else setSuccess('Password reset email sent. Check your inbox to continue.')
     } else if (mode === 'recovery') {
       if (password !== password2) {
@@ -331,13 +389,13 @@ export function LoginPage({ forcedMode = null }) {
         setLoading(false)
         return
       }
-      if (password.length < 8) {
-        setError('Password must be at least 8 characters.')
+      if (password.length < minLength) {
+        showError(`Password should be at least ${minLength} characters.`)
         setLoading(false)
         return
       }
       const { error: nextError } = await sb.auth.updateUser({ password })
-      if (nextError) setError(nextError.message)
+      if (nextError) showError(nextError)
       else {
         await sb.auth.signOut({ scope: 'local' })
         clearAuthEvent?.()
@@ -346,13 +404,13 @@ export function LoginPage({ forcedMode = null }) {
     } else {
       clearPendingRecovery()
       const { error: nextError } = await sb.auth.signInWithPassword({ email, password })
-      if (nextError) setError(nextError.message)
+      if (nextError) showError(nextError)
     }
     setLoading(false)
   }
 
   const signInWithProvider = async (provider) => {
-    setError('')
+    clearError()
     setSuccess('')
     setLoading(true)
     try {
@@ -365,11 +423,11 @@ export function LoginPage({ forcedMode = null }) {
         options: { redirectTo: `${getPublicBaseUrl()}/` },
       })
       if (nextError) {
-        setError(nextError.message)
+        showError(nextError)
         setLoading(false)
       }
     } catch (nextError) {
-      setError(nextError?.message || 'Sign-in failed')
+      showError(nextError?.message || 'Sign-in failed')
       setLoading(false)
     }
   }
@@ -377,7 +435,7 @@ export function LoginPage({ forcedMode = null }) {
   const switchMode = (nextMode) => {
     if (forcedMode === 'recovery') return
     setMode(nextMode)
-    setError('')
+    clearError()
     setSuccess('')
   }
 
@@ -398,7 +456,7 @@ export function LoginPage({ forcedMode = null }) {
         ? 'Join DeckLoom'
         : 'Welcome back'
   const formSubheading = mode === 'recovery'
-    ? 'Use at least eight characters.'
+    ? `Use at least ${minLength} characters.`
     : mode === 'forgot'
       ? 'We will email you a secure recovery link.'
       : mode === 'register'
@@ -523,9 +581,19 @@ export function LoginPage({ forcedMode = null }) {
         </label>
       )}
 
-      {(mode === 'register' || mode === 'recovery') && (
-        <p className={styles.fieldHint}>Use at least eight characters.</p>
-      )}
+      {needsNewPassword && (password ? (
+        <div className={styles.passwordChecklist} aria-live="polite">
+          <PasswordRules
+            label={passwordCheck.suggested.length ? 'Required' : null}
+            items={passwordCheck.required}
+          />
+          {passwordCheck.suggested.length > 0 && (
+            <PasswordRules label="Stronger" items={passwordCheck.suggested} optional />
+          )}
+        </div>
+      ) : (
+        <p className={styles.fieldHint}>Use at least {minLength} characters.</p>
+      ))}
 
       <button
         className={styles.submit}
@@ -535,7 +603,7 @@ export function LoginPage({ forcedMode = null }) {
           || (!email && mode === 'forgot')
           || (!password && mode !== 'forgot')
           || (mode !== 'recovery' && mode !== 'forgot' && !email)
-          || ((mode === 'register' || mode === 'recovery') && !password2)
+          || (needsNewPassword && !passwordCheck.allRequiredMet)
         }
       >
         {loading
@@ -549,7 +617,16 @@ export function LoginPage({ forcedMode = null }) {
                 : 'Sign in'}
       </button>
 
-      {error && <div className={styles.error} role="alert">{error}</div>}
+      {error && (
+        <div className={styles.error} role="alert">
+          {error}
+          {errorRequirements?.length > 0 && (
+            <ul className={styles.errorRequirements}>
+              {errorRequirements.map((requirement) => <li key={requirement}>{requirement}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
       {success && <div className={styles.success} role="status">{success}</div>}
 
       {mode === 'login' && (
