@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -22,6 +22,10 @@ import {
   refreshMyProfileStats, profileKeys, PROFILE_STALE_MS,
 } from '../lib/profileApi'
 import { getPublicAppUrl } from '../lib/publicUrl'
+import {
+  NICKNAME_MAX_LENGTH, validateNickname, isSameNickname, isNicknameAvailable,
+  checkNicknameForSave, isNicknameTakenError,
+} from '../lib/nickname'
 import { useDeckArt } from '../lib/deckArt'
 import { deckBracketBadge } from '../lib/commanderBracket'
 import {
@@ -839,6 +843,7 @@ export function ProfileSkeleton() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ProfilePage() {
   const { username } = useParams()
+  const navigate     = useNavigate()
   const { user }     = useAuth()
   const settings     = useSettings()
   const { showToast } = useToast()
@@ -847,6 +852,9 @@ export default function ProfilePage() {
   const decodedUsername = decodeURIComponent(username)
 
   const [editMode, setEditMode]                       = useState(false)
+  const [draftNickname, setDraftNickname]             = useState('')
+  const [nicknameError, setNicknameError]             = useState('')
+  const [nicknameStatus, setNicknameStatus]           = useState('')
   const [draftBio, setDraftBio]                       = useState('')
   const [draftAccent, setDraftAccent]                 = useState('')
   const [draftBlocks, setDraftBlocks]                 = useState([])
@@ -860,6 +868,8 @@ export default function ProfilePage() {
   const [followDialog, setFollowDialog]               = useState(null)
   const [followBusy, setFollowBusy]                   = useState(false)
   const [activeId, setActiveId]                       = useState(null)
+  const nicknameTimer = useRef(null)
+  const pendingNicknameRef = useRef('')
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -1019,6 +1029,9 @@ export default function ProfilePage() {
   function enterEdit() {
     if (!canEdit) return
     const cfg = profile?.bento_config || {}
+    setDraftNickname(profile?.nickname || decodedUsername)
+    setNicknameError('')
+    setNicknameStatus('')
     setDraftBio(profile?.bio || '')
     setDraftAccent(profile?.accent || '')
     setDraftBlocks(mergeBlocks(cfg.blocks))
@@ -1034,11 +1047,58 @@ export default function ProfilePage() {
     setEditMode(false)
     setActiveId(null)
     setShowArtPicker(false)
+    clearTimeout(nicknameTimer.current)
+    setNicknameError('')
+    setNicknameStatus('')
+  }
+
+  // The handle in force right now — the saved one, falling back to the URL that
+  // resolved this page. Everything that asks "did the nickname change?" measures
+  // against this, not against the draft's own previous value.
+  const savedNickname = profile?.nickname || decodedUsername
+
+  function handleNicknameChange(val) {
+    setDraftNickname(val)
+    clearTimeout(nicknameTimer.current)
+
+    const check = validateNickname(val, { required: true })
+    setNicknameError(check.error)
+    if (!check.ok) { setNicknameStatus(''); return }
+
+    if (isSameNickname(check.value, savedNickname)) { setNicknameStatus(''); return }
+
+    setNicknameStatus('checking')
+    pendingNicknameRef.current = check.value
+    nicknameTimer.current = setTimeout(() => {
+      isNicknameAvailable(check.value)
+        .then(free => {
+          // A keystroke may have landed while the request was in flight; only
+          // the answer to what is currently typed may set the status.
+          if (pendingNicknameRef.current !== check.value) return
+          setNicknameStatus(free ? 'available' : 'taken')
+        })
+        .catch(() => { if (pendingNicknameRef.current === check.value) setNicknameStatus('') })
+    }, 600)
   }
 
   async function saveEdit() {
     if (!canEdit) return
+
     setSaving(true)
+
+    // Validate and re-ask availability at save time rather than trusting the
+    // debounced status: it may never have fired, and a handle free 20 seconds
+    // ago can be claimed since. Same guard Settings runs — see lib/nickname.js.
+    const nick = await checkNicknameForSave(draftNickname, { current: savedNickname })
+    if (!nick.ok) {
+      if (nick.reason === 'taken') setNicknameStatus('taken')
+      else setNicknameError(nick.error)
+      showToast(nick.error, { tone: 'error' })
+      setSaving(false)
+      return
+    }
+    const nicknameChanged = nick.changed
+
     const newConfig = {
       blocks:                       draftBlocks,
       header_art:                   draftHeaderArt,
@@ -1049,6 +1109,7 @@ export default function ProfilePage() {
       milestone_earned_at:          profile?.bento_config?.milestone_earned_at || {},
     }
     const { error } = await sb.from('user_settings').update({
+      ...(nicknameChanged ? { nickname: nick.value } : {}),
       profile_bio:    draftBio,
       profile_accent: draftAccent,
       profile_config: newConfig,
@@ -1056,19 +1117,34 @@ export default function ProfilePage() {
     }).eq('user_id', user.id)
 
     if (error) {
-      showToast('Could not save your profile.', { tone: 'error' })
+      // The unique index on nickname; nothing else on this update can collide.
+      // Losing the race with another signup is rare but not impossible.
+      const taken = isNicknameTakenError(error)
+      if (taken) setNicknameStatus('taken')
+      showToast(taken ? 'That nickname was just taken.' : 'Could not save your profile.', { tone: 'error' })
       setSaving(false)
       return
     }
 
-    settings.save({ profile_bio: draftBio, profile_accent: draftAccent, profile_config: newConfig })
+    settings.save({
+      ...(nicknameChanged ? { nickname: nick.value } : {}),
+      profile_bio: draftBio, profile_accent: draftAccent, profile_config: newConfig,
+    })
     queryClient.setQueryData(profileKeys.profile(decodedUsername),
       prev => prev ? { ...prev, bio: draftBio, accent: draftAccent, bento_config: newConfig } : prev)
     // Block visibility changes what the RPC returns, so the cached row is stale.
     queryClient.invalidateQueries({ queryKey: profileKeys.profile(decodedUsername) })
     setEditMode(false)
     setSaving(false)
-    showToast('Profile saved.')
+    showToast(nicknameChanged ? `You are now ${nick.value}.` : 'Profile saved.')
+
+    // The nickname IS the address of this page, so a rename has to move the
+    // route with it — otherwise the next render fetches a profile whose handle
+    // no longer exists. replace: true keeps Back from returning to a dead URL.
+    if (nicknameChanged) {
+      queryClient.removeQueries({ queryKey: profileKeys.profile(decodedUsername) })
+      navigate(`/profile/${encodeURIComponent(nick.value)}`, { replace: true })
+    }
   }
 
   function hideBlock(id) { setDraftBlocks(prev => prev.map(b => b.id === id ? { ...b, enabled: false } : b)) }
@@ -1229,12 +1305,45 @@ export default function ProfilePage() {
 
         <div className={`${styles.shell} ${styles.bannerInner}`}>
           <div className={styles.identity}>
-            <div className={styles.avatar}>{(displayName[0] || '?').toUpperCase()}</div>
+            {/* Follows the draft while renaming, so the monogram is not still
+                showing the old initial as you type the new handle. */}
+            <div className={styles.avatar}>
+              {((editMode ? draftNickname.trim() || displayName : displayName)[0] || '?').toUpperCase()}
+            </div>
             <div className={styles.identityText}>
-              <h1 className={styles.name}>
-                {displayName}
-                {profile?.premium && <span className={styles.supporter}>Supporter</span>}
-              </h1>
+              {editMode ? (
+                <div className={styles.nameEdit}>
+                  <input
+                    className={styles.nameInput}
+                    type="text"
+                    value={draftNickname}
+                    onChange={e => handleNicknameChange(e.target.value)}
+                    maxLength={NICKNAME_MAX_LENGTH}
+                    aria-label="Nickname"
+                    aria-invalid={!!nicknameError}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <div className={styles.nameEditMeta}>
+                    {nicknameError
+                      ? <span className={styles.nameStatusBad}>{nicknameError}</span>
+                      : nicknameStatus === 'checking'  ? <span className={styles.nameStatus}>Checking…</span>
+                      : nicknameStatus === 'taken'     ? <span className={styles.nameStatusBad}>Taken</span>
+                      : nicknameStatus === 'available' ? <span className={styles.nameStatusOk}>✓ Available</span>
+                      : null}
+                    {!nicknameError && !isSameNickname(draftNickname, savedNickname) && (
+                      <span className={styles.nameStatus}>
+                        Renaming moves your profile — links to /profile/{savedNickname} will stop working.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <h1 className={styles.name}>
+                  {displayName}
+                  {profile?.premium && <span className={styles.supporter}>Supporter</span>}
+                </h1>
+              )}
 
               {editMode ? (
                 <textarea className={styles.bioEdit} value={draftBio}
