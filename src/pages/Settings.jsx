@@ -3,6 +3,10 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { isCurrentUserAdmin } from '../lib/admin'
+import {
+  NICKNAME_MAX_LENGTH, validateNickname, isSameNickname, isNicknameAvailable,
+  checkNicknameForSave, isNicknameTakenError,
+} from '../lib/nickname'
 import { maskEmailAddress, THEMES, PREMIUM_THEMES, THEME_TIERS, useSettings, getActiveArchiveTiles, subscribeArchiveTiles } from '../components/SettingsContext'
 import { getLocalFolders } from '../lib/db'
 import { useSetupWizard } from '../components/SetupWizard'
@@ -938,15 +942,29 @@ export default function SettingsPage() {
   const [search, setSearch] = useState('')
   const noResults = !!search.trim() && !SECTION_DEFS.some(([title, kw]) => matchesSearch(search, title, kw))
 
-  // Nickname availability check
+  // Nickname editing. The field is a DRAFT, not a live binding: the nickname is
+  // a public address with a uniqueness constraint on it, so it may not reach
+  // user_settings until it has been validated and checked. null means "not
+  // being edited" — the input then mirrors whatever is saved, including a value
+  // that arrives later from a sync.
+  const [nicknameDraft, setNicknameDraft] = useState(null)
   const [nicknameStatus, setNicknameStatus] = useState('')
   const [nicknameError, setNicknameError]   = useState('')
   const nicknameTimer = useRef(null)
-  const NICKNAME_RE = /^[a-zA-Z0-9_-]*$/
+  const pendingNicknameRef = useRef('')
 
   useEffect(() => {
     isCurrentUserAdmin(user?.id).then(setIsAdmin)
   }, [user?.id])
+
+  // "✓ Saved" is an acknowledgement, not a state — retire it on its own.
+  useEffect(() => {
+    if (nicknameStatus !== 'saved') return
+    const t = setTimeout(() => setNicknameStatus(''), 2500)
+    return () => clearTimeout(t)
+  }, [nicknameStatus])
+
+  useEffect(() => () => clearTimeout(nicknameTimer.current), [])
 
   useEffect(() => {
     if (!location.hash) return
@@ -956,24 +974,78 @@ export default function SettingsPage() {
     })
   }, [location.hash])
 
+  const savedNickname   = settings.nickname ?? ''
+  const nicknameValue   = nicknameDraft ?? savedNickname
+  const nicknameDirty   = nicknameDraft !== null && nicknameDraft !== savedNickname
+  const canSaveNickname = nicknameDirty && !nicknameError &&
+    nicknameStatus !== 'checking' && nicknameStatus !== 'taken' && nicknameStatus !== 'saving'
+
   const handleNicknameChange = (val) => {
+    setNicknameDraft(val)
+    clearTimeout(nicknameTimer.current)
+
+    // Rules shared with the profile page's editor — see src/lib/nickname.js.
+    // Required on both surfaces: every account is given a nickname at signup
+    // (assign_default_user_settings), and clearing it would strip the address
+    // its public profile, trade post, and follower links all resolve through.
+    const check = validateNickname(val, { required: true })
+    setNicknameError(check.error)
+    if (!check.ok) { setNicknameStatus(''); return }
+
+    // Already their own saved nickname — no need to check
+    if (isSameNickname(check.value, savedNickname)) { setNicknameStatus(''); return }
+
+    setNicknameStatus('checking')
+    pendingNicknameRef.current = check.value
+    nicknameTimer.current = setTimeout(() => {
+      isNicknameAvailable(check.value)
+        .then(free => {
+          // Only the answer to what is currently typed may set the status.
+          if (pendingNicknameRef.current !== check.value) return
+          setNicknameStatus(free ? 'available' : 'taken')
+        })
+        .catch(() => { if (pendingNicknameRef.current === check.value) setNicknameStatus('') })
+    }, 600)
+  }
+
+  const cancelNicknameEdit = () => {
+    clearTimeout(nicknameTimer.current)
+    setNicknameDraft(null)
     setNicknameError('')
-    if (val && !NICKNAME_RE.test(val)) {
-      setNicknameError('Only letters, numbers, hyphens, and underscores are allowed.')
+    setNicknameStatus('')
+  }
+
+  const saveNickname = async () => {
+    clearTimeout(nicknameTimer.current)
+    setNicknameStatus('saving')
+
+    // Re-ask rather than trusting the debounced status: it may never have
+    // fired, and a handle free a minute ago can be claimed since.
+    const check = await checkNicknameForSave(nicknameValue, { current: savedNickname })
+    if (!check.ok) {
+      setNicknameStatus(check.reason === 'taken' ? 'taken' : '')
+      setNicknameError(check.reason === 'taken' ? '' : check.error)
       return
     }
-    set('nickname', val)
-    clearTimeout(nicknameTimer.current)
-    if (!val.trim()) { setNicknameStatus(''); return }
-    // Already their own saved nickname — no need to check
-    if (val.trim().toLowerCase() === (settings.nickname || '').toLowerCase()) {
-      setNicknameStatus(''); return
+    if (!check.changed) { cancelNicknameEdit(); return }
+
+    // Written straight through rather than via settings.save(), whose upsert is
+    // debounced and fire-and-forget — a handle lost to the unique index has to
+    // be reported here, not swallowed into a background sync error.
+    const { error } = await sb.from('user_settings')
+      .update({ nickname: check.value, updated_at: new Date().toISOString() })
+      .eq('user_id', user.id)
+
+    if (error) {
+      setNicknameStatus(isNicknameTakenError(error) ? 'taken' : '')
+      if (!isNicknameTakenError(error)) setNicknameError('Could not save your nickname. Try again.')
+      return
     }
-    setNicknameStatus('checking')
-    nicknameTimer.current = setTimeout(async () => {
-      const { data } = await sb.rpc('is_username_available', { p_username: val.trim() })
-      setNicknameStatus(data ? 'available' : 'taken')
-    }, 600)
+
+    set('nickname', check.value)
+    setNicknameDraft(null)
+    setNicknameError('')
+    setNicknameStatus('saved')
   }
 
   const lastSyncAge = settings.lastSyncedAt
@@ -1364,14 +1436,26 @@ export default function SettingsPage() {
               className={styles.input}
               type="text"
               placeholder="Your in-game name"
-              value={settings.nickname ?? ''}
+              value={nicknameValue}
               onChange={e => handleNicknameChange(e.target.value)}
-              maxLength={24}
+              maxLength={NICKNAME_MAX_LENGTH}
+              aria-invalid={!!nicknameError}
+              autoComplete="off"
+              spellCheck={false}
             />
+            {nicknameDirty && (
+              <>
+                <Button size="sm" onClick={saveNickname} disabled={!canSaveNickname}>
+                  {nicknameStatus === 'saving' ? 'Saving…' : 'Save'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={cancelNicknameEdit}>Cancel</Button>
+              </>
+            )}
             {nicknameError                   && <span className={styles.usernameTaken}>{nicknameError}</span>}
             {!nicknameError && nicknameStatus === 'checking'  && <span className={styles.usernameHint}>Checking…</span>}
             {!nicknameError && nicknameStatus === 'available' && <span className={styles.usernameOk}>✓ Available</span>}
             {!nicknameError && nicknameStatus === 'taken'     && <span className={styles.usernameTaken}>Taken</span>}
+            {!nicknameError && nicknameStatus === 'saved'     && <span className={styles.usernameOk}>✓ Saved</span>}
           </div>
         </SettingRow>
         {settings.nickname && (

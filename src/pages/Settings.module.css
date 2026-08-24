@@ -174,24 +174,13 @@
 
 /* Username row */
 .usernameRow { display: flex; align-items: center; gap: 8px; }
-.usernameHint, .usernameOk, .usernameTaken, .usernameInvalid {
+.usernameHint, .usernameOk, .usernameTaken {
   font-size: 0.72rem;
   white-space: nowrap;
 }
 .usernameHint  { color: var(--text-faint); }
 .usernameOk    { color: var(--green); }
 .usernameTaken { color: var(--red); }
-.usernameInvalid { color: var(--text-faint); }
-.usernameSaveBtn {
-  padding: 4px 10px;
-  border-radius: 4px;
-  border: 1px solid rgba(201,168,76,0.35);
-  background: rgba(201,168,76,0.12);
-  color: var(--gold);
-  font-size: 0.72rem;
-  cursor: pointer;
-}
-.usernameSaveBtn:hover { background: rgba(201,168,76,0.22); }
 .pwMsg { font-size: 0.8rem; color: var(--green); margin-top: 6px; }
 
 .appVersion {
