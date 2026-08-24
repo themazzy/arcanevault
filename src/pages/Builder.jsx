@@ -648,7 +648,10 @@ function Pagination({ page, totalPages, onChange }) {
   if (totalPages <= 1) return null
   const go = next => {
     onChange(next)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    // window never scrolls here: .app is 100vh/overflow hidden and <main> is
+    // the scroller, so the old window.scrollTo was a no-op and paging left you
+    // partway down the previous page of results.
+    document.getElementById('app-main')?.scrollTo({ top: 0, behavior: 'smooth' })
   }
   return (
     <nav className={styles.pagination} aria-label="Deck browser pages">

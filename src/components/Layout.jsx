@@ -106,6 +106,16 @@ export default function Layout({ children }) {
     setMenuOpen(false)
   }, [location.pathname])
 
+  // <main> is the only scroller on every private route (.app is 100vh/overflow
+  // hidden, so the document never scrolls) and it outlives route changes, so a
+  // new page would otherwise open at the previous page's scroll offset. Layout
+  // effect, not passive: reset before paint or the new page flashes mid-scroll.
+  // Keyed on pathname only, so ?tab= switches (/builder, /trading) keep their
+  // place. This is a reset, not restoration — Back also lands at the top.
+  useLayoutEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0
+  }, [location.pathname])
+
   useEffect(() => {
     document.body.style.overflow = (menuOpen || isNativeScannerRoute) ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
@@ -556,7 +566,7 @@ export default function Layout({ children }) {
         </>
       )}
 
-      <main ref={mainRef} className={`${styles.main} ${isNativeScannerRoute ? styles.mainScanner : ''} ${isDeckBuilderRoute ? styles.mainDeckBuilder : ''} ${location.pathname === '/collection' ? styles.mainEdgeScroll : ''}`}>
+      <main id="app-main" ref={mainRef} className={`${styles.main} ${isNativeScannerRoute ? styles.mainScanner : ''} ${isDeckBuilderRoute ? styles.mainDeckBuilder : ''} ${location.pathname === '/collection' ? styles.mainEdgeScroll : ''}`}>
         {children}
       </main>
 
