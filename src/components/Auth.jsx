@@ -259,6 +259,13 @@ export function LoginPage({ forcedMode = null }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [password2, setPassword2] = useState('')
+  // Age self-declaration. GDPR Art 8 puts the consent age at 16 unless the
+  // user's own member state lowered it (13-16 across the EU), so 16 is the one
+  // threshold that is correct everywhere. Art 8(2) asks for "reasonable efforts"
+  // proportionate to available technology: for a tracker with no ads, profiling
+  // or payments, an affirmative checkbox is that. It must start unticked and
+  // block submission - a passive notice is not an affirmative act.
+  const [ageConfirmed, setAgeConfirmed] = useState(false)
   const [error, setError] = useState('')
   const [errorRequirements, setErrorRequirements] = useState(null)
   // The password policy lives in Supabase's Auth config and is not exposed to the client,
@@ -355,6 +362,11 @@ export function LoginPage({ forcedMode = null }) {
     setLoading(true)
 
     if (mode === 'register') {
+      if (!ageConfirmed) {
+        setError('Confirm you are 16 or older and accept the Terms before creating an account.')
+        setLoading(false)
+        return
+      }
       if (password !== password2) {
         setError('Passwords do not match.')
         setLoading(false)
@@ -412,6 +424,14 @@ export function LoginPage({ forcedMode = null }) {
   const signInWithProvider = async (provider) => {
     clearError()
     setSuccess('')
+    // These buttons serve both tabs, so they can only be gated on the tab where
+    // the user has actually declared they are signing up. Someone creating an
+    // account from the Sign in tab still bypasses this — see the note in
+    // DESIGN/CLAUDE docs; the complete fix is a first-run confirmation.
+    if (mode === 'register' && !ageConfirmed) {
+      setError('Confirm you are 16 or older and accept the Terms before creating an account.')
+      return
+    }
     setLoading(true)
     try {
       if (isNativeApp()) {
@@ -437,6 +457,9 @@ export function LoginPage({ forcedMode = null }) {
     setMode(nextMode)
     clearError()
     setSuccess('')
+    // Never carry a tick across modes — the confirmation has to be made on the
+    // signup the user is actually completing.
+    setAgeConfirmed(false)
   }
 
   const showForm = (nextMode) => {
@@ -641,9 +664,17 @@ export function LoginPage({ forcedMode = null }) {
       )}
 
       {mode === 'register' ? (
-        <p className={styles.formLegal}>
-          By creating an account, you agree to the <Link to="/terms">Terms</Link> and acknowledge the <Link to="/privacy">Privacy Policy</Link>.
-        </p>
+        <label className={styles.ageConfirm}>
+          <input
+            type="checkbox"
+            checked={ageConfirmed}
+            onChange={e => setAgeConfirmed(e.target.checked)}
+          />
+          <span>
+            I am 16 or older, I agree to the <Link to="/terms">Terms</Link>, and I acknowledge the{' '}
+            <Link to="/privacy">Privacy Policy</Link>.
+          </span>
+        </label>
       ) : (
         <div className={styles.formLinks}>
           <Link to="/terms">Terms</Link>

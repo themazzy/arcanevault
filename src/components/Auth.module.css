@@ -672,8 +672,31 @@
   font-size: 0.65rem;
 }
 
+.ageConfirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+  color: var(--landing-soft);
+  font-size: 0.65rem;
+  line-height: 1.55;
+  cursor: pointer;
+}
+
+.ageConfirm input {
+  flex: none;
+  /* Nudged onto the first line of text rather than centred against a
+     two-line label. */
+  margin-top: 1px;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--gold, #c9a84c);
+  cursor: pointer;
+}
+
 .formLegal a,
-.formLinks a {
+.formLinks a,
+.ageConfirm a {
   color: var(--landing-muted);
 }
 
