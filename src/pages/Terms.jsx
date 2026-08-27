@@ -156,8 +156,9 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2>Governing law and disputes</h2>
           <p>
-            DeckLoom is run by a private individual, not a registered company. These terms are governed
-            by the laws of <strong>Bulgaria</strong>, where the operator lives and is established. If you use DeckLoom as a consumer in the EU/EEA or the UK, you
+            DeckLoom is operated by <strong>Jan Mazánek</strong>, a private individual rather than a
+            registered company. These terms are governed by the laws of <strong>Bulgaria</strong>, where
+            the operator lives and is established. If you use DeckLoom as a consumer in the EU/EEA or the UK, you
             always keep the mandatory consumer protections of the country you live in, and you can
             bring disputes before your local courts and your local data-protection or
             consumer-protection authority. The European Commission&apos;s Online Dispute Resolution
@@ -169,6 +170,9 @@ export default function TermsPage() {
 
         <section className={styles.section}>
           <h2>Contact</h2>
+          <p>
+            DeckLoom is operated by <strong>Jan Mazánek</strong> (Bulgaria).
+          </p>
           <p>
             <strong>Email:</strong>{' '}
             <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a>{' '}

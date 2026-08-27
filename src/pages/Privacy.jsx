@@ -35,8 +35,8 @@ export default function PrivacyPage() {
           <h2>Controller and privacy contact</h2>
           <p>
             DeckLoom is an independently operated project, run by a private individual rather than a
-            registered company. The operator is established in <strong>Bulgaria</strong> and is the data
-            controller for the personal data described in this policy.
+            registered company. The data controller for the personal data described in this policy is{' '}
+            <strong>Jan Mazánek</strong>, established in <strong>Bulgaria</strong>.
           </p>
           <p>
             <strong>Contact for all privacy and data-protection matters:</strong>{' '}
