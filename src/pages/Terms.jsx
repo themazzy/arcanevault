@@ -92,7 +92,7 @@ export default function TermsPage() {
             <li>Payment is processed by Stripe. The price shown at checkout is the final amount. DeckLoom never sees your card details.</li>
             <li>Premium themes are digital content delivered immediately after payment: the unlock is applied to your account as soon as the payment is confirmed.</li>
             <li><strong>EU/EEA &amp; UK consumers — right of withdrawal:</strong> by completing the purchase you expressly request immediate delivery of the digital content and acknowledge that you thereby lose your 14-day right of withdrawal once the unlock is delivered.</li>
-            <li>That said: if the unlock fails to apply, or something is genuinely broken with what you paid for, contact us through the in-app feedback form and we will fix it or refund the purchase. Your statutory rights regarding defective digital content remain unaffected.</li>
+            <li>That said: if the unlock fails to apply, or something is genuinely broken with what you paid for, email <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a> and we will fix it or refund the purchase. Your statutory rights regarding defective digital content remain unaffected.</li>
             <li>The unlock is tied to your DeckLoom account and is non-transferable. If your account is deleted, the unlock is deleted with it.</li>
           </ul>
         </section>
@@ -159,9 +159,15 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2>Contact</h2>
           <p>
-            Questions about these terms can be sent through the in-app feedback form. Account and
-            data requests go through the <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link>{' '}
-            page or the channels described in the{' '}
+            <strong>Email:</strong>{' '}
+            <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a>{' '}
+            — for questions about these terms, problems with a premium purchase, refund requests, and
+            anything else that needs a reply. The in-app feedback form reaches the same place.
+          </p>
+          <p>
+            Account and data requests go through the{' '}
+            <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link> page or the
+            channels described in the{' '}
             <Link to="/privacy" className={styles.inlineLink}>Privacy Policy</Link>.
           </p>
         </section>

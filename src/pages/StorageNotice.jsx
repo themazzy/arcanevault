@@ -123,7 +123,9 @@ export default function StorageNoticePage() {
           <h2>Where to read more</h2>
           <p>
             For the broader data-handling explanation, read the{' '}
-            <Link to="/privacy" className={styles.inlineLink}>Privacy Policy</Link>.
+            <Link to="/privacy" className={styles.inlineLink}>Privacy Policy</Link>. Questions about
+            browser storage or analytics can go to{' '}
+            <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a>.
           </p>
         </section>
       </div>

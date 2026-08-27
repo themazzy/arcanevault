@@ -34,14 +34,23 @@ export default function PrivacyPage() {
         <section className={styles.section}>
           <h2>Controller and privacy contact</h2>
           <p>
-            DeckLoom is the app named in this policy and is the service these disclosures apply to.
-            At the current stage of the project, privacy and account-data requests can be submitted through
-            the in-app feedback form or through the public <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link>{' '}
-            page.
+            DeckLoom is an independently operated project. Its operator is the data controller for the
+            personal data described in this policy and is responsible for how that data is handled.
           </p>
           <p>
-            Until a dedicated privacy mailbox is published, those request paths are the official contact
-            mechanisms for deletion, data-handling questions, and follow-up on personal-data requests.
+            <strong>Contact for all privacy and data-protection matters:</strong>{' '}
+            <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a>
+          </p>
+          <p>
+            Write to that address to exercise any of the rights listed further down — access, correction,
+            deletion, export, restriction or objection — or to ask a question about this policy. It is
+            monitored by the operator and reaches a person. You do not need an account to use it, and you
+            can still use it after your account has been deleted.
+          </p>
+          <p>
+            Two alternatives exist for convenience, not as replacements: the{' '}
+            <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link> page submits a
+            deletion request directly, and the in-app feedback form reaches the same operator.
           </p>
           <p><em>Last updated: 2026-08-27.</em></p>
         </section>
@@ -256,8 +265,9 @@ export default function PrivacyPage() {
           <h2>Your rights under the GDPR and similar laws</h2>
           <p>
             Where applicable law (in particular the EU General Data Protection Regulation and the
-            UK GDPR) grants you data-subject rights, you can exercise them through the in-app
-            feedback form or the{' '}
+            UK GDPR) grants you data-subject rights, you can exercise them by emailing{' '}
+            <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a>,
+            or for deletion specifically through the{' '}
             <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link> page.
             These rights include:
           </p>
@@ -326,7 +336,7 @@ export default function PrivacyPage() {
             <li>You can clear local metadata cache inside the app.</li>
             <li>You can avoid public visibility by not creating share links or public deck links.</li>
             <li>You can request account deletion through the deletion-request flow.</li>
-            <li>You can submit privacy questions through the in-app feedback form if you need clarification before requesting deletion.</li>
+            <li>You can email <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a> with privacy questions if you need clarification before requesting deletion.</li>
           </ul>
         </section>
       </div>
