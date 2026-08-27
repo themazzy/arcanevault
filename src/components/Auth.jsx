@@ -5,6 +5,7 @@ import { getPublicBaseUrl, getProdAppUrl } from '../lib/publicUrl'
 import { isNativeApp, openNativeOAuth, NATIVE_AUTH_ERROR_EVENT } from '../lib/nativeAuth'
 import { reconcileActiveUser } from '../lib/accountReset'
 import { describePasswordProblem, evaluatePassword, DEFAULT_MIN_PASSWORD_LENGTH } from '../lib/passwordFeedback'
+import { AGE_CONFIRMED_FIELD, ageConfirmationValue } from '../lib/ageGate'
 import {
   parseEmailOtpParams,
   isRecoveryRedirect,
@@ -380,7 +381,12 @@ export function LoginPage({ forcedMode = null }) {
       const { error: nextError } = await sb.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: getProdAppUrl('/') },
+        options: {
+          emailRedirectTo: getProdAppUrl('/'),
+          // Recorded at creation so form signups are never asked again by the
+          // post-authentication gate, which exists for the social paths.
+          data: { [AGE_CONFIRMED_FIELD]: ageConfirmationValue() },
+        },
       })
       if (nextError) showError(nextError)
       else setSuccess('Account created. Check your email to confirm, then sign in.')

@@ -1,0 +1,122 @@
+.page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.card {
+  width: min(460px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 26px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--s-card);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+.eyebrow {
+  font-family: var(--font-display);
+  font-size: var(--label-size-md);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 1.15;
+  color: var(--gold);
+}
+
+.lead {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.confirmRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--s-border2);
+  border-radius: 10px;
+  background: var(--s-subtle);
+  color: var(--text);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  cursor: pointer;
+}
+
+.confirmRow input {
+  flex: none;
+  /* Aligns to the first line of a wrapping label rather than its centre. */
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gold);
+  cursor: pointer;
+}
+
+.primary {
+  min-height: var(--control-h-md, 40px);
+  padding: 0 16px;
+  border: 1px solid var(--border-hi);
+  border-radius: 9px;
+  background: var(--s-medium);
+  color: var(--gold);
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--s-strong, var(--s-medium));
+  border-color: var(--gold-dim);
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.error {
+  padding: 10px 12px;
+  border: 1px solid rgba(196, 96, 96, 0.35);
+  border-radius: 8px;
+  background: rgba(196, 96, 96, 0.08);
+  color: var(--red);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.footNote {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.footNote a,
+.linkButton {
+  color: var(--text-dim);
+  text-decoration: underline;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}

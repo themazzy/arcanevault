@@ -2,6 +2,8 @@ import { Component, Suspense, lazy, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth, LoginPage } from './components/Auth'
+import AgeConfirmationGate from './components/AgeConfirmationGate'
+import { needsAgeConfirmation } from './lib/ageGate'
 import { SettingsProvider } from './components/SettingsContext'
 import { SetupWizardProvider } from './components/SetupWizard'
 import { ToastProvider } from './components/ToastContext'
@@ -138,6 +140,9 @@ function PrivateApp() {
     if (builderDeckId) return <SignedOutBuilderDeck deckId={builderDeckId} />
     return <LoginPage />
   }
+  // Checked after authentication rather than on the signup form, because the
+  // social buttons create accounts without the form ever rendering.
+  if (needsAgeConfirmation(user)) return <AgeConfirmationGate user={user} />
   return (
     <SettingsProvider>
       <SetupWizardProvider>

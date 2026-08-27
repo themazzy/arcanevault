@@ -329,6 +329,39 @@ The tab badge comes from `countActionable()`, which is why proposal state lives 
 
 **There is no per-card "any version" flag.** `folder_cards.trade_any_version` was dropped 2026-08-02 (zero rows had ever set it): the For Trade binder holds *specific owned rows* — an exact print, finish, language and condition — so "I'd trade any printing of this" was a statement about a card the user may not own, wrongly hung off a concrete placement. `trade_note` stays; condition/language remarks are genuinely per-copy. `buildFolderCardInsertRows` in `src/lib/backup.js` ignores the field so pre-drop backup files still restore.
 
+### Age declaration
+
+`MINIMUM_AGE = 16` (`src/lib/ageGate.js`). **GDPR Art 8 sets 16 as the consent age unless the
+user's own member state lowered it** — the range in force is 13-16 across the EU (Bulgaria 14,
+Czechia 15, Germany/Netherlands/Ireland 16). The applicable age is the *user's* country, not the
+operator's, so 16 is the only value correct everywhere; the operator being established in Bulgaria
+does **not** make 14 the right number. Changing it is a legal decision, and a test pins it.
+
+**The declaration is a property of the account, checked after authentication — not a form field.**
+The signup checkbox in `Auth.jsx` only covers the email path: the Google and Discord buttons sit
+above the Sign in / Create account tabs and serve both, so a click carries no signal about whether
+an account is being created and the form may never render at all. `AgeConfirmationGate` therefore
+runs inside `PrivateApp` for any account whose `user_metadata.age_confirmed_at` is missing or
+unparseable, which covers social signups and deep links. Form signups write the field at `signUp()`
+so they are never asked twice.
+
+**Accounts created before `GATE_ACTIVE_FROM` are grandfathered, not asked.** Interrupting an
+existing user mid-session to ask about an account they have had for months was judged worse than the
+gap it leaves — those accounts are treated as declared without ever having declared. A missing or
+unreadable `created_at` is grandfathered too: that is a data anomaly, and locking someone out of
+their own account over it is a worse failure than not asking.
+
+It renders **instead of** the app, not over it — an overlay leaves the app mounted and reachable by
+keyboard, back button or deep link, which makes the gate decorative. After a successful write it
+calls `refreshSession()`, because the local session carries stale metadata and the gate would
+otherwise re-render immediately. A failed write keeps the user on the gate rather than letting them
+through, so a declaration is never silently lost.
+
+Art 8(2) asks for verification effort proportionate to available technology; for a tracker with no
+ads, profiling or payments, a self-declaration is that. It stops being a defence once there is
+*actual knowledge* a user is under age (a bio, a parent's email) — at which point the account has to
+be acted on regardless of what was ticked.
+
 ### Traffic Analytics
 
 Three independent sources feed the **Traffic** tab in `/admin`. They measure different
