@@ -1085,3 +1085,86 @@
   user-select: none;
   padding: 0 4px;
 }
+
+/* ── Traffic tab ─────────────────────────────────────────────────────────── */
+
+.trafficControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.trafficPanels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.trafficBreakdowns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.trafficPanel {
+  background: var(--s-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  padding: 14px;
+  min-width: 0;
+}
+
+.trafficPanelHead {
+  margin-bottom: 10px;
+}
+
+.trafficRankList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trafficRankRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.trafficRankLabel {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trafficRankTrack {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--s-medium);
+  overflow: hidden;
+}
+
+.trafficRankBar {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--gold);
+}
+
+.trafficRankValue {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+  text-align: right;
+}
+
+@media (max-width: 900px) {
+  .trafficRankRow {
+    grid-template-columns: minmax(0, 1fr) 56px auto;
+  }
+}

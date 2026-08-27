@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CloseIcon } from '../icons'
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button, ConfirmModal, Input, Modal, SectionHeader, Select as UISelect } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { sb } from '../lib/supabase'
@@ -9,6 +10,7 @@ import styles from './Admin.module.css'
 const STATUS_OPTIONS = ['pending', 'in_review', 'completed', 'rejected']
 const ADMIN_TABS = [
   { id: 'overview', label: 'Overview' },
+  { id: 'traffic', label: 'Traffic' },
   { id: 'feedback', label: 'Feedback' },
   { id: 'users', label: 'Users' },
   { id: 'deletions', label: 'Deletions' },
@@ -738,6 +740,285 @@ function UserSettingsEditor({ userId, settings, onSaved }) {
   )
 }
 
+// ── Traffic ──────────────────────────────────────────────────────────────────
+
+const TRAFFIC_RANGES = [7, 30, 60]
+const TRAFFIC_ACCENT = '#c9a84c'
+
+function formatCount(n) {
+  const value = Number(n) || 0
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
+  return String(Math.round(value))
+}
+
+function formatBytes(n) {
+  const value = Number(n) || 0
+  if (value >= 1e12) return `${(value / 1e12).toFixed(1)} TB`
+  if (value >= 1e9) return `${(value / 1e9).toFixed(1)} GB`
+  if (value >= 1e6) return `${(value / 1e6).toFixed(1)} MB`
+  if (value >= 1e3) return `${(value / 1e3).toFixed(1)} KB`
+  return `${Math.round(value)} B`
+}
+
+// One measure per chart, always. Zone requests and beacon page views differ by
+// an order of magnitude, so plotting them together would need a second y-axis —
+// which makes the two lines' relative heights meaningless.
+function TrafficChart({ data, dataKey, label, gradientId }) {
+  if (!data?.length) {
+    return <div className={styles.emptyInline}>Nothing recorded in this range yet.</div>
+  }
+  return (
+    <ResponsiveContainer width="100%" height={160}>
+      <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={TRAFFIC_ACCENT} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={TRAFFIC_ACCENT} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(128,128,128,0.12)" vertical={false} />
+        <XAxis
+          dataKey="date"
+          tick={{ fontSize: 10, fill: 'var(--text-faint)' }}
+          tickFormatter={d => String(d).slice(5)}
+          minTickGap={28}
+        />
+        <YAxis
+          tick={{ fontSize: 10, fill: 'var(--text-faint)' }}
+          tickFormatter={formatCount}
+          width={44}
+          domain={[0, 'auto']}
+        />
+        <Tooltip
+          formatter={value => [Number(value).toLocaleString(), label]}
+          labelStyle={{ color: 'var(--text-dim)' }}
+          contentStyle={{
+            background: 'var(--bg2)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+        />
+        <Area
+          type="monotone"
+          dataKey={dataKey}
+          stroke={TRAFFIC_ACCENT}
+          strokeWidth={2}
+          fill={`url(#${gradientId})`}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+}
+
+// Magnitude comparison across labelled rows. Colour carries no identity here —
+// the label does — so every bar takes the same accent rather than a hue cycle.
+function TrafficRanks({ rows, valueKey = 'page_views', emptyLabel }) {
+  if (!rows?.length) return <div className={styles.emptyInline}>{emptyLabel}</div>
+  const max = Math.max(...rows.map(r => Number(r[valueKey]) || 0), 1)
+  return (
+    <div className={styles.trafficRankList}>
+      {rows.map((row, idx) => (
+        <div className={styles.trafficRankRow} key={`${row.label}-${idx}`}>
+          <div className={styles.trafficRankLabel} title={row.label}>{row.label || 'unknown'}</div>
+          <div className={styles.trafficRankTrack}>
+            <div
+              className={styles.trafficRankBar}
+              style={{ width: `${Math.max(2, ((Number(row[valueKey]) || 0) / max) * 100)}%` }}
+            />
+          </div>
+          <div className={styles.trafficRankValue}>{formatCount(row[valueKey])}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function TrafficPanel({ title, sub, section, children }) {
+  return (
+    <div className={styles.trafficPanel}>
+      <div className={styles.trafficPanelHead}>
+        <div className={styles.panelTitle}>{title}</div>
+        {sub ? <div className={styles.panelSub}>{sub}</div> : null}
+      </div>
+      {section?.available ? children : (
+        <div className={styles.alertCard + ' ' + styles.alertWarning}>
+          <div className={styles.alertTitle}>Not available</div>
+          <div className={styles.alertMessage}>{section?.error || 'No data returned.'}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TrafficSection() {
+  const [rangeDays, setRangeDays] = useState(30)
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async ({ days = rangeDays, refresh = false } = {}) => {
+    setLoading(true)
+    setError('')
+    const headers = await getFunctionAuthHeaders()
+    const { data: payload, error: invokeError } = await sb.functions.invoke('admin-traffic-summary', {
+      body: { range_days: days, refresh },
+      headers,
+    })
+    if (invokeError || payload?.error) {
+      setData(null)
+      setError(await getFunctionErrorMessage(invokeError, payload?.details || payload?.error || 'Could not load traffic stats.'))
+      setLoading(false)
+      return
+    }
+    setData(payload)
+    setLoading(false)
+  }, [rangeDays])
+
+  useEffect(() => { load({ days: rangeDays }) }, [load, rangeDays])
+
+  const zone = data?.zone
+  const rum = data?.rum
+  const decks = data?.decks
+
+  return (
+    <div className={styles.sectionBlock}>
+      <div className={styles.sectionTitleRow}>
+        <div>
+          <div className={styles.sectionTitle}>Traffic</div>
+          <div className={styles.panelSub}>
+            {data?.generated_at
+              ? `Updated ${formatDate(data.generated_at)}${data.cached ? ' (cached)' : ''}`
+              : 'Loading traffic metrics'}
+          </div>
+        </div>
+        <div className={styles.trafficControls}>
+          <UISelect
+            value={String(rangeDays)}
+            onChange={e => setRangeDays(Number(e.target.value))}
+            title="Date range"
+          >
+            {TRAFFIC_RANGES.map(d => (
+              <option key={d} value={String(d)}>Last {d} days</option>
+            ))}
+          </UISelect>
+          <Button variant="secondary" onClick={() => load({ days: rangeDays, refresh: true })} disabled={loading}>
+            {loading ? 'Loading…' : 'Refresh'}
+          </Button>
+        </div>
+      </div>
+
+      {error ? <div className={styles.errorBox}>{error}</div> : null}
+
+      {loading && !data ? (
+        <div className={styles.emptyState}>Loading traffic metrics...</div>
+      ) : !data ? null : (
+        <>
+          {!data.beacon_configured ? (
+            <div className={styles.alertCard + ' ' + styles.alertInfo}>
+              <div className={styles.alertTitle}>Web Analytics site not resolved</div>
+              <div className={styles.alertMessage}>
+                Zone and deck-view numbers below are live. Human page views, referrers and
+                countries stay empty until the Cloudflare Web Analytics site for this domain
+                can be found — check the panel error below, then either grant the API token
+                Account Analytics:Read or pin the site with the CF_RUM_SITE_TAG secret.
+              </div>
+            </div>
+          ) : null}
+
+          <div className={styles.summaryGrid}>
+            <div className={styles.summaryCard}>
+              <div className={styles.summaryLabel}>Page Views</div>
+              <div className={styles.summaryValue}>{rum?.available ? formatCount(rum.totals?.page_views) : '—'}</div>
+              <div className={styles.summaryMeta}>Real visitors, beacon</div>
+            </div>
+            <div className={styles.summaryCard}>
+              <div className={styles.summaryLabel}>Visits</div>
+              <div className={styles.summaryValue}>{rum?.available ? formatCount(rum.totals?.visits) : '—'}</div>
+              <div className={styles.summaryMeta}>Sessions, beacon</div>
+            </div>
+            <div className={styles.summaryCard}>
+              <div className={styles.summaryLabel}>Edge Requests</div>
+              <div className={styles.summaryValue}>{zone?.available ? formatCount(zone.totals?.requests) : '—'}</div>
+              <div className={styles.summaryMeta}>Includes bots and assets</div>
+            </div>
+            <div className={styles.summaryCard}>
+              <div className={styles.summaryLabel}>Peak Daily Uniques</div>
+              <div className={styles.summaryValue}>{zone?.available ? formatCount(zone.totals?.peak_daily_uniques) : '—'}</div>
+              <div className={styles.summaryMeta}>Busiest single day</div>
+            </div>
+            <div className={styles.summaryCard}>
+              <div className={styles.summaryLabel}>Deck Views</div>
+              <div className={styles.summaryValue}>{decks?.available ? formatCount(decks.range_views) : '—'}</div>
+              <div className={styles.summaryMeta}>
+                {decks?.available ? `${formatCount(decks.total_views)} all time` : 'Shared /d/ links'}
+              </div>
+            </div>
+            <div className={styles.summaryCard}>
+              <div className={styles.summaryLabel}>Bandwidth</div>
+              <div className={styles.summaryValue}>{zone?.available ? formatBytes(zone.totals?.bytes) : '—'}</div>
+              <div className={styles.summaryMeta}>Served from the edge</div>
+            </div>
+          </div>
+
+          <div className={styles.trafficPanels}>
+            <TrafficPanel
+              title="Human page views"
+              sub="Cloudflare Web Analytics — cookieless, includes in-app route changes"
+              section={rum}
+            >
+              <TrafficChart data={rum?.daily} dataKey="page_views" label="Page views" gradientId="trafficRumFill" />
+            </TrafficPanel>
+
+            <TrafficPanel
+              title="Edge requests"
+              sub="Zone analytics — every request including bots, assets and scanner noise"
+              section={zone}
+            >
+              <TrafficChart data={zone?.daily} dataKey="requests" label="Requests" gradientId="trafficZoneFill" />
+            </TrafficPanel>
+
+            <TrafficPanel
+              title="Shared deck views"
+              sub="First-party counts from /d/ shortlinks, crawlers excluded"
+              section={decks}
+            >
+              <TrafficChart data={decks?.daily} dataKey="views" label="Deck views" gradientId="trafficDeckFill" />
+            </TrafficPanel>
+          </div>
+
+          <div className={styles.trafficBreakdowns}>
+            <TrafficPanel title="Top pages" section={rum}>
+              <TrafficRanks rows={rum?.top_paths} emptyLabel="No beacon data yet." />
+            </TrafficPanel>
+            <TrafficPanel title="Referrers" section={rum}>
+              <TrafficRanks rows={rum?.top_referrers} emptyLabel="No referrer data yet." />
+            </TrafficPanel>
+            <TrafficPanel title="Countries" section={rum}>
+              <TrafficRanks rows={rum?.top_countries} emptyLabel="No country data yet." />
+            </TrafficPanel>
+            <TrafficPanel
+              title="Most viewed decks"
+              sub={decks?.available ? `${decks.tracked_decks} decks with views` : null}
+              section={decks}
+            >
+              <TrafficRanks
+                rows={(decks?.top || []).map(d => ({
+                  label: d.name || d.deck_id?.slice(0, 8) || 'unknown',
+                  views: d.range_views,
+                }))}
+                valueKey="views"
+                emptyLabel="No shared deck has been opened yet."
+              />
+            </TrafficPanel>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const { user } = useAuth()
   const [isAdmin, setIsAdmin] = useState(null)
@@ -1297,6 +1578,8 @@ export default function AdminPage() {
         )}
       </div>
       ) : null}
+
+      {activeTab === 'traffic' ? <TrafficSection /> : null}
 
       {activeTab === 'content' ? <ChangelogEditorSection /> : null}
 

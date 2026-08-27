@@ -140,7 +140,8 @@ export default function PrivacyPage() {
             <li>Scryfall is used for card metadata and imagery.</li>
             <li>Frankfurter is used for exchange-rate conversion in supported price displays.</li>
             <li>GitHub Pages hosts the static front-end build at the public site URL.</li>
-            <li>Cloudflare provides DNS and acts as a network proxy in front of deckloom.app, which means site traffic (including IP addresses and request metadata) passes through Cloudflare&apos;s infrastructure. A Cloudflare worker also serves social link previews for publicly shared decks.</li>
+            <li>Cloudflare provides DNS and acts as a network proxy in front of deckloom.app, which means site traffic (including IP addresses and request metadata) passes through Cloudflare&apos;s infrastructure. A Cloudflare worker also serves social link previews for publicly shared decks. We use Cloudflare Web Analytics to measure site traffic: it is cookieless, sets nothing on your device, and reports only aggregate figures such as page views, referring site, and country. It does not build a profile of you or track you across other sites.</li>
+            <li>We count how many times each publicly shared deck page is opened. This is stored as a plain per-deck total with no record of who viewed it — no IP address, account, or device identifier is kept.</li>
             <li>
               Deck-building features query third-party MTG data services to generate suggestions:
               EDHREC receives the commander&apos;s name (queried directly from your browser, so EDHREC

@@ -6,10 +6,12 @@ import { handleChunkLoadError } from './lib/chunkRecovery'
 import { registerNativeAuthDeepLinkHandler } from './lib/nativeAuth'
 import { installRandomUUIDPolyfill } from './lib/uuid'
 import { startServiceWorkerUpdateChecks } from './lib/swUpdate'
+import { initAnalytics } from './lib/analytics'
 
 installRandomUUIDPolyfill()
 registerNativeAuthDeepLinkHandler()
 startServiceWorkerUpdateChecks()
+initAnalytics()
 
 // Capture recent console errors/warnings for bug reports
 window.__arcaneErrors = []

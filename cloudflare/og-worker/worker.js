@@ -14,6 +14,7 @@
 
 import { extractDeckId, isCrawler, renderOgHtml } from './og.js'
 import { extractDecklistDeckId, renderDecklistText } from './decklist.js'
+import { recordDeckView, shouldCountDeckView } from './deckViews.js'
 
 // ── RSS proxy (deckloom.app/api/rss?feed=<url>) ──────────────────────────────
 // The Home page news section needs CORS-free access to third-party RSS feeds;
@@ -241,7 +242,7 @@ async function handleRecommend(request) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const pathname = new URL(request.url).pathname
     if (pathname === '/api/rss') return handleRss(request)
     if (pathname === '/api/og-image') return handleOgImage(request)
@@ -250,8 +251,15 @@ export default {
     if (pathname.startsWith('/api/decklist/')) return handleDecklist(request, env)
 
     const deckId = request.method === 'GET' ? extractDeckId(request.url) : null
+    const userAgent = request.headers.get('user-agent')
+    const isCrawlerUa = isCrawler(userAgent)
 
-    if (!deckId || !isCrawler(request.headers.get('user-agent'))) {
+    if (!deckId || !isCrawlerUa) {
+      // Real readers of a shared deck link: count the view off the response
+      // path, then hand back exactly what the origin would have served.
+      if (deckId && shouldCountDeckView({ method: request.method, userAgent, isCrawlerUa })) {
+        ctx.waitUntil(recordDeckView(request, deckId, env))
+      }
       return fetch(request)
     }
 

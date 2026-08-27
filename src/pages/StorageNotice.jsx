@@ -14,8 +14,9 @@ export default function StorageNoticePage() {
           <h1 className={styles.title}>What the browser stores for DeckLoom</h1>
           <p className={styles.lead}>
             DeckLoom currently relies on browser storage for session persistence, settings, and a local
-            cache that keeps collection reads fast. At the time of writing, the app does not use advertising
-            cookies or analytics trackers, but it does use local browser storage that you should know about.
+            cache that keeps collection reads fast. The app uses no advertising cookies and no tracking
+            cookies of any kind. It does use Cloudflare Web Analytics, which is cookieless and stores
+            nothing on your device, and it uses local browser storage that you should know about.
           </p>
         </div>
 
@@ -63,6 +64,11 @@ export default function StorageNoticePage() {
                   <td>Managed by normal browser caching behavior.</td>
                 </tr>
                 <tr>
+                  <td>Traffic analytics</td>
+                  <td>Aggregate visit counts, referring site, and country, so we can see how the site is used</td>
+                  <td>Cloudflare Web Analytics. Cookieless: it sets no cookie, writes nothing to your device, and does not build a profile or follow you across sites.</td>
+                </tr>
+                <tr>
                   <td>Third-party sign-in cookies</td>
                   <td>If you sign in with Google or Discord, those providers may set their own cookies on their own domains during the OAuth handshake.</td>
                   <td>These cookies are controlled by Google or Discord and follow their own privacy and cookie policies, not DeckLoom&apos;s.</td>
@@ -80,13 +86,14 @@ export default function StorageNoticePage() {
         <section className={styles.section}>
           <h2>Cookie position</h2>
           <p>
-            DeckLoom does not currently present a cookie banner because the app is not using an ad-tech
-            or analytics-cookie stack at this time. That said, session persistence and similar browser
-            storage still matter, which is why this notice exists.
+            DeckLoom does not present a cookie banner because it uses no ad-tech and no analytics cookies.
+            The traffic analytics we do use are cookieless and store nothing on your device, so there is
+            nothing for you to consent to or opt out of at the storage level. Session persistence and
+            similar browser storage still matter, which is why this notice exists.
           </p>
           <p>
-            If the app later adds analytics, marketing pixels, or non-essential tracking storage, this page
-            should be updated and the consent flow should be revisited before shipping those changes.
+            If the app later adds marketing pixels, cookie-based analytics, or other non-essential tracking
+            storage, this page should be updated and a consent flow added before shipping those changes.
           </p>
         </section>
 

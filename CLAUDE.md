@@ -329,6 +329,61 @@ The tab badge comes from `countActionable()`, which is why proposal state lives 
 
 **There is no per-card "any version" flag.** `folder_cards.trade_any_version` was dropped 2026-08-02 (zero rows had ever set it): the For Trade binder holds *specific owned rows* — an exact print, finish, language and condition — so "I'd trade any printing of this" was a statement about a card the user may not own, wrongly hung off a concrete placement. `trade_note` stays; condition/language remarks are genuinely per-copy. `buildFolderCardInsertRows` in `src/lib/backup.js` ignores the field so pre-drop backup files still restore.
 
+### Traffic Analytics
+
+Three independent sources feed the **Traffic** tab in `/admin`. They measure different
+things and must never be added together or plotted on shared axes — edge requests
+include bots and assets, beacon page views are humans, deck views are one specific action.
+
+| Source | What it measures | Where it comes from |
+|---|---|---|
+| Zone analytics | Every edge request, bots and assets included | `httpRequests1dGroups`, collecting since the domain was proxied |
+| Web Analytics beacon | Human page views, referrers, countries, SPA route changes | `rumPageloadEventsAdaptiveGroups`, auto-injected at the edge |
+| Deck views | Opens of a public `/d/<id>` shortlink | `deck_view_stats` / `deck_view_daily`, written by the og-worker |
+
+**The beacon is cookieless and therefore deliberately NOT gated on `src/lib/consent.js`.**
+That module's `analytics` flag defaults to false and no UI exists to grant it, so gating
+on it would silently disable the beacon forever. Cloudflare Web Analytics writes nothing
+to the device, which is why `/storage` can still say DeckLoom sets no tracking cookies and
+why there is no consent banner. **If a tracker that does store on the device is ever added,
+it must be gated there** — and both `/storage` and `/privacy` must be updated with it.
+
+**The beacon is injected by Cloudflare at the edge, not by us.** Web Analytics -> Manage site
+is set to *Enable* (automatic injection), so `VITE_CF_BEACON_TOKEN` is deliberately left unset
+and `src/lib/analytics.js` never fires — **setting it would double-count every page view**.
+The module stays as the escape hatch for switching to *Enable with JS Snippet installation*.
+That setting was originally *"Enable, excluding visitor data in the EU"*, which silently dropped
+most of the real audience; if beacon numbers ever look implausibly low again, check it first.
+
+`src/lib/analytics.js` injects the beacon only on `deckloom.app`, and never under Capacitor.
+**The native check must stay a runtime `Capacitor.isNativePlatform()` call** — `capacitor.config.json`
+sets `server.url` to `https://deckloom.app`, so the native WebView loads the *deployed web bundle*,
+where `import.meta.env.VITE_CAPACITOR` is false and the hostname is the production host. A
+build-time flag check would never fire and every native session would be counted as web traffic.
+
+**The Cloudflare API token must never reach the browser** — it reads the whole account.
+That is the entire reason `supabase/functions/admin-traffic-summary/` exists: it is an
+admin-gated proxy following the same `admin_users` guard as the other `admin-*` functions.
+Secrets: `CF_API_TOKEN` (Account Analytics:Read + Zone Analytics:Read only), `CF_ACCOUNT_ID`,
+`CF_ZONE_ID`. **`CF_RUM_SITE_TAG` is optional** — `resolveSiteTag()` discovers it from the
+account's RUM site list (`/accounts/<id>/rum/site_info/list`) and caches it per instance, since
+the dashboard does not surface it under automatic injection. Cloudflare keeps **two** ids per
+site and they are easy to confuse: `site_token` goes in the JS snippet, `site_tag` is what the
+GraphQL API filters on — passing the token returns an empty result set rather than an error.
+Matching lives in `siteTag.ts` as a pure function so it is unit-tested without Deno.
+Each source degrades independently, so a missing secret or a
+renamed GraphQL dimension blanks one card instead of the whole tab; RUM breakdowns are issued
+as separate requests for exactly that reason. Responses are cached 10 min in function module
+scope because the Cloudflare analytics API is rate-limited.
+
+**Deck view counting stores no per-view rows.** `record_deck_view(uuid)` keeps a running total
+plus one row per deck per day — a pageview log would be unbounded growth in a database already
+dominated by the Scryfall catalogue, and it would turn an aggregate count into personal data.
+The RPC is gated on the same `is_public` meta flag as `get_deck_og_meta`, so private decks never
+accrue counts and probing random UUIDs reveals nothing. The worker excludes crawlers (an unfurl
+is not a reader) and dedupes per client for 6 h via the Cloudflare Cache API, and the write runs
+in `ctx.waitUntil()` so it never touches response latency.
+
 ### Wishlist Rules
 
 Wishlists are not part of owned collection inventory.
@@ -409,6 +464,7 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/deckAllocationPlanner.js` | Plans which owned card rows to assign when linking a builder deck |
 | `src/lib/exportUtils.js` | `cardsToCSV()` — Manabox-compatible CSV export |
 | `src/lib/admin.js` | `isCurrentUserAdmin()` — checks `admin_users` table |
+| `src/lib/analytics.js` | Cloudflare Web Analytics beacon injection — prod host only, never native; cookieless so intentionally not consent-gated |
 | `src/lib/consent.js` | GDPR consent preferences (necessary/analytics/marketing/preferences) stored in localStorage |
 | `src/lib/publicUrl.js` | `getPublicBaseUrl()`, `getPublicAppUrl(path)` — prod/dev URL helpers (Capacitor-aware; prod origin = `https://deckloom.app`) |
 | `src/lib/nativeAuth.js` | Capacitor OAuth: `isNativeApp()`, `openNativeOAuth(provider)`, `registerNativeAuthDeepLinkHandler()`; PKCE flow via `deckloom://auth/callback` |
@@ -728,6 +784,8 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `deck_changes` — deck-level action history (printing optimize, visibility, bracket, import, commander); one row per action, capped at 100/deck via the `prune_deck_changes` trigger, RLS owner-only. Logged via `src/lib/deckHistory.js` (`logDeckChange`, `fetchDeckHistory`); shown in the DeckBuilder "Deck History" modal. NOT per-card diffs
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
+- `deck_view_stats` — running view total per public deck: `deck_id, total_views, last_viewed_at`; RLS owner-read, written only by `record_deck_view`
+- `deck_view_daily` — one row per deck per day: `deck_id, view_date, views`; pruned beyond 180 days by `prune_deck_view_daily()`. No per-view event rows exist by design
 - `card_hashes` — **dropped 2026-07-04** (pipeline v7 reclaimed ~75 MB): clients consume the static hash pack, and the seed script uses the pack as its own state. The pack in `public/scanner/hashpack/` (+ git history) is the only copy of the computed hashes; a full re-hash via `generate-card-hashes.js --reseed` rebuilds it from Scryfall in a few hours
 - `admin_users` — users with admin access: `user_id, active`; checked by `isCurrentUserAdmin()`
 - `app_config` — key-value config store used by admin/home: keys include `changelog`, `feedback_resolved`
