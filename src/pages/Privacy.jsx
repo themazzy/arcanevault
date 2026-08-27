@@ -43,7 +43,7 @@ export default function PrivacyPage() {
             Until a dedicated privacy mailbox is published, those request paths are the official contact
             mechanisms for deletion, data-handling questions, and follow-up on personal-data requests.
           </p>
-          <p><em>Last updated: 2026-07-18.</em></p>
+          <p><em>Last updated: 2026-08-27.</em></p>
         </section>
 
         <section className={styles.section}>
@@ -84,6 +84,26 @@ export default function PrivacyPage() {
                   <td>To let you intentionally share selected content with others.</td>
                 </tr>
                 <tr>
+                  <td>Public profile and trade post</td>
+                  <td>Nickname, profile bio and layout, showcased decks, the contents of your &quot;For Trade&quot; binder and any wishlists you feature</td>
+                  <td>To render your public profile and trade post pages, which are readable by anyone with the link and are only created when you opt in.</td>
+                </tr>
+                <tr>
+                  <td>Multiplayer and tournament data</td>
+                  <td>Display name, chosen colour, deck name, life totals, game and tournament results</td>
+                  <td>To run shared life-tracker games and tournaments. Your display name and deck name are visible to the other participants in that game.</td>
+                </tr>
+                <tr>
+                  <td>Traffic measurement</td>
+                  <td>Aggregate page views, referring site and country. No cookie, no device storage, no identifier that singles you out</td>
+                  <td>To understand how the site is used in aggregate. See &quot;Traffic measurement&quot; below.</td>
+                </tr>
+                <tr>
+                  <td>Shared deck view counts</td>
+                  <td>A running total per public deck, plus a per-day total. No record of who viewed it</td>
+                  <td>To show deck owners how often their shared deck link has been opened.</td>
+                </tr>
+                <tr>
                   <td>Payment data (premium only)</td>
                   <td>Stripe checkout session id, Stripe customer id, payment status</td>
                   <td>To process one-time premium theme purchases. Card numbers and billing details are handled by Stripe and never reach DeckLoom servers.</td>
@@ -117,17 +137,18 @@ export default function PrivacyPage() {
             <li>To provide the core collection, deck, wishlist, scanner, sync, and analytics features.</li>
             <li>To maintain account security and keep sessions working across refreshes and devices.</li>
             <li>To let you send feedback and optionally receive follow-up contact.</li>
-            <li>To intentionally publish content when you create a public share link or deck view.</li>
+            <li>To intentionally publish content when you create a public share link, public profile, trade post, or deck view.</li>
+            <li>To measure overall site traffic in aggregate, so the app can be maintained and improved.</li>
           </ul>
         </section>
 
         <section className={styles.section}>
           <h2>Legal basis in plain language</h2>
           <ul className={styles.list}>
-            <li>Core account, collection, sync, and deck features are processed because they are necessary to provide the service you asked to use.</li>
-            <li>Security, abuse prevention, and basic operational logging are processed to keep the service working safely and reliably.</li>
-            <li>Optional feedback submissions are processed because you choose to send them to the app operator.</li>
-            <li>Public share links are processed because you intentionally choose to publish that content.</li>
+            <li><strong>Performance of a contract</strong> (Article 6(1)(b)) — your account, collection, sync, decks, wishlists and premium purchase. Without this data the service you asked for cannot be provided.</li>
+            <li><strong>Legitimate interests</strong> (Article 6(1)(f)) — security, abuse prevention, operational logging, aggregate traffic measurement, and shared-deck view counts. Our interest is keeping the service safe and understanding whether it is used at all; the data involved is aggregate or minimal, it is not used to profile you, and you can object at any time.</li>
+            <li><strong>Consent</strong> (Article 6(1)(a)) — optional feedback you choose to send, and content you choose to publish through a share link, public profile or trade post. You can withdraw by deleting the content or asking us to remove it.</li>
+            <li><strong>Legal obligation</strong> (Article 6(1)(c)) — retaining payment records where tax or accounting law requires it.</li>
           </ul>
         </section>
 
@@ -141,7 +162,6 @@ export default function PrivacyPage() {
             <li>Frankfurter is used for exchange-rate conversion in supported price displays.</li>
             <li>GitHub Pages hosts the static front-end build at the public site URL.</li>
             <li>Cloudflare provides DNS and acts as a network proxy in front of deckloom.app, which means site traffic (including IP addresses and request metadata) passes through Cloudflare&apos;s infrastructure. A Cloudflare worker also serves social link previews for publicly shared decks. We use Cloudflare Web Analytics to measure site traffic: it is cookieless, sets nothing on your device, and reports only aggregate figures such as page views, referring site, and country. It does not build a profile of you or track you across other sites.</li>
-            <li>We count how many times each publicly shared deck page is opened. This is stored as a plain per-deck total with no record of who viewed it — no IP address, account, or device identifier is kept.</li>
             <li>
               Deck-building features query third-party MTG data services to generate suggestions:
               EDHREC receives the commander&apos;s name (queried directly from your browser, so EDHREC
@@ -162,12 +182,51 @@ export default function PrivacyPage() {
         <section className={styles.section}>
           <h2>International data transfers</h2>
           <p>
-            Some processors named above operate from servers outside the European Economic Area —
-            in particular Supabase, Stripe, Google, Discord, GitHub, and Cloudflare. Where personal data is
-            transferred outside the EEA or the UK, DeckLoom relies on the standard safeguards each
-            processor provides (such as the EU Standard Contractual Clauses, EU-US Data Privacy
-            Framework certifications where applicable, and the privacy commitments published on each
-            provider&apos;s website).
+            <strong>Your account and collection data is stored in the European Union.</strong> The
+            Supabase database, authentication records and file storage for DeckLoom run in Supabase&apos;s
+            <code className={styles.code}>eu-north-1</code> region (Stockholm, Sweden). Supabase is a
+            US-incorporated company, so administrative access from outside the EEA is possible under its
+            processor terms, but the data itself resides in the EEA.
+          </p>
+          <p>
+            Other processors do operate outside the EEA — in particular Stripe, Google, Discord, GitHub
+            and Cloudflare. Cloudflare additionally routes all site traffic through its global network, so
+            request metadata including your IP address may be handled outside the EEA in transit. Where
+            personal data is transferred outside the EEA or the UK, DeckLoom relies on the safeguards each
+            provider maintains — the EU Standard Contractual Clauses, EU-US Data Privacy Framework
+            certification where applicable, and the commitments published in each provider&apos;s own data
+            processing agreement.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Traffic measurement</h2>
+          <p>
+            DeckLoom uses Cloudflare Web Analytics to measure site traffic. It is cookieless: it sets no
+            cookie, writes nothing to your device, and does not assign you an identifier that persists
+            between visits or follows you to other websites. It reports aggregate figures only — page
+            views, referring site, country, and page-load performance. There is no advertising network
+            involved and no data is sold or shared for marketing.
+          </p>
+          <p>
+            Separately, DeckLoom counts how many times each <em>publicly shared</em> deck page is opened.
+            This is a plain per-deck running total plus a per-day total. No IP address, account,
+            device identifier or timestamp of an individual visit is stored, so a view cannot be traced
+            back to a person — including by us. Private decks are never counted.
+          </p>
+          <p>
+            Both rely on legitimate interests. If you object to either, contact us using the channels in
+            this policy.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>Card scanning</h2>
+          <p>
+            The card scanner runs entirely on your device. Camera frames are processed locally in your
+            browser and matched against a card-fingerprint file downloaded to your device. No photograph,
+            camera frame, or image of your surroundings is ever uploaded to DeckLoom or to any third
+            party. Only the identified card name is used, and only when you choose to add the card.
           </p>
         </section>
 
@@ -210,8 +269,13 @@ export default function PrivacyPage() {
             <li>Right to data portability — request a machine-readable export of the personal data you provided.</li>
             <li>Right to object — object to processing that relies on legitimate interests.</li>
             <li>Right to withdraw consent — where processing is based on your consent, you can withdraw it at any time without affecting prior lawful processing.</li>
-            <li>Right to lodge a complaint — you can complain to your local data-protection supervisory authority if you believe your rights have been violated.</li>
+            <li>Right to lodge a complaint — you can complain to the data-protection supervisory authority in the EU or EEA country where you live, where you work, or where the alleged infringement took place. The European Data Protection Board publishes the current list of national authorities and their contact details.</li>
           </ul>
+          <p>
+            We aim to respond to a data-subject request within one month of receiving it, as required by
+            Article 12(3) GDPR. If a request is complex we may extend that period and will tell you why.
+            Exercising these rights is free unless a request is manifestly unfounded or excessive.
+          </p>
         </section>
 
         <section className={styles.section}>

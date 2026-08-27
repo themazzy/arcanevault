@@ -44,7 +44,7 @@ export default function TermsPage() {
             See the <Link to="/credits" className={styles.inlineLink}>Credits and Fan Content Notice</Link>{' '}
             for the full attribution and fan-content disclosure.
           </p>
-          <p><em>Last updated: 2026-06-11.</em></p>
+          <p><em>Last updated: 2026-08-27.</em></p>
         </section>
 
         <section className={styles.section}>
@@ -149,8 +149,10 @@ export default function TermsPage() {
             operator is established. If you use DeckLoom as a consumer in the EU/EEA or the UK, you
             always keep the mandatory consumer protections of the country you live in, and you can
             bring disputes before your local courts and your local data-protection or
-            consumer-protection authority. EU consumers can also use the European Commission&apos;s
-            Online Dispute Resolution platform.
+            consumer-protection authority. The European Commission&apos;s Online Dispute Resolution
+            platform, which this section previously pointed to, was discontinued in July 2025; EU
+            consumers who want cross-border help can instead contact the European Consumer Centre in
+            their own country.
           </p>
         </section>
 
