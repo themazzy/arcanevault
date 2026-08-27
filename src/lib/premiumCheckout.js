@@ -1,14 +1,30 @@
 import { sb } from './supabase'
 
 // ── Payments kill switch ─────────────────────────────────────────────────────
-// Donations are switched OFF until DeckLoom is registered to take payments with
-// the Bulgarian authorities. While this is false no user may reach Stripe:
+// Contributions are switched OFF until DeckLoom is registered to take payments
+// with the Bulgarian authorities. While this is false no user may reach Stripe:
 // startPremiumCheckout() refuses before the edge function is invoked, so there
 // is no code path that can produce a Checkout URL, and every support surface
-// reads the flag to render "coming soon" instead of a donate button.
+// reads the flag to render "coming soon" instead of a contribute button.
 //
-// Flip to true (only) once the registration is in place — nothing else needs to
-// change; the existing checkout + webhook entitlement flow is left intact.
+// **This is treated as a sale, not a donation** (decided 2026-08-28). Calling it
+// a donation would not change the tax treatment: the themes are unlocked *by*
+// paying, so there is a direct link between payment and benefit, which makes it
+// a supply of digital services whatever the button says. The Terms are written
+// accordingly, including the withdrawal-right waiver.
+//
+// Flipping this to true is therefore not just a code change. Three things must
+// be in place first, and none of them is enforced by anything here:
+//
+//   1. VAT registration — B2C digital services are taxed in the buyer's country.
+//      Below the €10,000/year cross-border threshold (VAT Directive Art 59c)
+//      Bulgarian rules may apply instead of OSS; confirm with an accountant.
+//   2. A geographic address published on /terms and /privacy — required by the
+//      e-Commerce Directive Art 5 and consumer law once a commercial service is
+//      offered. Deliberately absent while payments are off.
+//   3. The Terms' "not currently available" wording removed.
+//
+// Deliberately staying off until the user base makes that admin worth doing.
 export const PAYMENTS_ENABLED = false
 
 export const SUPPORT_COMING_SOON_TITLE = 'Supporter themes — coming soon'

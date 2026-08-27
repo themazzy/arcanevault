@@ -362,6 +362,17 @@ ads, profiling or payments, a self-declaration is that. It stops being a defence
 *actual knowledge* a user is under age (a bio, a parent's email) — at which point the account has to
 be acted on regardless of what was ticked.
 
+### Compliance documents
+
+`docs/records-of-processing.md` (GDPR Art 30 register) and `docs/breach-response-plan.md`
+(Art 33/34 runbook, including the breach register itself) are internal documents, not site pages.
+They restate what the public legal pages already say, so a **public** repo is fine — but the Art 30
+security section must stay a *general* description, which is all Art 30(1)(g) asks for. Do not
+enumerate exploitable specifics there.
+
+Update the Art 30 record when a processor is added, a new category of data is processed, or
+payments are enabled.
+
 ### Traffic Analytics
 
 Three independent sources feed the **Traffic** tab in `/admin`. They measure different
