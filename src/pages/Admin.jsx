@@ -915,14 +915,13 @@ function TrafficSection() {
         <div className={styles.emptyState}>Loading traffic metrics...</div>
       ) : !data ? null : (
         <>
-          {!data.beacon_configured ? (
+          {data.rum && !data.rum.available ? (
             <div className={styles.alertCard + ' ' + styles.alertInfo}>
-              <div className={styles.alertTitle}>Web Analytics site not resolved</div>
+              <div className={styles.alertTitle}>Beacon data unavailable</div>
               <div className={styles.alertMessage}>
-                Zone and deck-view numbers below are live. Human page views, referrers and
-                countries stay empty until the Cloudflare Web Analytics site for this domain
-                can be found — check the panel error below, then either grant the API token
-                Account Analytics:Read or pin the site with the CF_RUM_SITE_TAG secret.
+                Zone and deck-view numbers below are live; only the human page-view panels
+                are affected. See the panel error for the cause. If this account ever hosts
+                more than one Web Analytics site, pin this one with the CF_RUM_SITE_TAG secret.
               </div>
             </div>
           ) : null}

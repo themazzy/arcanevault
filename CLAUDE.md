@@ -365,12 +365,27 @@ build-time flag check would never fire and every native session would be counted
 That is the entire reason `supabase/functions/admin-traffic-summary/` exists: it is an
 admin-gated proxy following the same `admin_users` guard as the other `admin-*` functions.
 Secrets: `CF_API_TOKEN` (Account Analytics:Read + Zone Analytics:Read only), `CF_ACCOUNT_ID`,
-`CF_ZONE_ID`. **`CF_RUM_SITE_TAG` is optional** — `resolveSiteTag()` discovers it from the
-account's RUM site list (`/accounts/<id>/rum/site_info/list`) and caches it per instance, since
-the dashboard does not surface it under automatic injection. Cloudflare keeps **two** ids per
-site and they are easy to confuse: `site_token` goes in the JS snippet, `site_tag` is what the
-GraphQL API filters on — passing the token returns an empty result set rather than an error.
-Matching lives in `siteTag.ts` as a pure function so it is unit-tested without Deno.
+`CF_ZONE_ID`. **`CF_RUM_SITE_TAG` is optional and normally unset** — no filter means the
+account's RUM data, which is right while there is one Web Analytics site.
+
+> **The site tag cannot be discovered from the API, and an auto-discovery attempt was built and
+> removed.** `/accounts/<id>/rum/site_info/list` returns **403 for any scoped API token**: the
+> account permission list contains `Account Analytics` and *no* Web Analytics entry, so nothing
+> grants that endpoint — only the Global API Key reaches it, which is not a credential to hand
+> an edge function. Do not re-add the lookup. If a second site ever exists, read the tag from
+> the Web Analytics dashboard URL and pin it. Note Cloudflare keeps **two** ids per site:
+> `site_token` goes in the JS snippet, `site_tag` is what GraphQL filters on — passing the
+> token returns an empty result set rather than an error.
+
+RUM filters are inlined into the query string rather than passed as GraphQL variables, because a
+variable requires naming its input-object type exactly and a wrong name fails the entire query.
+
+**All three daily series are zero-filled across the requested range** (`dateSeries.ts`) before they
+reach the client. No source returns a row for a day with no activity, and the charts use a
+*categorical* x-axis — so an unfilled gap is not drawn as a gap, the day is dropped and the
+surviving points close ranks. Three scattered points across a month rendered as an evenly spaced
+line that looked like a growth trend. Dates are handled as UTC `YYYY-MM-DD` strings; local-date
+arithmetic repeats a day across a DST boundary.
 Each source degrades independently, so a missing secret or a
 renamed GraphQL dimension blanks one card instead of the whole tab; RUM breakdowns are issued
 as separate requests for exactly that reason. Responses are cached 10 min in function module
