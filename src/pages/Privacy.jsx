@@ -34,8 +34,9 @@ export default function PrivacyPage() {
         <section className={styles.section}>
           <h2>Controller and privacy contact</h2>
           <p>
-            DeckLoom is an independently operated project. Its operator is the data controller for the
-            personal data described in this policy and is responsible for how that data is handled.
+            DeckLoom is an independently operated project, run by a private individual rather than a
+            registered company. The operator is established in <strong>Bulgaria</strong> and is the data
+            controller for the personal data described in this policy.
           </p>
           <p>
             <strong>Contact for all privacy and data-protection matters:</strong>{' '}
@@ -115,7 +116,7 @@ export default function PrivacyPage() {
                 <tr>
                   <td>Payment data (premium only)</td>
                   <td>Stripe checkout session id, Stripe customer id, payment status</td>
-                  <td>To process one-time premium theme purchases. Card numbers and billing details are handled by Stripe and never reach DeckLoom servers.</td>
+                  <td><strong>Not currently collected — supporter contributions are switched off, and no payment can be started.</strong> If they are enabled later, this is the payment data DeckLoom would hold. Card numbers and billing details are handled by Stripe and never reach DeckLoom servers.</td>
                 </tr>
                 <tr>
                   <td>OAuth sign-in data</td>
@@ -279,7 +280,14 @@ export default function PrivacyPage() {
             <li>Right to data portability — request a machine-readable export of the personal data you provided.</li>
             <li>Right to object — object to processing that relies on legitimate interests.</li>
             <li>Right to withdraw consent — where processing is based on your consent, you can withdraw it at any time without affecting prior lawful processing.</li>
-            <li>Right to lodge a complaint — you can complain to the data-protection supervisory authority in the EU or EEA country where you live, where you work, or where the alleged infringement took place. The European Data Protection Board publishes the current list of national authorities and their contact details.</li>
+            <li>
+              Right to lodge a complaint — you can complain to the data-protection supervisory authority
+              in the EU or EEA country where you live, where you work, or where the alleged infringement
+              took place. Because the operator is established in Bulgaria, the lead authority for DeckLoom
+              is the Bulgarian <strong>Commission for Personal Data Protection</strong> (Комисия за защита
+              на личните данни), Sofia. You are not required to use it — your own national authority is
+              always an option, and the European Data Protection Board publishes the full list.
+            </li>
           </ul>
           <p>
             We aim to respond to a data-subject request within one month of receiving it, as required by

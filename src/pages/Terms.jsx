@@ -36,8 +36,8 @@ export default function TermsPage() {
           <p>
             DeckLoom is a personal Magic: The Gathering collection tracker: you can catalog owned
             cards, organize binders, decks, and wishlists, build and share decks, scan cards with your
-            camera, follow market prices, track games, and manage tournaments. The core app is free to
-            use. Optional premium themes are available as a one-time purchase.
+            camera, follow market prices, track games, and manage tournaments. DeckLoom is free to use.
+            Cosmetic supporter themes may be offered in future; they are not available today.
           </p>
           <p>
             DeckLoom is an unofficial fan project and is not affiliated with Wizards of the Coast.
@@ -86,14 +86,25 @@ export default function TermsPage() {
         </section>
 
         <section className={styles.section}>
-          <h2>Premium themes (one-time purchase)</h2>
+          <h2>Supporter themes</h2>
+          <p>
+            <strong>Supporter themes are not currently available, and no payment can be made to DeckLoom.</strong>{' '}
+            Contributions are switched off in the app: there is no checkout, and no card or billing
+            information is collected. Every feature of DeckLoom is free, and the ones you can use today
+            will stay free.
+          </p>
+          <p>
+            The terms below describe how supporter themes will work <em>if</em> contributions are opened
+            later. They are published in advance so the arrangement is clear, and they take effect only
+            once the option actually appears in the app.
+          </p>
           <ul className={styles.list}>
-            <li>Premium themes are a cosmetic, one-time purchase that changes the app&apos;s appearance. They add no gameplay data, card data, or functional advantage, and contain no Wizards of the Coast material.</li>
-            <li>Payment is processed by Stripe. The price shown at checkout is the final amount. DeckLoom never sees your card details.</li>
-            <li>Premium themes are digital content delivered immediately after payment: the unlock is applied to your account as soon as the payment is confirmed.</li>
-            <li><strong>EU/EEA &amp; UK consumers — right of withdrawal:</strong> by completing the purchase you expressly request immediate delivery of the digital content and acknowledge that you thereby lose your 14-day right of withdrawal once the unlock is delivered.</li>
-            <li>That said: if the unlock fails to apply, or something is genuinely broken with what you paid for, email <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a> and we will fix it or refund the purchase. Your statutory rights regarding defective digital content remain unaffected.</li>
-            <li>The unlock is tied to your DeckLoom account and is non-transferable. If your account is deleted, the unlock is deleted with it.</li>
+            <li>Supporter themes are cosmetic only — a set of extra colour palettes as a thank-you. They add no gameplay data, card data, or functional advantage, and contain no Wizards of the Coast material. Nothing is removed from the free app to create them.</li>
+            <li>Payment would be processed by Stripe. The amount shown at checkout is the final amount you pay. DeckLoom would never see your card details.</li>
+            <li>The unlock is digital content applied to your account as soon as payment is confirmed.</li>
+            <li><strong>EU/EEA &amp; UK consumers — right of withdrawal:</strong> by completing a contribution you would expressly request immediate delivery of that digital content and acknowledge that you thereby lose the 14-day right of withdrawal once the unlock is delivered.</li>
+            <li>If an unlock ever fails to apply, or something is genuinely broken with what you paid for, email <a href="mailto:support@deckloom.app" className={styles.inlineLink}>support@deckloom.app</a> and it will be fixed or refunded. Your statutory rights regarding defective digital content remain unaffected.</li>
+            <li>An unlock is tied to your DeckLoom account and is non-transferable. If your account is deleted, the unlock is deleted with it.</li>
           </ul>
         </section>
 
@@ -145,8 +156,8 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2>Governing law and disputes</h2>
           <p>
-            These terms are governed by the laws of <strong>Bulgaria</strong>, where DeckLoom&apos;s
-            operator is established. If you use DeckLoom as a consumer in the EU/EEA or the UK, you
+            DeckLoom is run by a private individual, not a registered company. These terms are governed
+            by the laws of <strong>Bulgaria</strong>, where the operator lives and is established. If you use DeckLoom as a consumer in the EU/EEA or the UK, you
             always keep the mandatory consumer protections of the country you live in, and you can
             bring disputes before your local courts and your local data-protection or
             consumer-protection authority. The European Commission&apos;s Online Dispute Resolution
