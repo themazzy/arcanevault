@@ -833,7 +833,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `feedback` — user bug reports & feature requests: `type ('bug'|'feature'), description, contact, user_id`
 - `feedback_attachments` — optional screenshots linked to `feedback`; files live in the `assets` storage bucket
 - `deck_view_stats` — running view total per public deck: `deck_id, total_views, last_viewed_at`; RLS owner-read, written only by `record_deck_view`
-- `deck_view_daily` — one row per deck per day: `deck_id, view_date, views`; pruned beyond 180 days by `prune_deck_view_daily()`. No per-view event rows exist by design
+- `deck_view_daily` — one row per deck per day: `deck_id, view_date, views`; pruned beyond 180 days by `prune_deck_view_daily()`, run weekly by the `weekly-deck-view-daily-prune` pg_cron job (Sun 04:50 UTC, after the other maintenance jobs). Pruning costs no reporting — `deck_view_stats.total_views` is the all-time figure and is untouched. No per-view event rows exist by design
 - `card_hashes` — **dropped 2026-07-04** (pipeline v7 reclaimed ~75 MB): clients consume the static hash pack, and the seed script uses the pack as its own state. The pack in `public/scanner/hashpack/` (+ git history) is the only copy of the computed hashes; a full re-hash via `generate-card-hashes.js --reseed` rebuilds it from Scryfall in a few hours
 - `admin_users` — users with admin access: `user_id, active`; checked by `isCurrentUserAdmin()`
 - `app_config` — key-value config store used by admin/home: keys include `changelog`, `feedback_resolved`
