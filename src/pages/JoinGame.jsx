@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import PublicPageFooter from '../components/PublicPageFooter'
 import { Button, ErrorBox, Select } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { CheckIcon, PlayerIcon, SyncIcon } from '../icons'
@@ -362,6 +363,7 @@ function Frame({ title, eyebrow, children }) {
         {title && <h1 className={styles.title}>{title}</h1>}
         {children}
       </div>
+      <PublicPageFooter />
     </div>
   )
 }

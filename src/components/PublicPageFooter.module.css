@@ -1,0 +1,47 @@
+.footer {
+  /* Sits at the end of the page content, never fixed to the viewport — a
+     shared deck should not have a bar following it down the screen. */
+  margin: 40px auto 0;
+  padding: 18px 16px 28px;
+  max-width: 900px;
+  border-top: 1px solid var(--s-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  font-size: 0.78rem;
+}
+
+.links a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.links a:hover {
+  color: var(--gold);
+  text-decoration: underline;
+}
+
+.brand {
+  max-width: 52ch;
+  color: var(--text-faint);
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+
+.brand a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.brand a:hover {
+  text-decoration: underline;
+}

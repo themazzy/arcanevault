@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import PublicPageFooter from '../components/PublicPageFooter'
 import { Button, Input } from '../components/UI'
 import { useAuth } from '../components/Auth'
 import { sb } from '../lib/supabase'
@@ -191,6 +192,7 @@ export default function JoinTournamentPage() {
           </div>
         )}
       </div>
+      <PublicPageFooter />
     </div>
   )
 }

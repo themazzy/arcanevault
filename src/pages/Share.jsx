@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
+import PublicPageFooter from '../components/PublicPageFooter'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { loadCardMapWithSharedPrices } from '../lib/sharedCardPrices'
@@ -125,6 +126,7 @@ export default function SharePage() {
           />
         )}
       </main>
+      <PublicPageFooter />
     </div>
   )
 }
