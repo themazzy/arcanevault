@@ -83,7 +83,7 @@ const KW_PROFILE = 'nickname in-game name identity multiplayer lobbies tournamen
 const KW_APP = 'version installed app build keep screen awake wake lock dim sleep'
 const KW_SYNC = 'sync status settings synced pending idle error sync now manual show settings sync errors failure message'
 const KW_ACCOUNT = 'account signed in email change password reset sign out everywhere devices session delete request deletion form'
-const KW_LEGAL = 'legal hub privacy policy cookies local storage indexeddb cache credits fan content notice wizards disclaimer third-party'
+const KW_LEGAL = 'legal hub privacy policy terms of service agreement cookies local storage indexeddb cache credits fan content notice wizards disclaimer third-party gdpr data protection'
 const KW_SUPPORT = 'support development donate donation cosmetic supporter themes obsidian night crimson court verdant realm arcane archive stripe payment one-time'
 
 const SECTION_DEFS = [
@@ -1571,6 +1571,13 @@ export default function SettingsPage() {
           onRowClick={() => navigate('/privacy')}
         >
           <Button size="sm" onClick={() => navigate('/privacy')}>Privacy Policy</Button>
+        </SettingRow>
+        <SettingRow
+          label="Terms of Service"
+          description="The agreement for using DeckLoom: accounts, acceptable use, and supporter themes."
+          onRowClick={() => navigate('/terms')}
+        >
+          <Button size="sm" onClick={() => navigate('/terms')}>Terms of Service</Button>
         </SettingRow>
         <SettingRow
           label="Cookies & Local Storage"

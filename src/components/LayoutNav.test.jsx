@@ -121,3 +121,20 @@ describe('Layout navbar without a Home menu', () => {
     expect(scannerLinks[0].getAttribute('href')).toBe('/scanner')
   })
 })
+
+describe('legal links in the app shell', () => {
+  // The privacy policy has to stay reachable from inside the app, not only from
+  // the signed-out landing page: GDPR Art 12(1) and the e-Commerce Directive
+  // both turn on the information being easily and permanently accessible.
+  // Deleting these links is a compliance regression, not a layout tweak.
+  it('links to the legal hub from both the desktop menu and the mobile drawer', () => {
+    renderLayout('/collection')
+    // Queried by href rather than by role: the desktop entry carries an explicit
+    // role="menuitem", which overrides its implicit link role.
+    const legalLinks = document.querySelectorAll('a[href="/legal"]')
+    expect(legalLinks.length).toBeGreaterThanOrEqual(2)
+    for (const link of legalLinks) {
+      expect(link.textContent).toMatch(/legal & privacy/i)
+    }
+  })
+})

@@ -16,7 +16,7 @@ import {
   HomeIcon, CollectionIcon, DecksIcon, BuilderIcon, BindersIcon,
   WishlistsIcon, TradingIcon, StatsIcon, LifeIcon, ScannerIcon,
   SettingsIcon, MenuIcon, CloseIcon, BugIcon, InfoIcon, PlayerIcon,
-  ChevronDownIcon, ListViewIcon, TextViewIcon,
+  ChevronDownIcon, ListViewIcon, TextViewIcon, ShieldIcon,
 } from '../icons'
 
 const TABS = [
@@ -409,6 +409,18 @@ export default function Layout({ children }) {
                     <InfoIcon size={14} />
                     Help
                   </NavLink>
+                  {/* Legal pages must be permanently reachable from inside the app, not
+                      only from the signed-out landing page — GDPR Art 12(1) and the
+                      e-Commerce Directive both turn on "easily accessible". */}
+                  <NavLink
+                    to="/legal"
+                    role="menuitem"
+                    className={({ isActive }) => `${styles.navSubmenuItem}${isActive ? ' ' + styles.navSubmenuItemActive : ''}`}
+                    onClick={releaseMenuFocus}
+                  >
+                    <ShieldIcon size={14} />
+                    Legal &amp; Privacy
+                  </NavLink>
                   {!premium && (
                     <NavLink
                       to="/settings#support"
@@ -541,6 +553,14 @@ export default function Layout({ children }) {
               >
                 <InfoIcon size={17} />
                 Help
+              </NavLink>
+              <NavLink
+                to="/legal"
+                className={({ isActive }) => `${styles.mobileNavLink}${isActive ? ' ' + styles.mobileNavLinkActive : ''}`}
+                onClick={closeMobile}
+              >
+                <ShieldIcon size={17} />
+                Legal &amp; Privacy
               </NavLink>
               {!premium && (
                 <NavLink
