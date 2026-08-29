@@ -44,7 +44,7 @@ jobs:
       # that, so drift fails here instead of being discovered months later.
       # Raise the number only alongside a deliberate decision to accept it.
       - name: Lint
-        run: npx eslint src cloudflare --max-warnings 35
+        run: npx eslint src cloudflare --max-warnings 33
 
       # Build runs BEFORE test, for two reasons: it is the only check that
       # catches a broken import or a bad dynamic-import boundary (the unit

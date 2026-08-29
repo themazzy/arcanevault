@@ -179,7 +179,12 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
     try {
       // Renames both halves of a linked pair — see renameFolder.
       await renameFolder(folder.id, trimmed)
-      folder.name = trimmed
+      // Refetch rather than writing the new name onto the folder prop. That
+      // mutation updated the shared object every other consumer reads from, so
+      // the deck index appeared to follow along — but nothing re-rendered off
+      // it, and the query cache still held the old name until something else
+      // invalidated it.
+      invalidatePlacementCaches({ includeFolders: true })
       toast.success('Deck renamed.')
     } catch (err) {
       setDeckName(prev)

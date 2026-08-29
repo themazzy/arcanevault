@@ -592,7 +592,9 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
     try {
       // Renames both halves of a linked deck pair; a no-op extra for binders.
       await renameFolder(folder.id, trimmed)
-      folder.name = trimmed
+      // Refetch rather than writing the new name onto the folder prop — see the
+      // matching note in DeckBrowser.commitRenameDeck.
+      invalidatePlacementCaches({ includeFolders: true })
       toast.success(`${noun} renamed.`)
     } catch (err) {
       setFolderName(prev)
