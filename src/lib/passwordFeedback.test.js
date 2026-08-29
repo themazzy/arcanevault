@@ -29,7 +29,7 @@ describe('describePasswordProblem', () => {
 
   it('detects the symbol set even though it contains commas', () => {
     const detail = describePasswordProblem(weak(
-      'Password should contain at least one character of each: abcdefghijklmnopqrstuvwxyz, 0123456789, !@#$%^&*()_+-=[]{};\'\:"|<>?,./`~.',
+      'Password should contain at least one character of each: abcdefghijklmnopqrstuvwxyz, 0123456789, !@#$%^&*()_+-=[]{};\':"|<>?,./`~.',
       ['characters'],
     ))
     expect(detail.requirements).toEqual([
