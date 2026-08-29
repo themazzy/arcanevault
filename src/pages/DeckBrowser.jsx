@@ -28,6 +28,7 @@ import { getPlacedQtyByCardIds, pruneUnplacedCards } from '../lib/collectionOwne
 import { fetchDeckAllocations, fetchDeckCards } from '../lib/deckData'
 import { getDeckAllocations, getCardsByIds, replaceDeckAllocations, putCards, putDeckAllocations, putFolderCards } from '../lib/db'
 import { queryClient } from '../lib/queryClient'
+import { commitFolderRename } from '../lib/folderRename'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { toDeckCardRow } from '../lib/deckBuilderWrites'
 import { CAT_ORDER, getCardCategoryFromCard } from '../lib/cardCategory'
@@ -172,24 +173,17 @@ export default function DeckBrowser({ folder, onBack, onDelete, onSetBackground 
   const startRenameDeck = () => { setRenameVal(deckName); setRenamingDeck(true) }
   const commitRenameDeck = async () => {
     setRenamingDeck(false)
-    const trimmed = renameVal.trim()
-    if (!trimmed || trimmed === deckName) return
-    const prev = deckName
-    setDeckName(trimmed)
-    try {
+    await commitFolderRename({
+      folderId: folder.id,
+      nextName: renameVal,
+      currentName: deckName,
       // Renames both halves of a linked pair — see renameFolder.
-      await renameFolder(folder.id, trimmed)
-      // Refetch rather than writing the new name onto the folder prop. That
-      // mutation updated the shared object every other consumer reads from, so
-      // the deck index appeared to follow along — but nothing re-rendered off
-      // it, and the query cache still held the old name until something else
-      // invalidated it.
-      invalidatePlacementCaches({ includeFolders: true })
-      toast.success('Deck renamed.')
-    } catch (err) {
-      setDeckName(prev)
-      toast.error(err?.message || 'Rename failed.')
-    }
+      rename: renameFolder,
+      setName: setDeckName,
+      invalidate: () => invalidatePlacementCaches({ includeFolders: true }),
+      notifySuccess: () => toast.success('Deck renamed.'),
+      notifyError: msg => toast.error(msg),
+    })
   }
 
   // Viewport scrollbar width exposed as --sbw so CSS can park the scrollbar

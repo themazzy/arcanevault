@@ -30,6 +30,7 @@ import { getPlacedQtyByCardIds, pruneUnplacedCards, removeFolderCardPlacements }
 import { getLocalFolderCards, getAllLocalFolderCards, getAllDeckAllocationsForFolders, getCardsByIds, putCards, putFolderCards, putDeckAllocations, replaceLocalFolderCards, replaceDeckAllocations, getFolderMetaCache, setFolderMetaCache } from '../lib/db'
 import { loadOwnedCardsByIds } from '../lib/collectionFetchers'
 import { queryClient } from '../lib/queryClient'
+import { commitFolderRename } from '../lib/folderRename'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { parseDeckMeta } from '../lib/deckBuilderApi'
 import { getLinkedDeckIds, getSyncState, renameFolder, unlinkPairedDeck } from '../lib/deckSync'
@@ -585,21 +586,17 @@ function FolderBrowser({ folder = null, folders = [], title = '', noun = 'Binder
   const startRenameFolder = () => { if (!folder) return; setRenameVal(folderName); setRenamingFolder(true) }
   const commitRenameFolder = async () => {
     setRenamingFolder(false)
-    const trimmed = renameVal.trim()
-    if (!folder || !trimmed || trimmed === folderName) return
-    const prev = folderName
-    setFolderName(trimmed)
-    try {
+    await commitFolderRename({
+      folderId: folder?.id,
+      nextName: renameVal,
+      currentName: folderName,
       // Renames both halves of a linked deck pair; a no-op extra for binders.
-      await renameFolder(folder.id, trimmed)
-      // Refetch rather than writing the new name onto the folder prop — see the
-      // matching note in DeckBrowser.commitRenameDeck.
-      invalidatePlacementCaches({ includeFolders: true })
-      toast.success(`${noun} renamed.`)
-    } catch (err) {
-      setFolderName(prev)
-      toast.error(err?.message || 'Rename failed.')
-    }
+      rename: renameFolder,
+      setName: setFolderName,
+      invalidate: () => invalidatePlacementCaches({ includeFolders: true }),
+      notifySuccess: () => toast.success(`${noun} renamed.`),
+      notifyError: msg => toast.error(msg),
+    })
   }
 
   // Viewport scrollbar width exposed as --sbw so CSS can park the scrollbar
