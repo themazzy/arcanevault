@@ -43,7 +43,17 @@ export default defineConfig({
         // is runtime-cached below on first OCR use.
         globIgnores: ['rules/**', 'set-icons/**', 'scanner/**', '**/*.map'],
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        // /d/ is excluded so shared-deck opens actually reach the network.
+        // navigateFallback is precache-first, not offline-only: with the SW
+        // installed it answers every in-scope navigation from cache, so a
+        // /d/<id> open never left the browser and the og-worker never saw it.
+        // Deck views were therefore only ever counted for people who had never
+        // visited DeckLoom before — everyone else was invisible.
+        //
+        // The cost is that a shared deck no longer opens offline. That is a
+        // public link to someone else's deck whose data needs the network
+        // regardless, so there was nothing to render offline anyway.
+        navigateFallbackDenylist: [/^\/api\//, /^\/d\//],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.hostname === 'cards.scryfall.io' || url.hostname === 'c1.scryfall.com',

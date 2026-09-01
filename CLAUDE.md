@@ -457,7 +457,16 @@ the role every `admin-*` edge function authenticates as. Omitting the grant fail
 plus one row per deck per day — a pageview log would be unbounded growth in a database already
 dominated by the Scryfall catalogue, and it would turn an aggregate count into personal data.
 The RPC is gated on the same `is_public` meta flag as `get_deck_og_meta`, so private decks never
-accrue counts and probing random UUIDs reveals nothing. The worker excludes crawlers (an unfurl
+accrue counts and probing random UUIDs reveals nothing.
+
+> **`/d/` must stay in `navigateFallbackDenylist` (`vite.config.js`) or counting silently breaks.**
+> `navigateFallback` is precache-first, not offline-only: with the service worker installed it
+> answers every in-scope navigation from its own cache, so a `/d/<id>` open never leaves the
+> browser, Cloudflare never sees the request, and the worker never runs. Until 2026-09-01 deck
+> views were therefore recorded **only for people who had never visited DeckLoom before** — every
+> returning visitor was invisible, which is why a real shared link opened by a real user produced
+> no row while a `curl` did. The cost is that a shared deck no longer opens offline; its data
+> needs the network anyway. A test pins the entry. The worker excludes crawlers (an unfurl
 is not a reader) and dedupes per client for 6 h via the Cloudflare Cache API, and the write runs
 in `ctx.waitUntil()` so it never touches response latency.
 
