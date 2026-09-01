@@ -1,0 +1,12 @@
+-- The revoke from PUBLIC in the previous migration also stripped service_role,
+-- which is the role the admin-gated edge function authenticates as — so the
+-- Traffic tab's People block failed with "permission denied for function".
+--
+-- PUBLIC is the right thing to revoke from (revoking only from anon and
+-- authenticated leaves a function world-callable), but it takes service_role
+-- with it, and any SECURITY DEFINER function reached from an edge function
+-- needs the grant handing back explicitly.
+--
+-- anon and authenticated deliberately keep no EXECUTE, so this stays
+-- unreachable from any browser.
+grant execute on function public.admin_user_activity_summary(int) to service_role;

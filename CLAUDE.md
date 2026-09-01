@@ -447,7 +447,11 @@ against activated users, not all accounts**: someone who signed up and never ope
 not churned from the product, and folding them in conflates a marketing problem with a retention
 one. Rates are null rather than 0 when the denominator is empty, so a fresh install does not read
 as total failure. `admin_user_activity_summary()` aggregates in Postgres so the row scan never
-crosses the wire.
+crosses the wire. It is `revoke execute ... from public` **plus an explicit
+`grant ... to service_role`** — revoking from PUBLIC is correct (revoking only from anon and
+authenticated leaves a function world-callable) but it takes `service_role` with it, and that is
+the role every `admin-*` edge function authenticates as. Omitting the grant fails at runtime with
+"permission denied for function", not at deploy.
 
 **Deck view counting stores no per-view rows.** `record_deck_view(uuid)` keeps a running total
 plus one row per deck per day — a pageview log would be unbounded growth in a database already
