@@ -752,6 +752,10 @@ function formatCount(n) {
   return String(Math.round(value))
 }
 
+function formatPct(n) {
+  return n == null ? '—' : `${n}%`
+}
+
 function formatBytes(n) {
   const value = Number(n) || 0
   if (value >= 1e12) return `${(value / 1e12).toFixed(1)} TB`
@@ -835,6 +839,34 @@ function TrafficRanks({ rows, valueKey = 'page_views', emptyLabel }) {
   )
 }
 
+// Weekly cohorts. A table rather than a chart: at a handful of signups a week,
+// three integers per row are read exactly, and a chart of n=1 is theatre.
+function CohortTable({ rows }) {
+  if (!rows?.length) return <div className={styles.emptyInline}>No signups yet.</div>
+  return (
+    <table className={styles.cohortTable}>
+      <thead>
+        <tr>
+          <th>Week of</th>
+          <th>Joined</th>
+          <th>Started</th>
+          <th>Came back</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(row => (
+          <tr key={row.week}>
+            <td>{String(row.week).slice(5)}</td>
+            <td>{row.signups}</td>
+            <td>{row.activated}</td>
+            <td>{row.returning}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 function TrafficPanel({ title, sub, section, children }) {
   return (
     <div className={styles.trafficPanel}>
@@ -881,6 +913,7 @@ function TrafficSection() {
   const zone = data?.zone
   const rum = data?.rum
   const decks = data?.decks
+  const users = data?.users
 
   return (
     <div className={styles.sectionBlock}>
@@ -926,6 +959,49 @@ function TrafficSection() {
             </div>
           ) : null}
 
+          <div className={styles.trafficSubhead}>People</div>
+          {users?.available ? (
+            <div className={styles.summaryGrid}>
+              <div className={styles.summaryCard}>
+                <div className={styles.summaryLabel}>Accounts</div>
+                <div className={styles.summaryValue}>{formatCount(users.totals?.accounts)}</div>
+                <div className={styles.summaryMeta}>
+                  {formatCount(users.totals?.signups_7d)} new in 7 days
+                </div>
+              </div>
+              <div className={styles.summaryCard}>
+                <div className={styles.summaryLabel}>Started Using It</div>
+                <div className={styles.summaryValue}>{formatPct(users.totals?.activation_rate)}</div>
+                <div className={styles.summaryMeta}>
+                  {formatCount(users.totals?.activated)} ever created something
+                </div>
+              </div>
+              <div className={styles.summaryCard}>
+                <div className={styles.summaryLabel}>Came Back</div>
+                <div className={styles.summaryValue}>{formatPct(users.totals?.return_rate)}</div>
+                <div className={styles.summaryMeta}>
+                  {formatCount(users.totals?.returning)} of those who started
+                </div>
+              </div>
+              <div className={styles.summaryCard}>
+                <div className={styles.summaryLabel}>Active 7d</div>
+                <div className={styles.summaryValue}>{formatCount(users.totals?.active_7d)}</div>
+                <div className={styles.summaryMeta}>Created or edited something</div>
+              </div>
+              <div className={styles.summaryCard}>
+                <div className={styles.summaryLabel}>Active 30d</div>
+                <div className={styles.summaryValue}>{formatCount(users.totals?.active_30d)}</div>
+                <div className={styles.summaryMeta}>Created or edited something</div>
+              </div>
+            </div>
+          ) : (
+            <div className={styles.alertCard + ' ' + styles.alertWarning}>
+              <div className={styles.alertTitle}>User activity not available</div>
+              <div className={styles.alertMessage}>{users?.error || 'No data returned.'}</div>
+            </div>
+          )}
+
+          <div className={styles.trafficSubhead}>Traffic</div>
           <div className={styles.summaryGrid}>
             <div className={styles.summaryCard}>
               <div className={styles.summaryLabel}>Page Views</div>
@@ -985,6 +1061,14 @@ function TrafficSection() {
             >
               <TrafficChart data={decks?.daily} dataKey="views" label="Deck views" gradientId="trafficDeckFill" />
             </TrafficPanel>
+
+            <TrafficPanel
+              title="Signups"
+              sub="New accounts per day"
+              section={users}
+            >
+              <TrafficChart data={users?.signups_daily} dataKey="signups" label="Signups" gradientId="trafficSignupFill" />
+            </TrafficPanel>
           </div>
 
           <div className={styles.trafficBreakdowns}>
@@ -997,6 +1081,26 @@ function TrafficSection() {
             <TrafficPanel title="Countries" section={rum}>
               <TrafficRanks rows={rum?.top_countries} emptyLabel="No country data yet." />
             </TrafficPanel>
+            <TrafficPanel
+              title="How far people get"
+              sub="Distinct days each account created or edited something"
+              section={users}
+            >
+              <TrafficRanks
+                rows={users?.buckets}
+                valueKey="count"
+                emptyLabel="No accounts yet."
+              />
+            </TrafficPanel>
+
+            <TrafficPanel
+              title="Weekly cohorts"
+              sub="Did each week's signups start, and did they return?"
+              section={users}
+            >
+              <CohortTable rows={users?.cohorts} />
+            </TrafficPanel>
+
             <TrafficPanel
               title="Most viewed decks"
               sub={decks?.available ? `${decks.tracked_decks} decks with views` : null}

@@ -7,6 +7,8 @@
 //      beacon: real human page views incl. SPA navigations, referrers, countries.
 //   3. First-party deck view counts (deck_view_stats / deck_view_daily) — how
 //      many people actually opened each shared /d/<id> link.
+//   4. Activation and retention (admin_user_activity_summary) — of the people
+//      who signed up, how many started, and how many came back.
 //
 // The Cloudflare API token can never reach the browser, which is the whole
 // reason this function exists. It is an admin-only proxy: the caller is verified
@@ -20,6 +22,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { fillDailySeries } from './dateSeries.ts'
+import { computeUserRates } from './userMetrics.ts'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -295,6 +298,37 @@ async function loadDeckViews(adminClient: any, since: string, until: string) {
   }
 }
 
+// ── 4. Activation and retention ──────────────────────────────────────────────
+
+async function loadUsers(
+  adminClient: any,
+  rangeDays: number,
+  since: string,
+  until: string,
+) {
+  // Aggregated in Postgres so the row scan never crosses the wire. See the
+  // migration for why last_sign_in_at and user_settings.updated_at are unusable
+  // as activity signals.
+  const { data, error } = await adminClient.rpc('admin_user_activity_summary', {
+    p_days: rangeDays,
+  })
+  if (error) throw error
+  if (!data) throw new Error('No user activity returned.')
+
+  const totals = data.totals ?? {}
+
+  return {
+    totals: { ...totals, ...computeUserRates(totals) },
+    buckets: data.buckets ?? [],
+    cohorts: data.cohorts ?? [],
+    signups_daily: fillDailySeries(data.signups_daily ?? [], {
+      since,
+      until,
+      zero: { signups: 0 },
+    }),
+  }
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -344,12 +378,13 @@ Deno.serve(async (req) => {
     const untilDate = isoDate(until)
     const noToken = () => Promise.reject(new Error('CF_API_TOKEN is not configured.'))
 
-    const [zone, rum, decks] = await Promise.allSettled([
+    const [zone, rum, decks, users] = await Promise.allSettled([
       CF_API_TOKEN ? loadZone(sinceDate, untilDate) : noToken(),
       CF_API_TOKEN
         ? loadRum(since.toISOString(), until.toISOString(), sinceDate, untilDate)
         : noToken(),
       loadDeckViews(adminClient, sinceDate, untilDate),
+      loadUsers(adminClient, rangeDays, sinceDate, untilDate),
     ])
 
     const section = (r: PromiseSettledResult<any>) =>
@@ -363,6 +398,7 @@ Deno.serve(async (req) => {
       zone: section(zone),
       rum: section(rum),
       decks: section(decks),
+      users: section(users),
       cached: false,
     }
 

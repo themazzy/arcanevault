@@ -384,6 +384,7 @@ include bots and assets, beacon page views are humans, deck views are one specif
 | Zone analytics | Every edge request, bots and assets included | `httpRequests1dGroups`, collecting since the domain was proxied |
 | Web Analytics beacon | Human page views, referrers, countries, SPA route changes | `rumPageloadEventsAdaptiveGroups`, auto-injected at the edge |
 | Deck views | Opens of a public `/d/<id>` shortlink | `deck_view_stats` / `deck_view_daily`, written by the og-worker |
+| People | Activation and retention — who started, who came back | `admin_user_activity_summary()` over owned-data writes |
 
 **The beacon is cookieless and therefore deliberately NOT gated on `src/lib/consent.js`.**
 That module's `analytics` flag defaults to false and no UI exists to grant it, so gating
@@ -434,6 +435,19 @@ Each source degrades independently, so a missing secret or a
 renamed GraphQL dimension blanks one card instead of the whole tab; RUM breakdowns are issued
 as separate requests for exactly that reason. Responses are cached 10 min in function module
 scope because the Cloudflare analytics API is rate-limited.
+
+**Activation and retention are computed from owned-data writes, and two obvious
+signals are deliberately unused.** `auth.users.last_sign_in_at` only updates on an explicit
+sign-in and Supabase sessions auto-refresh, so reading it as "last seen" reports almost every
+active user as never having returned. `user_settings.updated_at` is written by backfills — the
+2026-08-08 `assign_default_user_settings_on_signup` migration touched one row for each of 15 users
+on a single day, which reads as 15 people active that day. "Active" therefore means a day on which
+the user created or edited a card, folder, deck card or allocation. **Return rate is measured
+against activated users, not all accounts**: someone who signed up and never opened anything has
+not churned from the product, and folding them in conflates a marketing problem with a retention
+one. Rates are null rather than 0 when the denominator is empty, so a fresh install does not read
+as total failure. `admin_user_activity_summary()` aggregates in Postgres so the row scan never
+crosses the wire.
 
 **Deck view counting stores no per-view rows.** `record_deck_view(uuid)` keeps a running total
 plus one row per deck per day — a pageview log would be unbounded growth in a database already

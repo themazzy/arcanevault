@@ -1168,3 +1168,48 @@
     grid-template-columns: minmax(0, 1fr) 56px auto;
   }
 }
+
+.trafficSubhead {
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-size: var(--label-size-md);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.cohortTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.cohortTable th {
+  padding: 0 0 6px;
+  text-align: right;
+  font-family: var(--font-display);
+  font-size: var(--label-size-md);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  font-weight: 400;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--s-border);
+}
+
+.cohortTable th:first-child,
+.cohortTable td:first-child {
+  text-align: left;
+  color: var(--text-dim);
+}
+
+.cohortTable td {
+  padding: 6px 0;
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--s-border0);
+}
+
+.cohortTable tr:last-child td {
+  border-bottom: 0;
+}
