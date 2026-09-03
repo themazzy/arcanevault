@@ -13,6 +13,7 @@ import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByS
 import { PHASE, createAutoFillProgress, planAutoFillPhases } from '../../lib/autoFillProgress'
 import { fetchDeckBuilderDisplayPrintings } from '../../lib/cardSearch'
 import { cardImageUrl, tileArt } from './buildAssistantTiles'
+import { useCardPreview, HOVER_PREVIEW_W } from './useCardPreview'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
   analyzeBracket,
@@ -311,11 +312,10 @@ function curveLabel(b) { return b === 6 ? '6+' : String(b) }
 // to nothing in some engines, which left the bars invisible.
 const CURVE_BAR_MAX_PX = 96
 
-// Painted widths of the two card previews, so CardImg can pick the tier each
-// actually needs. Keep in sync with cardPreviewStyle (hover) and
-// `.previewLightboxImg`'s max-width in the stylesheet (touch).
-const HOVER_PREVIEW_W = 340
-const COMPARE_GAP = 10 // between the two cards of a side-by-side preview
+// Painted width of the touch lightbox, so CardImg can pick the tier it needs.
+// Keep in sync with `.previewLightboxImg`'s max-width in the stylesheet. The
+// hover preview's equivalent (HOVER_PREVIEW_W) lives in useCardPreview.js
+// alongside the geometry that uses it.
 const LIGHTBOX_PREVIEW_W = 460
 
 // NOTE: this is `.grid`'s minmax MINIMUM, not the painted width — an auto-fill
@@ -612,8 +612,9 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   const [applyingCuts, setApplyingCuts] = useState(false)
   // Large-image card preview shown from the summary lists: hover-follows the
   // cursor on pointer devices, or a centered tap-to-dismiss lightbox on touch.
-  // { name, scryfall_id, x, y } | null.
-  const [preview, setPreview] = useState(null)
+  // The cursor position deliberately lives outside React state — see
+  // useCardPreview.js for why.
+  const { preview, hoverCapable, previewHandlers, anchorProps, clearPreview, clearPreviewFor } = useCardPreview()
   const [ownedNameSet, setOwnedNameSet] = useState(() => new Set())
   // Names owned overall but with every copy allocated to another collection
   // deck — excluded from the owned pool, badged on suggestion tiles instead.
@@ -2450,15 +2451,6 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     await removeDeckRows([deckCardId])
   }
 
-  // Pointer devices get a hover preview; touch devices tap to toggle a centered
-  // image. Evaluated once — the input class doesn't change mid-session.
-  const hoverCapable = useMemo(
-    () => typeof window === 'undefined' || !window.matchMedia
-      ? true
-      : window.matchMedia('(hover: hover) and (pointer: fine)').matches,
-    [],
-  )
-
   // Resolve a card name to the scryfall_id of its deck row, so the buy-list
   // (whose items are merged by name) can still show art + remove the right rows.
   const deckRowsForName = name => {
@@ -2466,37 +2458,21 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     return (deckCards || []).filter(c => !c?.is_commander && cardNameMatchKeys(c?.name).includes(key))
   }
 
-  // Event handlers that drive the large-image preview for one card. On pointer
-  // devices the image follows the cursor (mouseenter/move/leave); on touch a tap
-  // toggles a centered lightbox.
-  //
-  // `card` = { name, scryfall_id?, img?, fallbackImg? }:
+  // `previewHandlers(card)` from useCardPreview drives the large-image preview.
+  // `card` = { name, scryfall_id?, img?, fallbackImg?, compare? }:
   //   img         — the exact URL the caller painted; wins outright, so the
   //                 enlarged card is the same printing the grid tile shows.
   //   scryfall_id — resolves large art from sfMap when there's no `img`.
   //   fallbackImg — last resort for rows whose sfMap entry has no art.
-  // A card with none of the three gets no preview affordance.
-  const previewHandlers = card => {
-    if (!card?.scryfall_id && !card?.img && !card?.fallbackImg) return {}
-    if (hoverCapable) {
-      return {
-        onMouseEnter: e => setPreview({ ...card, x: e.clientX, y: e.clientY }),
-        onMouseMove: e => setPreview(p => (p ? { ...p, x: e.clientX, y: e.clientY } : p)),
-        onMouseLeave: () => setPreview(null),
-      }
-    }
-    return {
-      onClick: () => setPreview(p =>
-        p && p.name === card.name ? null : { ...card }),
-    }
-  }
+  //   compare     — a second card, shown side by side (a benched cut).
+  // A card with none of the first three gets no preview affordance.
 
   // Trash action for a summary card: remove every deck row of that name (a card
   // can hold several printings).
   async function removeCardByName(name) {
     const ids = deckRowsForName(name).map(c => c.id).filter(Boolean)
     if (!ids.length) return
-    if (preview?.name?.toLowerCase() === name.toLowerCase()) setPreview(null)
+    clearPreviewFor(name)
     await removeDeckRows(ids)
   }
 
@@ -3938,35 +3914,41 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
         const cmpImg = cmp
           ? (getCardImageUri(cmpSf, 'normal') || cardImageUrl(cmpSf) || cmp.image || null)
           : null
+        // Two elements, not one. The outer anchor carries the cursor-follow
+        // transform (written directly to the DOM, never through React); the
+        // inner card carries the entry animation. They cannot share a node
+        // because `hoverPreviewIn` animates `transform`, and an animation
+        // overrides an inline transform for its whole duration — sharing one
+        // node flashed the card at the top-left corner for 120ms before it
+        // snapped to the cursor.
         const node = hoverCapable ? (
-          <div
-            className={`${styles.hoverPreview}${cmpImg ? ' ' + styles.hoverPreviewPair : ''}`}
-            style={cardPreviewStyle(preview.x, preview.y, cmpImg ? 2 : 1)}
-          >
-            {cmpImg ? (
-              <>
-                <div className={styles.comparePane}>
-                  <span className={styles.compareLabel}>In deck</span>
-                  <CardImg url={img} width={HOVER_PREVIEW_W} alt={preview.name} className={styles.hoverPreviewImg} />
-                </div>
-                <div className={styles.comparePane}>
-                  <span className={styles.compareLabel}>Better available</span>
-                  <CardImg url={cmpImg} width={HOVER_PREVIEW_W} alt={cmp.name} className={styles.hoverPreviewImg} />
-                </div>
-              </>
-            ) : (
-              <CardImg url={img} width={HOVER_PREVIEW_W} alt={preview.name} className={styles.hoverPreviewImg} />
-            )}
+          <div className={styles.hoverPreviewAnchor} {...anchorProps(cmpImg ? 2 : 1)}>
+            <div className={`${styles.hoverPreview}${cmpImg ? ' ' + styles.hoverPreviewPair : ''}`}>
+              {cmpImg ? (
+                <>
+                  <div className={styles.comparePane}>
+                    <span className={styles.compareLabel}>In deck</span>
+                    <CardImg url={img} width={HOVER_PREVIEW_W} alt={preview.name} className={styles.hoverPreviewImg} />
+                  </div>
+                  <div className={styles.comparePane}>
+                    <span className={styles.compareLabel}>Better available</span>
+                    <CardImg url={cmpImg} width={HOVER_PREVIEW_W} alt={cmp.name} className={styles.hoverPreviewImg} />
+                  </div>
+                </>
+              ) : (
+                <CardImg url={img} width={HOVER_PREVIEW_W} alt={preview.name} className={styles.hoverPreviewImg} />
+              )}
+            </div>
           </div>
         ) : (
-          <div className={styles.previewLightbox} onClick={() => setPreview(null)} role="dialog" aria-modal="true" aria-label={`${preview.name} enlarged`}>
+          <div className={styles.previewLightbox} onClick={clearPreview} role="dialog" aria-modal="true" aria-label={`${preview.name} enlarged`}>
             {/* Stop taps on the card itself from closing — only the backdrop and
                 the Close button dismiss it. The Close button sits above the card
                 (never over the art); the image is capped to the viewport so a tall
                 card never overflows the screen. */}
             <div className={styles.previewLightboxInner} onClick={e => e.stopPropagation()}>
               <div className={styles.previewLightboxBar}>
-                <Button variant="secondary" size="sm" onClick={() => setPreview(null)} aria-label="Close preview">
+                <Button variant="secondary" size="sm" onClick={clearPreview} aria-label="Close preview">
                   <CloseIcon size={14} /> Close
                 </Button>
               </div>
@@ -3992,20 +3974,3 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
   )
 }
 
-// Fixed-position style for the hover preview: sits beside the cursor, flips to
-// the other side / clamps so a 240×336 card image never spills off-screen.
-// `cards` is how many are shown side by side — a benched cut shows the deck card
-// next to the replacement, and the clamp has to know it is twice as wide or the
-// pair runs off the edge instead of flipping.
-function cardPreviewStyle(x, y, cards = 1) {
-  const W = HOVER_PREVIEW_W * cards + (cards - 1) * COMPARE_GAP, H = 476, pad = 12, off = 22
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 800
-  let left = x + off
-  if (left + W + pad > vw) left = x - W - off
-  if (left < pad) left = pad
-  let top = y - H / 2
-  if (top < pad) top = pad
-  if (top + H + pad > vh) top = vh - H - pad
-  return { left, top, width: W }
-}

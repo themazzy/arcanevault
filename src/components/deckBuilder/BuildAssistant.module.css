@@ -1096,10 +1096,27 @@
 
 /* ── Large-image card preview (hover / tap) ──────────────────────────────── */
 /* Portaled to <body>, positioned inline via JS at viewport coords. */
-.hoverPreview {
+/* Positioner for the hover preview. BuildAssistant writes the cursor-follow
+   transform straight onto this node (see useCardPreview.js) — never through
+   React state, and never as left/top: left/top invalidate layout every frame and
+   force the blurred shadow below to repaint, which is what made the preview
+   crawl in Firefox. As a transform on a promoted layer the shadow rasterises
+   once and the layer just moves.
+
+   It is a separate element from .hoverPreview because that one animates
+   `transform` on entry, and an animation overrides an inline transform for its
+   whole duration. */
+.hoverPreviewAnchor {
   position: fixed;
+  top: 0;
+  left: 0;
   z-index: 2000;
   pointer-events: none; /* never eat the hover that's driving it */
+  will-change: transform;
+}
+
+.hoverPreview {
+  width: 100%;
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.75);
