@@ -24,6 +24,7 @@ import { shouldOfferCardScanner } from '../lib/scannerAvailability'
 import { PAYMENTS_ENABLED } from '../lib/premiumCheckout'
 import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { enrichDecksWithCommanderArt, useDeckArt } from '../lib/deckArt'
+import { fetchTrendingDeckRows } from '../lib/trendingDecks'
 import {
   CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon,
   ChevronRightIcon, SearchIcon, FilterIcon,
@@ -1101,9 +1102,12 @@ function CollectionPulse({ data, loading, priceSource }) {
 }
 
 // ── MTG News ──────────────────────────────────────────────────────────────────
-const TRENDING_CACHE_KEY = 'av_home_trending_decks_v2'
+// v3: the payload gained recent_like_count and deck_modified_at, and the ranking
+// changed — a v2 cache holds decks picked by the old all-time-likes rule.
+// v3: the payload gained recent_like_count and deck_modified_at, and the ranking
+// changed — a v2 cache holds decks picked by the old all-time-likes rule.
+const TRENDING_CACHE_KEY = 'av_home_trending_decks_v3'
 const TRENDING_CACHE_TTL_MS = 15 * 60 * 1000
-const TRENDING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 
 export async function fetchTrendingDecks({
   client = sb,
@@ -1115,16 +1119,8 @@ export async function fetchTrendingDecks({
     if (cached?.decks?.length && now - cached.at < TRENDING_CACHE_TTL_MS) return cached
   } catch { /* corrupt or unavailable session storage — refetch */ }
 
-  const { data, error } = await client.rpc('get_community_decks', {
-    p_sort: 'trending',
-    p_limit: 3,
-  })
-  if (error) throw error
-
-  const rows = (Array.isArray(data?.decks) ? data.decks : []).filter(deck => {
-    const updatedAt = Date.parse(deck.deck_modified_at || deck.updated_at || deck.created_at || 0) || 0
-    return (deck.like_count || 0) > 0 && now - updatedAt < TRENDING_WINDOW_MS
-  })
+  // Rows arrive already windowed and ranked — do not filter them here.
+  const rows = await fetchTrendingDeckRows({ client })
   const decks = (await enrichDecksWithCommanderArt(rows, { client }))
     .map(deck => ({ ...deck, __meta: deck.__meta || parseDeckMeta(deck.description) }))
 

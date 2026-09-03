@@ -7,6 +7,7 @@ import { Button, ConfirmModal, Modal, EmptyState, SectionHeader, ResponsiveMenu,
 import { parseDeckMeta, serializeDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { unlinkPairedDeck, patchDeckMeta, setLinkedDeckVisibility, renameFolder } from '../lib/deckSync'
 import { useDeckArts, enrichDecksWithCommanderArt } from '../lib/deckArt'
+import { fetchTrendingDeckRows } from '../lib/trendingDecks'
 import styles from './Builder.module.css'
 import uiStyles from '../components/UI.module.css'
 import { useLongPress } from '../hooks/useLongPress'
@@ -446,7 +447,6 @@ const COMPLETION_OPTIONS = Object.entries(COMPLETION_LABELS)
 
 const MYDECKS_VIEW_KEY   = 'deckloom_mydecks_view_v1'
 const COMMUNITY_VIEW_KEY = 'deckloom_community_view_v1'
-const TRENDING_WINDOW_MS = 30 * 24 * 3600 * 1000
 
 const BRACKET_OPTIONS = [
   ['all', 'Any Bracket'],
@@ -867,15 +867,13 @@ export default function BuilderPage() {
     }
   }
 
-  // "Trending now" headliner: top-liked decks touched in the last 30 days,
-  // fetched once per visit, shown only on the unfiltered first page.
+  // "Trending now" headliner: the decks that picked up the most likes in the
+  // window, fetched once per visit and shown only on the unfiltered first page.
+  // Rows arrive already windowed and ranked — do not filter them here.
   const trendingLoadedRef = useRef(false)
   async function loadTrendingDecks() {
     try {
-      const { data } = await sb.rpc('get_community_decks', { p_sort: 'trending', p_limit: 3 })
-      const rows = (Array.isArray(data?.decks) ? data.decks : []).filter(d =>
-        (d.like_count || 0) > 0 &&
-        (Date.now() - (Date.parse(d.deck_modified_at || d.updated_at || d.created_at || 0) || 0)) < TRENDING_WINDOW_MS)
+      const rows = await fetchTrendingDeckRows()
       setTrendingDecks(attachDeckMeta(await enrichDecksWithCommanderArt(rows)))
       fetchNicknames(rows)
     } catch {
