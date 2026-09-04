@@ -60,6 +60,28 @@ export function omitId(row) {
 }
 
 /**
+ * Which purchase price survives when a row being saved merges into one the user
+ * already owns.
+ *
+ * A price the caller actually supplied always wins. Otherwise the stored one is
+ * kept: an incoming 0 means "none supplied", never "this card cost nothing", so
+ * it must not overwrite a cost basis. Only when neither side has one do we send
+ * 0 — the signal the `cards_default_purchase_price` trigger looks for.
+ *
+ * This matters more than it looks. A PostgREST upsert fires the BEFORE INSERT
+ * trigger before the conflict is detected, so `excluded.purchase_price` is the
+ * trigger's *market* price; a payload carrying 0 for an already-owned card
+ * would therefore replace what the user paid with today's price, not with 0.
+ */
+export function resolvePurchasePrice(incoming, existing) {
+  const inc = parseFloat(incoming)
+  if (Number.isFinite(inc) && inc > 0) return inc
+  const prev = parseFloat(existing)
+  if (Number.isFinite(prev) && prev > 0) return prev
+  return 0
+}
+
+/**
  * Merge incoming owned-card rows against the existing rows found for them,
  * summing quantities. Never emits `id` — see omitId.
  */
@@ -67,7 +89,12 @@ export function buildOwnedCardUpsertRows(incoming, existingByKey, keyOf) {
   return (incoming || []).map(row => {
     const existing = existingByKey?.get(keyOf(row))
     if (!existing) return omitId(row)
-    return omitId({ ...existing, ...row, qty: (existing.qty || 0) + (row.qty || 0) })
+    return omitId({
+      ...existing,
+      ...row,
+      qty: (existing.qty || 0) + (row.qty || 0),
+      purchase_price: resolvePurchasePrice(row.purchase_price, existing.purchase_price),
+    })
   })
 }
 
@@ -176,7 +203,7 @@ export async function additiveSaveOwnedCards(rows, context = 'Owned card') {
           ...existing,
           ...row,
           qty: (existing.qty || 0) + (row.qty || 0),
-          purchase_price: existing.purchase_price ?? row.purchase_price ?? 0,
+          purchase_price: resolvePurchasePrice(row.purchase_price, existing.purchase_price),
           currency: existing.currency || row.currency || 'EUR',
         })
       : omitId(row)

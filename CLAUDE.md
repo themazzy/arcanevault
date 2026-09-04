@@ -195,6 +195,37 @@ Folders whose description JSON contains `"isGroup": true` are organisational gro
 - Manual overrides stored in `localStorage` as `arcanevault_manual_prices`
 - Price source from `useSettings().price_source` — always pass it down; never hardcode.
 
+#### Cost basis: `cards.purchase_price` is filled by the database, not the client
+
+`purchase_price` is what every P&L surface subtracts from the current market price
+(`Stats.jsx`, `filterCore.js`), so a row left at 0 is not "free" — it is *invisible* to
+profit/loss entirely. Three insert paths used to leave it there: the scanner never sent the
+column, plain decklist imports have no price to send, and `commit_trade` falls back to 0 for
+an unpriced want. A 400-card scanned binder was therefore untrackable.
+
+The `cards_default_purchase_price` **BEFORE INSERT trigger** on `cards` now fills it from the
+latest `card_prices` EUR snapshot (today's, else yesterday's) whenever the caller supplied
+none. **Do not re-add per-call-site price plumbing** — the trigger already covers the scanner,
+AddCardModal, ImportModal, `commit_trade`, `deckBuilderWrites` and anything added later, with
+no extra round trip. A price the user typed always wins: the trigger's `WHEN` clause only fires
+on 0/null. AddCardModal separately pre-fills its visible field via `getMarketPrice` on every
+printing/foil change, so what it stores is what the user saw.
+
+Always EUR (`price_regular_eur` / `price_foil_eur`, i.e. `cardmarket_trend`), matching every
+pre-existing row and filterCore's hardcoded P&L source. `cards.currency` exists but nothing
+reads it. **No foil → non-foil fallback**, matching `getPriceWithMeta`: a foil with no foil
+price has no market price anywhere in the app, and inventing one makes its P&L wrong rather
+than absent. ~99 rows stay at 0 for this reason.
+
+> **A merge must never send `purchase_price: 0` for a card the user already owns.** A PostgREST
+> upsert fires the BEFORE INSERT trigger *before* the conflict resolves, so `excluded.purchase_price`
+> holds the trigger's market price — a payload carrying 0 replaces the stored cost basis with
+> *today's price*, not with 0. `resolvePurchasePrice(incoming, existing)` in `deckBuilderWrites.js`
+> is the single rule (supplied wins → else stored → else 0) and is used by
+> `buildOwnedCardUpsertRows`, `saveOwnedCardsAdditive` and ImportModal's `additiveUpsertInBatches`.
+> The scanner is safe a different way: `aggregateOwnedRows` omits the column entirely, so it never
+> lands in the `DO UPDATE SET` list.
+
 ### Icons
 
 All SVG icons live in **`src/icons/index.jsx`** — this is the single source of truth for iconography.

@@ -20,7 +20,7 @@ import {
 import ImportReviewList from './import/ImportReviewList'
 import ImportSourceStep from './import/ImportSourceStep'
 import { ensureCardPrints, getCardPrint, withCardPrint } from '../lib/cardPrints'
-import { toOwnedCardRow, toListItemRow, toDeckCardRow, mergeNonNull } from '../lib/deckBuilderWrites'
+import { toOwnedCardRow, toListItemRow, toDeckCardRow, mergeNonNull, resolvePurchasePrice } from '../lib/deckBuilderWrites'
 import { removeAcquiredFromWishlists, findOwnedCardNames } from '../lib/wishlistSync'
 import { putCards, putDeckAllocations, putFolderCards, putFolders } from '../lib/db'
 import { ChevronDownIcon, ChevronUpIcon } from '../icons'
@@ -143,6 +143,11 @@ function rowKey(row, keyFields) {
 async function additiveUpsertInBatches(table, rows, keyFields, options, selectColumns = '*', onBatchDone) {
   const saved = []
   const batches = chunkRows(rows, queryBatchSizeForKeyFields(keyFields))
+  // A decklist carries no prices, so its rows arrive at purchase_price 0. That
+  // is "none supplied", not "free" — merging it straight over an owned row
+  // would discard the card's cost basis, so the existing value has to be read
+  // back and defended here. Only `cards` has the column.
+  const mergesPurchasePrice = table === 'cards'
 
   for (let i = 0; i < batches.length; i++) {
     const mergedByKey = new Map()
@@ -153,7 +158,8 @@ async function additiveUpsertInBatches(table, rows, keyFields, options, selectCo
     }
     const batch = [...mergedByKey.values()]
 
-    let query = sb.from(table).select(`id,qty,${keyFields.join(',')}`)
+    let query = sb.from(table)
+      .select(`id,qty${mergesPurchasePrice ? ',purchase_price' : ''},${keyFields.join(',')}`)
     for (const field of keyFields) {
       const values = [...new Set(batch.map(row => row[field]).filter(value => value !== null && value !== undefined))]
       if (!values.length) continue
@@ -166,12 +172,15 @@ async function additiveUpsertInBatches(table, rows, keyFields, options, selectCo
     const existingByKey = new Map((existingRows || []).map(row => [rowKey(row, keyFields), row]))
     const rowsToSave = batch.map(row => {
       const existing = existingByKey.get(rowKey(row, keyFields))
-      return existing
-        ? { ...row, id: existing.id, qty: (existing.qty || 0) + (row.qty || 0) }
-        : (() => {
-            const { id: _id, ...rest } = row
-            return rest
-          })()
+      if (!existing) {
+        const { id: _id, ...rest } = row
+        return rest
+      }
+      const merged = { ...row, id: existing.id, qty: (existing.qty || 0) + (row.qty || 0) }
+      if (mergesPurchasePrice) {
+        merged.purchase_price = resolvePurchasePrice(row.purchase_price, existing.purchase_price)
+      }
+      return merged
     })
 
     const batchSaved = await upsertInBatches(table, rowsToSave, options, selectColumns)

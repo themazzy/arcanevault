@@ -16,7 +16,7 @@ vi.mock('./cardPrints', () => ({
 const { sb } = await import('./supabase')
 const {
   additiveSaveOwnedCards, additiveSaveWishlistItems, ownedCardKey,
-  toDeckCardRow, toCardPrintSource, buildOwnedCardUpsertRows,
+  toDeckCardRow, toCardPrintSource, buildOwnedCardUpsertRows, resolvePurchasePrice,
 } = await import('./deckBuilderWrites')
 
 beforeEach(() => {
@@ -252,6 +252,31 @@ describe('additiveSaveWishlistItems', () => {
   })
 })
 
+describe('resolvePurchasePrice', () => {
+  it('keeps the stored cost basis when the caller supplied none', () => {
+    // The scanner and plain decklist imports send 0 because they have no price,
+    // not because the card was free. Letting that win would erase what the card
+    // cost — and worse than erase it: the BEFORE INSERT trigger fills
+    // `excluded.purchase_price` with today's market price before the conflict
+    // resolves, so the stored value would be replaced by today's, silently.
+    expect(resolvePurchasePrice(0, 3.5)).toBe(3.5)
+    expect(resolvePurchasePrice(undefined, 3.5)).toBe(3.5)
+    expect(resolvePurchasePrice(null, 3.5)).toBe(3.5)
+    expect(resolvePurchasePrice('', 3.5)).toBe(3.5)
+  })
+
+  it('lets a supplied price win over the stored one', () => {
+    expect(resolvePurchasePrice(9.99, 3.5)).toBe(9.99)
+    expect(resolvePurchasePrice('9.99', 3.5)).toBe(9.99)
+  })
+
+  it('returns 0 when neither side has a price, so the trigger fills it', () => {
+    expect(resolvePurchasePrice(0, 0)).toBe(0)
+    expect(resolvePurchasePrice(undefined, undefined)).toBe(0)
+    expect(resolvePurchasePrice('abc', null)).toBe(0)
+  })
+})
+
 describe('buildOwnedCardUpsertRows', () => {
   const keyOf = row => `${row.card_print_id}|${row.foil ? 1 : 0}`
 
@@ -269,6 +294,29 @@ describe('buildOwnedCardUpsertRows', () => {
     expect(rows[0].qty).toBe(6)               // 4 existing + 2 new
     expect(rows[0].purchase_price).toBe(2)    // existing metadata carried over
     expect(rows[1].qty).toBe(1)
+  })
+
+  it('does not let a priceless incoming row wipe the stored purchase price', () => {
+    const existingByKey = new Map([['cp-1|0', {
+      id: 'existing-1', user_id: 'u', card_print_id: 'cp-1', foil: false, qty: 4, purchase_price: 7.25,
+    }]])
+    // What the scanner and AddCardModal send when no price was resolved.
+    const rows = buildOwnedCardUpsertRows(
+      [{ user_id: 'u', card_print_id: 'cp-1', foil: false, qty: 1, purchase_price: 0 }],
+      existingByKey, keyOf,
+    )
+    expect(rows[0].purchase_price).toBe(7.25)
+  })
+
+  it('lets a typed purchase price replace the stored one', () => {
+    const existingByKey = new Map([['cp-1|0', {
+      id: 'existing-1', user_id: 'u', card_print_id: 'cp-1', foil: false, qty: 4, purchase_price: 7.25,
+    }]])
+    const rows = buildOwnedCardUpsertRows(
+      [{ user_id: 'u', card_print_id: 'cp-1', foil: false, qty: 1, purchase_price: 12.5 }],
+      existingByKey, keyOf,
+    )
+    expect(rows[0].purchase_price).toBe(12.5)
   })
 
   it('treats a missing existing map as all-new', () => {
