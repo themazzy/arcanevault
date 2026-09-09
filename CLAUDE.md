@@ -501,6 +501,18 @@ accrue counts and probing random UUIDs reveals nothing.
 is not a reader) and dedupes per client for 6 h via the Cloudflare Cache API, and the write runs
 in `ctx.waitUntil()` so it never touches response latency.
 
+### Upcoming sets & spoilers
+
+`/sets` (release calendar) and `/sets/:code` (per-set spoiler page) are **public** routes. Home's Upcoming Sets panel links into them rather than out to Scryfall.
+
+- **Card tiles copy `VirtualCardGrid`, and the hover preview is `useCardPreview`.** Collection renders `VirtualCardGrid`, whose tile hover is a lift/scale/glow and *no* shimmer sweep — the shimmer lives in `CardComponents.module.css`, a grid Collection does not use; don't copy tile styling from there. The large hover enlargement is the shared `components/deckBuilder/useCardPreview` hook (cursor-following, transform-positioned, touch-aware). Checked 2026-09-09: that preview has never existed on Collection/binders — `VirtualCardGrid.jsx` has never contained the string in any commit — so deck-style surfaces have it and inventory surfaces do not.
+- **Rarity/colour/type counts are filters in a rail, not statistics in panels.** The first draft stacked them full-width above the grid, which pushed the first card below the fold to show numbers nobody could act on. The rail is sticky beside the grid and collapses to a `Filters` panel below 900px. Rarity colours come from `src/lib/rarity.js` — the one source shared with `CardComponents.jsx`; do not re-pick hexes locally.
+- **Data is live Scryfall, never `card_prints`/`oracle_cards`.** Those hold released prints; a spoiler is by definition a card that has no row there yet. Scryfall adds each card to its unreleased set as it is previewed, so `e:<code>` *is* the spoiler feed — there is no ingestion job of ours to keep alive. Sets cache 6 h in `localStorage`, a set's cards 15 min in `sessionStorage` (slimmed by `slimSpoilerCard` first — a full Scryfall card is ~6 KB and a 500-card set would not survive the round-trip).
+- **`set.card_count` and the spoiler page's own count are different numbers.** `card_count` is printings currently in Scryfall (135 for Star Trek); the page counts distinct cards (91). Both are labelled for what they are — never present one as the other.
+- **A mechanic is "new" when nothing printed it before this set**, measured with `keyword:"X" -e:<code> date<<release>` per mechanic (cached 7 days). A frozen list of known keywords was rejected: it ages, and last year's mechanics would read as new forever.
+- `mechanicReminderText()` pairs a keyword with its printed reminder text, and **distance alone gets this wrong** — "Vigilance, ward {2} (Whenever this creature becomes the target…)" hands Vigilance the text belonging to Ward. Two narrower rules are used, both checked against a real set: adjacency (keyword + its own argument + optional punctuation + the parenthesis), else a wider gap only when the reminder restates the keyword (how ability words read). Do not loosen this back to a plain proximity match.
+- Adding a spoiled card to a wishlist goes through `addMissingToWishlist`, which inserts the missing `card_prints` row on the way through — no special-casing for unreleased cards.
+
 ### Wishlist Rules
 
 Wishlists are not part of owned collection inventory.
@@ -524,7 +536,7 @@ Wishlists are not part of owned collection inventory.
 
 React Router v7. `BrowserRouter` in `src/App.jsx` uses the default basename (`/`) — the site is served from the root of `deckloom.app`.
 
-**Public routes** (outside `PrivateApp`): `/legal`, `/terms`, `/privacy`, `/storage`, `/credits`, `/delete-account`, `/share/:token`, `/trade/:username`, `/d/:id`, `/join/:code`, `/join-tournament/:code`.
+**Public routes** (outside `PrivateApp`): `/legal`, `/terms`, `/privacy`, `/storage`, `/credits`, `/delete-account`, `/share/:token`, `/trade/:username`, `/d/:id`, `/sets`, `/sets/:code`, `/join/:code`, `/join-tournament/:code`.
 
 **Private routes** (require auth): all others, wrapped in `PrivateApp`.
 
@@ -549,6 +561,8 @@ Full route map:
 /scanner                 → Scanner.jsx
 /profile/:username       → Profile.jsx (public)
 /d/:id                   → DeckView.jsx (public deck shortlink)
+/sets                    → UpcomingSets.jsx (public release calendar)
+/sets/:code              → SetSpoiler.jsx (public per-set spoiler page)
 /join/:code              → JoinGame.jsx (public)
 /join-tournament/:code   → JoinTournament.jsx (public)
 /share/:token            → Share.jsx (public)
@@ -583,6 +597,7 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/admin.js` | `isCurrentUserAdmin()` — checks `admin_users` table |
 | `src/lib/analytics.js` | Cloudflare Web Analytics beacon injection — prod host only, never native; cookieless so intentionally not consent-gated |
 | `src/lib/consent.js` | GDPR consent preferences (necessary/analytics/marketing/preferences) stored in localStorage |
+| `src/lib/upcomingSets.js` | Release calendar + spoiler feed for `/sets` — set selection/grouping, countdowns, spoiler summary, mechanic extraction and novelty, Scryfall fetchers with their caches |
 | `src/lib/publicUrl.js` | `getPublicBaseUrl()`, `getPublicAppUrl(path)` — prod/dev URL helpers (Capacitor-aware; prod origin = `https://deckloom.app`) |
 | `src/lib/nativeAuth.js` | Capacitor OAuth: `isNativeApp()`, `openNativeOAuth(provider)`, `registerNativeAuthDeepLinkHandler()`; PKCE flow via `deckloom://auth/callback` |
 | `src/lib/tournament.js` | Tournament logic: formats, structures, standings, result recording |
@@ -647,6 +662,8 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/pages/DeckBrowser.jsx` | Card browser inside a deck — list/stacks/grid/text/table views |
 | `src/pages/DeckView.jsx` | Shared deck view page (collection decks + builder decks); public shortlink at `/d/:id` |
 | `src/pages/DeckView.module.css` | Styles for DeckView — do not confuse with `DeckBuilder.module.css` |
+| `src/pages/UpcomingSets.jsx` | Public release calendar at `/sets` — announced sets, companion products nested under their parent |
+| `src/pages/SetSpoiler.jsx` | Public spoiler page at `/sets/:code` — card grid, rarity/colour/type breakdowns, mechanics with new-mechanic detection, card detail + add to wishlist |
 | `src/pages/Profile.jsx` | Public user profile at `/profile/:username` — bento-grid layout (bio, stats, deck showcase) |
 | `src/pages/Admin.jsx` | Admin panel at `/admin` — feedback triage, users, premium grants, deletions, changelog editor; requires `admin_users` membership |
 | `src/pages/Settings.jsx` | Dedicated settings page at `/settings` |

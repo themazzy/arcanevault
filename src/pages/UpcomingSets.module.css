@@ -1,0 +1,198 @@
+.page {
+  min-height: 100%;
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+  color: var(--text);
+  background-image: radial-gradient(circle, rgba(201, 168, 76, 0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--s-border);
+}
+.eyebrow {
+  composes: labelMd from '../styles/typography.module.css';
+  color: var(--text-faint);
+}
+.title {
+  font-family: var(--font-display);
+  font-size: var(--font-2xl);
+  color: var(--gold);
+  margin: 4px 0 6px;
+}
+.subtitle {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--font-md);
+  max-width: 46ch;
+}
+.count {
+  composes: labelMd from '../styles/typography.module.css';
+  color: var(--text-faint);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--s2);
+  line-height: 1;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Page-level surface — gold border. The rows nested inside stay neutral. */
+.setCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg2);
+  overflow: hidden;
+}
+
+.setRow,
+.childRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.16s ease;
+}
+.setRow:focus-visible,
+.childRow:focus-visible {
+  outline: 1px solid var(--border-hi);
+  outline-offset: -2px;
+}
+.setRow > svg,
+.childRow > svg {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* Pointer-only: a touch device has no hover to give, and an ungated rule leaves
+   the last-tapped row highlighted as if it were selected. Interaction queries
+   may gate behaviour like this, never sizing (DESIGN §10). */
+@media (hover: hover) and (pointer: fine) {
+  .setRow:hover,
+  .childRow:hover { background: var(--s2); }
+  .setRow:hover > svg,
+  .childRow:hover > svg { color: var(--gold); }
+  .setRow:hover .setName,
+  .childRow:hover .setName { color: var(--gold); }
+}
+
+.children {
+  border-top: 1px solid var(--s-border0);
+  background: var(--s1);
+}
+.childRow {
+  padding: 10px 16px 10px 20px;
+  font-size: var(--font-sm);
+}
+.childRow + .childRow { border-top: 1px solid var(--s-border0); }
+
+.symbol {
+  flex-shrink: 0;
+  object-fit: contain;
+  /* Scryfall set symbols are solid black SVGs; on a dark surface they need
+     inverting, and the gold tint keeps them from reading as a hole. */
+  filter: invert(72%) sepia(38%) saturate(420%) hue-rotate(2deg) brightness(94%);
+}
+:global([data-theme-mode='light']) .symbol { filter: none; opacity: 0.75; }
+.md { width: 26px; height: 26px; }
+.sm { width: 18px; height: 18px; }
+
+.setCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.setName {
+  font-family: var(--font-display);
+  font-size: var(--font-lg);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.childRow .setName { font-size: var(--font-md); }
+.setMeta {
+  display: flex;
+  flex-wrap: wrap;
+  color: var(--text-faint);
+  font-size: var(--font-xs);
+}
+/* Bullet drawn in CSS, never typed into JSX — a conditional field would
+   otherwise leave a dangling separator. */
+.setMeta span + span::before {
+  content: '•';
+  margin: 0 7px;
+  color: var(--text-faint);
+}
+.metaQuiet { color: var(--text-faint); }
+
+.setDates {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  flex-shrink: 0;
+  text-align: right;
+}
+.setDate {
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+/* Static chip geometry (DESIGN §4): pill, no border, 24px, line-height 1 — the
+   silhouette that says "not clickable" next to the row's own affordance. */
+.countdown {
+  composes: labelSm from '../styles/typography.module.css';
+  color: var(--gold-dim);
+  background: rgba(201, 168, 76, 0.12);
+  border-radius: var(--radius-pill);
+  padding: 0 11px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rowSkeleton {
+  height: 66px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 37%, var(--s2) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+.sourceNote {
+  margin: 26px 0 0;
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+}
+.sourceNote a { color: var(--text-dim); }
+.sourceNote a:hover { color: var(--gold); }
+
+@media (max-width: 480px) {
+  .page { padding: 18px 14px 48px; }
+  .setRow, .childRow { gap: 10px; padding: 12px; }
+  .setDates { gap: 3px; }
+  .setDate { font-size: var(--font-xs); }
+}

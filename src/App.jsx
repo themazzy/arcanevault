@@ -108,6 +108,8 @@ const TournamentsPage = lazy(() => import('./pages/Tournaments'))
 const ScannerPage = lazy(() => import('./pages/Scanner'))
 const ProfilePage = lazy(() => import('./pages/Profile'))
 const RulebookPage = lazy(() => import('./pages/Rulebook'))
+const UpcomingSetsPage = lazy(() => import('./pages/UpcomingSets'))
+const SetSpoilerPage = lazy(() => import('./pages/SetSpoiler'))
 
 // A signed-out visitor on a builder deck URL: someone shared the editor link
 // instead of the /d/:id share link. A public deck goes to the public view; a
@@ -194,6 +196,8 @@ export default function App() {
                   <Route path="/privacy" element={<PrivacyPage />} />
                   <Route path="/storage" element={<StorageNoticePage />} />
                   <Route path="/credits" element={<CreditsPage />} />
+                  <Route path="/sets" element={<UpcomingSetsPage />} />
+                  <Route path="/sets/:code" element={<SetSpoilerPage />} />
                   <Route path="/delete-account" element={<DeleteAccountPage />} />
                   <Route path="/share/:token" element={<SharePage />} />
                   <Route path="/trade/:username" element={<TradePage />} />

@@ -13,18 +13,3 @@ export function getHomeMode({ loading, cardCount, builderDeckCount }) {
   if (cardCount > 0 || builderDeckCount > 0) return 'dashboard'
   return 'onboarding'
 }
-
-const UPCOMING_SET_TYPES = new Set([
-  'expansion',
-  'core',
-  'masters',
-  'draft_innovation',
-  'commander',
-  'starter_deck',
-])
-
-export function selectUpcomingSets(sets, today) {
-  return (sets || [])
-    .filter(set => set.released_at > today && UPCOMING_SET_TYPES.has(set.set_type))
-    .sort((a, b) => a.released_at.localeCompare(b.released_at))
-}

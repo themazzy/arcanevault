@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { getInstantCache, getPriceSource, formatPrice, sfGet } from '../lib/scryfall'
@@ -18,7 +18,8 @@ import { useSettings } from '../components/SettingsContext'
 import { FloatingPreview } from '../components/deckBuilder/FloatingPreview'
 import styles from './Home.module.css'
 import { EMPTY_FILTERS, FilterBar } from '../components/CardComponents'
-import { getHomeMode, selectUpcomingSets } from '../lib/homeLayout'
+import { getHomeMode } from '../lib/homeLayout'
+import { fetchUpcomingSets, setTypeLabel, formatReleaseDate } from '../lib/upcomingSets'
 import { loadHomeMode } from '../lib/homeMode'
 import { shouldOfferCardScanner } from '../lib/scannerAvailability'
 import { PAYMENTS_ENABLED } from '../lib/premiumCheckout'
@@ -290,13 +291,6 @@ async function fetchMTGNews() {
     try { sessionStorage.setItem(NEWS_CACHE_KEY, JSON.stringify({ at: Date.now(), articles })) } catch { /* storage full */ }
   }
   return articles
-}
-
-async function fetchUpcomingSets() {
-  const json = await sfGet('https://api.scryfall.com/sets')
-  if (!json) return []
-  const today = new Date().toISOString().slice(0, 10)
-  return selectUpcomingSets(json.data, today)
 }
 
 // ── Mana symbol renderer ──────────────────────────────────────────────────────
@@ -1262,15 +1256,6 @@ function UpcomingSetsPanel() {
 
   if (!loading && sets.length === 0) return null
 
-  const fmtDate = d => {
-    const [y, m, day] = d.split('-')
-    return new Date(+y, +m - 1, +day).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })
-  }
-  const setTypeLabel = t => ({
-    expansion: 'Expansion', core: 'Core Set', masters: 'Masters',
-    draft_innovation: 'Draft Innovation', commander: 'Commander', starter_deck: 'Starter Deck',
-  }[t] || t)
-
   return (
     <div className={styles.discoverPanel}>
       <div className={styles.discoverPanelHeader}>
@@ -1278,7 +1263,7 @@ function UpcomingSetsPanel() {
           <div className={styles.discoverEyebrow}>Release calendar</div>
           <h2>Upcoming Sets</h2>
         </div>
-        {!loading && <span className={styles.discoverCount}>{sets.length} announced</span>}
+        {!loading && <Link to="/sets" className={styles.discoverLink}>{sets.length} announced</Link>}
       </div>
       {loading ? (
         <div className={styles.compactSetList}>
@@ -1287,16 +1272,15 @@ function UpcomingSetsPanel() {
       ) : (
         <div className={styles.compactSetList}>
           {sets.map(s => (
-            <a key={s.code} href={`https://scryfall.com/sets/${s.code}`}
-              target="_blank" rel="noopener noreferrer" className={styles.compactSetRow}>
+            <Link key={s.code} to={`/sets/${s.code}`} className={styles.compactSetRow}>
               <img src={s.icon_svg_uri} alt="" className={styles.compactSetIcon} />
               <span className={styles.compactSetCopy}>
                 <span className={styles.compactSetName}>{s.name}</span>
                 <span className={styles.compactSetType}>{setTypeLabel(s.set_type)}</span>
               </span>
-              <span className={styles.compactSetDate}>{fmtDate(s.released_at)}</span>
+              <span className={styles.compactSetDate}>{formatReleaseDate(s.released_at)}</span>
               <ChevronRightIcon size={12} />
-            </a>
+            </Link>
           ))}
         </div>
       )}

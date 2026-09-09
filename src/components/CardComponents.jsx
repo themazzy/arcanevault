@@ -20,6 +20,7 @@ import { buyLinksForCard } from '../lib/buyLinks'
 import { queryClient } from '../lib/queryClient'
 import { invalidateOwnedCollectionQueries } from '../lib/queryInvalidation'
 import { changePrintingErrorMessage } from '../lib/changePrinting'
+import { RARITY_META } from '../lib/rarity'
 
 const NON_DRAGGABLE_IMG_PROPS = {
   draggable: false,
@@ -1396,13 +1397,7 @@ const COLORS = [
 
 const COLOR_SYMBOL_IDS = new Set(['W', 'U', 'B', 'R', 'G', 'C'])
 
-const RARITIES = [
-  { id: 'common',   label: 'Common',   color: '#6a6a7a' },
-  { id: 'uncommon', label: 'Uncommon', color: '#8ab0c8' },
-  { id: 'rare',     label: 'Rare',     color: '#c9a84c' },
-  { id: 'mythic',   label: 'Mythic',   color: '#c46030' },
-  { id: 'special',  label: 'Special',  color: '#8a6fc4' },
-]
+const RARITIES = RARITY_META
 
 const CONDITIONS = [
   { id: 'near_mint',         label: 'NM',  title: 'Near Mint' },

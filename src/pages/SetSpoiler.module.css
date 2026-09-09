@@ -1,0 +1,635 @@
+.page {
+  min-height: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 20px 20px 60px;
+  color: var(--text);
+  background-image: radial-gradient(circle, rgba(201, 168, 76, 0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  text-decoration: none;
+  margin-bottom: 14px;
+}
+.back:hover { color: var(--gold); }
+.back:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 2px; }
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--s-border);
+}
+.setSymbol {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
+  /* Scryfall ships set symbols as solid black SVGs — unreadable on a dark
+     surface without inverting, and gold keeps them in the palette. */
+  filter: invert(72%) sepia(38%) saturate(420%) hue-rotate(2deg) brightness(94%);
+}
+:global([data-theme-mode='light']) .setSymbol { filter: none; opacity: 0.75; }
+
+.headerCopy { flex: 1; min-width: 220px; }
+.eyebrow {
+  composes: labelMd from '../styles/typography.module.css';
+  color: var(--text-faint);
+}
+.title {
+  font-family: var(--font-display);
+  font-size: var(--font-2xl);
+  color: var(--gold);
+  margin: 3px 0 5px;
+}
+.headerMeta {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+}
+/* Bullets are drawn here, not typed into JSX: the fields are conditional and a
+   literal separator would strand a dot when one is missing. */
+.headerMeta span + span::before {
+  content: '•';
+  margin: 0 8px;
+  color: var(--text-faint);
+}
+
+.siblings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.siblingsLabel {
+  composes: labelSm from '../styles/typography.module.css';
+  color: var(--text-faint);
+}
+/* A link is clickable, so it wears button geometry (6px radius, control
+   height), never the pill-and-border shape a static chip uses — DESIGN §4:
+   shape alone has to say what can be pressed. */
+.siblingLink {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-height);
+  padding: 0 var(--control-padding-x);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  line-height: 1;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.siblingLink:hover { color: var(--gold); border-color: var(--border-hi); background: var(--s2); }
+.siblingLink:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 2px; }
+
+/* ── Rail + content ───────────────────────────────────────────────────────── */
+
+.layout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+  margin-top: 20px;
+}
+
+.rail {
+  position: sticky;
+  /* Clear of the viewport top, and short enough that a long mechanic list
+     scrolls inside the rail rather than dragging the page with it. */
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg2);
+  padding: 14px;
+}
+
+/* Desktop shows the rail outright; the toggle exists only for the narrow
+   layout, where the rail sits above the grid and starts collapsed. */
+.railToggle { display: none; }
+.railBody { display: block; }
+
+.railGroup + .railGroup {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--s-border0);
+}
+.railTitle {
+  composes: labelLg from '../styles/typography.module.css';
+  color: var(--text-faint);
+  margin: 0 0 8px;
+}
+.railList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.railRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--font-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+/* :not() rather than !important — a bare .railRow:hover outranks .railRowActive
+   and would grey out the selected filter on hover (DESIGN §10). */
+.railRow:hover:not(.railRowActive) { background: var(--s2); color: var(--text); }
+.railRow:focus-visible { outline: 1px solid var(--border-hi); outline-offset: -1px; }
+.railRowActive {
+  background: rgba(201, 168, 76, 0.12);
+  border-color: var(--border-hi);
+  color: var(--text);
+}
+.railRowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+.railRowCount {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+.railRowActive .railRowCount { color: var(--gold-dim); }
+
+.railMore {
+  margin-top: 6px;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+  cursor: pointer;
+  text-align: left;
+}
+.railMore:hover { color: var(--gold); }
+.railMore:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 1px; border-radius: var(--radius-xs); }
+
+.rarityDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+
+.newFlag {
+  composes: labelSm from '../styles/typography.module.css';
+  color: #15120a;
+  background: var(--gold);
+  border-radius: var(--radius-xs);
+  padding: 2px 5px;
+  /* A fixed box of all-caps text needs line-height 1, or the glyphs ride high
+     on body's 1.6 (DESIGN §4). */
+  line-height: 1;
+}
+
+.content { min-width: 0; }
+
+/* ── New mechanics callout ────────────────────────────────────────────────── */
+
+.newMechanics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.newMechanic {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius-md);
+  background: var(--bg2);
+  padding: 11px 14px;
+}
+.newMechanicName {
+  display: block;
+  font-family: var(--font-display);
+  font-size: var(--font-md);
+  color: var(--gold);
+  margin-bottom: 3px;
+}
+.newMechanicText {
+  display: block;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.searchWrap { flex: 1; min-width: 200px; max-width: 380px; }
+.search {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0 var(--control-padding-x);
+  font-size: var(--control-font-size);
+  box-sizing: border-box;
+}
+.sortSelect {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  font-size: var(--control-font-size);
+}
+.resultCount {
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.cardTile {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.cardTile:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 3px; border-radius: var(--radius-md); }
+
+/* Tile geometry and hover copied from the collection grid
+   (VirtualCardGrid.module.css), which is what Collection actually renders —
+   deliberately no shimmer sweep: that lives in CardComponents.module.css, a
+   grid Collection does not use. */
+.imgContainer {
+  position: relative;
+  display: block;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  aspect-ratio: 63 / 88;
+  background: var(--s2);
+  border: 1px solid var(--s-border2);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.cardImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.cardImgEmpty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
+/* Gated on a real pointer: touch has no hover to give, and an ungated rule
+   leaves the last-tapped tile stuck lifted. Interaction queries may gate
+   behaviour like this, never sizing at rest (DESIGN §10). :focus-visible stays
+   outside — a keyboard can be attached to anything. */
+@media (hover: hover) and (pointer: fine) {
+  .cardTile:hover .imgContainer {
+    transform: translateY(-5px) scale(1.025);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.65), 0 0 22px rgba(201,168,76,0.14);
+    border-color: rgba(201,168,76,0.22);
+  }
+  .cardTile:hover .cardName { color: var(--text); }
+}
+
+/* The shared hover preview, matching BuildAssistant.module.css — the anchor is
+   positioned by useCardPreview writing a transform straight to this node, so it
+   must stay `position: fixed` at the origin with nothing else moving it. */
+.hoverPreviewAnchor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2000;
+  pointer-events: none; /* never eat the hover that's driving it */
+  will-change: transform;
+}
+.hoverPreview {
+  width: 100%;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.75);
+  animation: hover-preview-in 0.12s ease-out;
+}
+.hoverPreviewImg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-xl);
+}
+@keyframes hover-preview-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Card detail modal ────────────────────────────────────────────────────── */
+
+.detailModal {
+  max-width: 860px;
+  width: 100%;
+  max-height: 88vh;
+}
+.detailBody {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+  gap: 22px;
+  overflow-y: auto;
+  max-height: calc(88vh - 60px);
+  padding-right: 4px;
+}
+.detailArt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+.detailImg {
+  width: 100%;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--s-border2);
+  display: block;
+}
+.detailImgEmpty {
+  aspect-ratio: 63 / 88;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  text-align: center;
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--s-border2);
+  color: var(--text-faint);
+  font-size: var(--font-sm);
+}
+
+.detailInfo { min-width: 0; }
+.detailNameRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.detailName {
+  font-family: var(--font-display);
+  font-size: var(--font-xl);
+  color: var(--text);
+  margin: 0 0 10px;
+}
+.faceName {
+  font-family: var(--font-display);
+  font-size: var(--font-lg);
+  color: var(--text);
+  margin: 0;
+}
+/* Both halves of a split or Adventure card print together, so each half needs
+   a rule between it and the next. */
+.faceBlock + .faceBlock {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--s-border);
+}
+.detailType {
+  margin: 4px 0 12px;
+  font-size: var(--font-md);
+  color: var(--text-dim);
+}
+
+.manaCost {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.manaSymbol {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.oracle {
+  font-size: var(--font-md);
+  line-height: 1.55;
+  color: var(--text);
+}
+.oracle p { margin: 0 0 8px; }
+.reminder { color: var(--text-faint); }
+
+.detailStats {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--font-lg);
+  color: var(--text-dim);
+}
+.flavorText {
+  margin: 12px 0 0;
+  font-style: italic;
+  color: var(--text-faint);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+
+.detailMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--s-border);
+}
+.detailMeta div { display: flex; flex-direction: column; gap: 2px; }
+/* `composes` only works on a bare local class, never a descendant selector, so
+   the <dt> carries its own class rather than being reached through .detailMeta. */
+.metaLabel {
+  composes: labelSm from '../styles/typography.module.css';
+  color: var(--text-faint);
+}
+.detailMeta dd {
+  margin: 0;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+}
+/* Only the rarity is a lowercase enum needing a capital; an artist name is
+   already cased, and capitalising it mangles names like "van der Berg". */
+.metaRarity { text-transform: capitalize; }
+
+.previewSource {
+  margin: 12px 0 0;
+  font-size: var(--font-sm);
+  color: var(--text-faint);
+}
+.previewSource a { color: var(--text-dim); }
+.previewSource a:hover { color: var(--gold); }
+
+.wishlistRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.wishlistSelect {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  font-size: var(--control-font-size);
+  min-width: 150px;
+}
+.wishlistError {
+  width: 100%;
+  font-size: var(--font-xs);
+  color: var(--red-bright);
+}
+.signedOutNote {
+  margin: 16px 0 0;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+}
+.signedOutNote a { color: var(--gold); }
+
+.scryfallLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 14px;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.scryfallLink:hover { color: var(--gold); }
+.scryfallLink:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 2px; }
+
+.sourceNote {
+  margin: 28px 0 0;
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+}
+.sourceNote a { color: var(--text-dim); }
+.sourceNote a:hover { color: var(--gold); }
+
+/* ── Narrow layout ────────────────────────────────────────────────────────── */
+
+/* 900px is the app's established "the layout changes shape" breakpoint. Below
+   it the rail stops being a rail: it becomes a collapsed Filters panel above
+   the grid, so the cards still start at the top of the page. */
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+  .rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    border: none;
+    background: none;
+  }
+  .railToggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: var(--control-height);
+    padding: 0 var(--control-padding-x);
+    border: 1px solid var(--s-border2);
+    border-radius: var(--radius-sm);
+    background: var(--s2);
+    color: var(--text-dim);
+    font-family: var(--font-display);
+    font-size: var(--control-font-size);
+    letter-spacing: var(--control-letter-spacing);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .railToggle:hover { color: var(--gold); border-color: var(--border-hi); }
+  .railToggle:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 2px; }
+  .railToggleCount {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: var(--radius-pill);
+    background: var(--gold);
+    color: #15120a;
+    font-size: var(--label-size-sm);
+    line-height: 1;
+  }
+  .railBody {
+    display: none;
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg2);
+    padding: 14px;
+  }
+  .railBodyOpen { display: block; }
+}
+
+@media (max-width: 640px) {
+  .detailBody {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .detailArt { max-width: 240px; margin: 0 auto; }
+}
+
+@media (max-width: 480px) {
+  .page { padding: 16px 14px 48px; }
+  .setSymbol { width: 30px; height: 30px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; }
+  .searchWrap { max-width: none; }
+  .resultCount { margin-left: 0; }
+}

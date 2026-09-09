@@ -1863,11 +1863,18 @@
   font-weight: 600;
 }
 
-.discoverCount {
+/* The panel header's trailing slot: a count that is also the way through to
+   the full release calendar at /sets. */
+.discoverLink {
   color: var(--text-faint);
   font-size: 0.69rem;
   white-space: nowrap;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 0.16s ease, border-color 0.16s ease;
 }
+.discoverLink:hover { color: var(--gold); border-bottom-color: var(--gold-dim); }
+.discoverLink:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 2px; }
 
 .compactNewsList,
 .compactSetList {
