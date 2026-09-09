@@ -89,9 +89,9 @@ describe('SetSpoilerPage', () => {
     await waitFor(() => expect(screen.getByText('2 cards revealed')).toBeTruthy())
     expect(screen.getByRole('heading', { name: 'Star Trek' })).toBeTruthy()
     expect(screen.getByText('Nov 13, 2099')).toBeTruthy()
-    // Distinct cards and printings are different counts, labelled apart rather
-    // than presented as one figure.
-    expect(screen.getByText('135 printings')).toBeTruthy()
+    // Two distinct cards, one printing each — nothing to disambiguate, so the
+    // printings figure is not shown at all.
+    expect(screen.queryByText(/printings/)).toBeNull()
   })
 
   it('tells the visitor nothing is spoiled yet rather than showing an empty grid', async () => {
@@ -141,7 +141,7 @@ describe('SetSpoilerPage', () => {
     fireEvent.click(within(rarityGroup).getByText('rare'))
 
     await waitFor(() => expect(maybeTile('Common One')).toBeNull())
-    expect(screen.getByText('1 of 2 cards')).toBeTruthy()
+    expect(screen.getByText('1 of 2')).toBeTruthy()
 
     fireEvent.click(screen.getByText('Clear filters'))
     await waitFor(() => expect(tile('Common One')).toBeTruthy())
@@ -270,5 +270,56 @@ describe('hover preview', () => {
 
     fireEvent.click(tile('General Chang'))
     expect(previewAnchor()).toBeNull()
+  })
+})
+
+describe('printings', () => {
+  const printing = (over) => card({
+    oracle_id: 'o1', name: 'Gleaming Splendor', border_color: 'black',
+    frame_effects: ['enchantment'], ...over,
+  })
+
+  // The Select trigger is a button named by the current selection, and the menu
+  // repeats that name as an option — so the trigger is the first match in DOM
+  // order (the menu portals to the end of the body).
+  const setPrintingMode = (current, next) => {
+    fireEvent.click(screen.getAllByRole('button', { name: current })[0])
+    fireEvent.click(screen.getByRole('button', { name: next }))
+  }
+
+  const threePrintings = [
+    printing({ id: '15', collector_number: '15' }),
+    printing({ id: '239', collector_number: '239', border_color: 'borderless', frame_effects: ['enchantment', 'inverted'] }),
+    printing({ id: '275', collector_number: '275', border_color: 'borderless', frame_effects: ['enchantment', 'inverted'] }),
+  ]
+
+  it('shows one printing per card by default and counts both figures', async () => {
+    fetchSpoiledCards.mockResolvedValue(threePrintings)
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('1 card revealed')).toBeTruthy())
+    expect(screen.getByText('3 printings')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Gleaming Splendor' })).toHaveLength(1)
+  })
+
+  it('shows every printing when asked', async () => {
+    fetchSpoiledCards.mockResolvedValue(threePrintings)
+    renderPage()
+    await waitFor(() => expect(screen.getByText('3 printings')).toBeTruthy())
+
+    setPrintingMode('One per card', 'All printings')
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Gleaming Splendor' })).toHaveLength(3))
+  })
+
+  it('separates the special treatments from the base printing', async () => {
+    fetchSpoiledCards.mockResolvedValue(threePrintings)
+    renderPage()
+    await waitFor(() => expect(screen.getByText('3 printings')).toBeTruthy())
+
+    setPrintingMode('One per card', 'Special printings')
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Gleaming Splendor' })).toHaveLength(2))
+
+    setPrintingMode('Special printings', 'Base printings')
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Gleaming Splendor' })).toHaveLength(1))
   })
 })

@@ -311,6 +311,72 @@ export async function fetchSetPrices(setCode) {
   return buildPriceMap(data, snapshotDates)
 }
 
+function collectorNumberValue(card) {
+  const n = Number.parseInt(String(card?.collector_number || ''), 10)
+  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
+}
+
+// ── Printings ────────────────────────────────────────────────────────────────
+
+// Frame effects that mark a *treatment*. Deliberately not every value in the
+// field: `legendary` and `enchantment` describe the card's type, not a special
+// version — the base Gleaming Splendor carries `enchantment`, so treating the
+// field as a whole would have called every enchantment in the set special.
+//
+// Checked against The Hobbit's 321 printings (2026-09-09): this rule leaves
+// exactly one base printing for 192 of its 193 cards. The exception, Smaug the
+// Magnificent, genuinely has two ordinary black-bordered printings — which is
+// why "base" is a filter and not a way to pick one printing per card.
+const SPECIAL_FRAME_EFFECTS = new Set([
+  'showcase', 'extendedart', 'inverted', 'etched', 'shatteredglass', 'fandsc',
+])
+const ORDINARY_BORDERS = new Set(['black', 'white', 'silver', 'gold'])
+
+export function isSpecialPrinting(card) {
+  if (!card) return false
+  if (card.promo || card.variation || card.full_art) return true
+  if (card.border_color && !ORDINARY_BORDERS.has(card.border_color)) return true
+  return (card.frame_effects || []).some(effect => SPECIAL_FRAME_EFFECTS.has(effect))
+}
+
+export const PRINTING_MODES = [
+  { id: 'unique', label: 'One per card' },
+  { id: 'all', label: 'All printings' },
+  { id: 'base', label: 'Base printings' },
+  { id: 'special', label: 'Special printings' },
+]
+
+function printingIdentity(card) {
+  return card?.oracle_id || card?.name || card?.id
+}
+
+export function applyPrintingMode(cards, mode) {
+  const list = cards || []
+  if (mode === 'all') return list
+  if (mode === 'base') return list.filter(card => !isSpecialPrinting(card))
+  if (mode === 'special') return list.filter(isSpecialPrinting)
+
+  // 'unique' — one printing per card. The lowest collector number is the base
+  // printing: sets number the main run first and the alternate treatments after
+  // it, which held for every card in the validation set. Order is otherwise
+  // preserved, so the "recently spoiled" sort still means something.
+  const bestByCard = new Map()
+  for (const card of list) {
+    const key = printingIdentity(card)
+    const current = bestByCard.get(key)
+    if (!current || collectorNumberValue(card) < collectorNumberValue(current)) {
+      bestByCard.set(key, card)
+    }
+  }
+  const keep = new Set(bestByCard.values())
+  return list.filter(card => keep.has(card))
+}
+
+/** Distinct cards, as opposed to printings — the two numbers in the header. */
+export function countUniqueCards(cards) {
+  return new Set((cards || []).map(printingIdentity)).size
+}
+
 // ── Filter + sort ────────────────────────────────────────────────────────────
 
 export const EMPTY_SPOILER_FILTERS = { search: '', rarity: '', color: '', type: '', mechanic: '' }
@@ -340,11 +406,6 @@ export const SPOILER_SORTS = [
   { id: 'rarity', label: 'Rarity' },
   { id: 'number', label: 'Card number' },
 ]
-
-function collectorNumberValue(card) {
-  const n = Number.parseInt(String(card?.collector_number || ''), 10)
-  return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
-}
 
 export function sortSpoilerCards(cards, sortId, priceSource = 'cardmarket_trend') {
   const list = [...(cards || [])]
@@ -452,6 +513,11 @@ export function slimSpoilerCard(card) {
     collector_number: card.collector_number,
     rarity: card.rarity || null,
     layout: card.layout || null,
+    border_color: card.border_color || null,
+    frame_effects: card.frame_effects || null,
+    full_art: card.full_art === true,
+    promo: card.promo === true,
+    variation: card.variation === true,
     mana_cost: card.mana_cost || card.card_faces?.[0]?.mana_cost || null,
     cmc: card.cmc ?? null,
     type_line: card.type_line || null,
@@ -483,7 +549,7 @@ export function slimSpoilerCard(card) {
   }
 }
 
-const SPOILER_CACHE_PREFIX = 'dl_spoilers_v1:'
+const SPOILER_CACHE_PREFIX = 'dl_spoilers_v2:'
 const SPOILER_CACHE_TTL = 15 * 60 * 1000
 // A Magic set is ~300 cards and Scryfall pages at 175. Six pages is headroom
 // for a bloated set with variants without letting a bad query walk forever.
@@ -499,7 +565,11 @@ export async function fetchSpoiledCards(code, { force = false } = {}) {
     if (cached) return cached
   }
   const cards = []
-  let url = `${SEARCH_URL}?q=${encodeURIComponent(`e:${setCode}`)}&order=spoiled&unique=cards`
+  // unique=prints, not unique=cards: a set's showcase, borderless and extended
+  // -art versions are separate printings of the same card, and collapsing them
+  // hid two of Gleaming Splendor's three printings in The Hobbit. The printing
+  // mode (see applyPrintingMode) decides which of them reach the grid.
+  let url = `${SEARCH_URL}?q=${encodeURIComponent(`e:${setCode}`)}&order=spoiled&unique=prints`
   for (let page = 0; page < MAX_SPOILER_PAGES && url; page++) {
     const json = await sfGet(url)
     // A set with nothing spoiled yet answers 404, which sfGet reports as null.

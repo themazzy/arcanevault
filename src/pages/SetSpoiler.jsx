@@ -16,6 +16,7 @@ import { useCardPreview, HOVER_PREVIEW_W } from '../components/deckBuilder/useCa
 import {
   EMPTY_SPOILER_FILTERS,
   RARITIES,
+  PRINTING_MODES,
   SPOILER_SORTS,
   countdownLabel,
   daysUntil,
@@ -25,6 +26,8 @@ import {
   fetchSetPrices,
   fetchSpoiledCards,
   attachPrices,
+  applyPrintingMode,
+  countUniqueCards,
   filterSpoilerCards,
   formatReleaseDate,
   isNewMechanic,
@@ -384,6 +387,7 @@ export default function SetSpoilerPage() {
   const [prices, setPrices] = useState(null)
   const [filters, setFilters] = useState(EMPTY_SPOILER_FILTERS)
   const [sort, setSort] = useState('spoiled')
+  const [printingMode, setPrintingMode] = useState('unique')
   const [railOpen, setRailOpen] = useState(false)
   const [showAllMechanics, setShowAllMechanics] = useState(false)
   const today = todayIso()
@@ -447,7 +451,10 @@ export default function SetSpoilerPage() {
   }, [set])
 
   const pricedCards = useMemo(() => attachPrices(cards, prices), [cards, prices])
-  const mechanics = useMemo(() => extractMechanics(cards), [cards])
+  // Everything below works from the current printing mode, so the rail's counts
+  // always describe what clicking them would actually give you.
+  const pool = useMemo(() => applyPrintingMode(pricedCards, printingMode), [pricedCards, printingMode])
+  const mechanics = useMemo(() => extractMechanics(pool), [pool])
 
   // Novelty resolves after the cards are on screen; the rows render with their
   // counts immediately and grow a "New" flag as each answer lands.
@@ -473,14 +480,17 @@ export default function SetSpoilerPage() {
     return () => { cancelled = true }
   }, [set, mechanics])
 
-  const summary = useMemo(() => summarizeSpoilers(cards), [cards])
+  const summary = useMemo(() => summarizeSpoilers(pool), [pool])
+  // Declared with the other hooks, above the unknown-set early return — a hook
+  // after a conditional return runs on some renders and not others.
+  const uniqueCardCount = useMemo(() => countUniqueCards(cards), [cards])
   const visible = useMemo(
     () => sortSpoilerCards(
-      filterSpoilerCards(pricedCards, { ...filters, mechanic: mechanicParam }),
+      filterSpoilerCards(pool, { ...filters, mechanic: mechanicParam }),
       sort,
       price_source,
     ),
-    [pricedCards, filters, mechanicParam, sort, price_source],
+    [pool, filters, mechanicParam, sort, price_source],
   )
 
   // New mechanics float to the top of the rail: they are the reason to read the
@@ -533,9 +543,9 @@ export default function SetSpoilerPage() {
               <span>{formatReleaseDate(set.released_at)}</span>
               {days != null && <span>{countdownLabel(days)}</span>}
               {cards && (
-                <span>{summary.total} {summary.total === 1 ? 'card revealed' : 'cards revealed'}</span>
+                <span>{uniqueCardCount} {uniqueCardCount === 1 ? 'card revealed' : 'cards revealed'}</span>
               )}
-              {cards && set.card_count > summary.total && <span>{set.card_count} printings</span>}
+              {cards && cards.length > uniqueCardCount && <span>{cards.length} printings</span>}
             </p>
           )}
         </div>
@@ -665,11 +675,19 @@ export default function SetSpoilerPage() {
               wrapClassName={styles.searchWrap}
               leadingIcon={<SearchIcon size={13} />}
             />
+            <Select
+              value={printingMode}
+              onChange={e => setPrintingMode(e.target.value)}
+              title="Printings"
+              className={styles.sortSelect}
+            >
+              {PRINTING_MODES.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </Select>
             <Select value={sort} onChange={e => setSort(e.target.value)} title="Sort" className={styles.sortSelect}>
               {SPOILER_SORTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
             </Select>
             {filtersActive && cards && (
-              <span className={styles.resultCount}>{visible.length} of {summary.total} cards</span>
+              <span className={styles.resultCount}>{visible.length} of {summary.total}</span>
             )}
           </div>
 

@@ -27,6 +27,9 @@ import {
   fetchMechanicHistory,
   buildPriceMap,
   attachPrices,
+  applyPrintingMode,
+  isSpecialPrinting,
+  countUniqueCards,
   mechanicReminderText,
   setTypeLabel,
 } from './upcomingSets'
@@ -501,5 +504,70 @@ describe('sorting by price', () => {
     ]
     expect(sortSpoilerCards(cards, 'priceDesc', 'cardmarket_trend').map(c => c.id)).toEqual(['eurRich', 'eurCheap'])
     expect(sortSpoilerCards(cards, 'priceDesc', 'tcgplayer_market').map(c => c.id)).toEqual(['eurCheap', 'eurRich'])
+  })
+})
+
+describe('printings', () => {
+  // Modelled on The Hobbit's real data.
+  const base = (over = {}) => card({
+    oracle_id: 'o1', name: 'Gleaming Splendor', collector_number: '15',
+    border_color: 'black', frame_effects: ['enchantment'], full_art: false,
+    promo: false, variation: false, ...over,
+  })
+  const borderless = (n) => base({ id: n, collector_number: n, border_color: 'borderless', frame_effects: ['enchantment', 'inverted'] })
+
+  it('does not call an enchantment or legendary frame a special treatment', () => {
+    expect(isSpecialPrinting(base())).toBe(false)
+    expect(isSpecialPrinting(base({ frame_effects: ['legendary'] }))).toBe(false)
+  })
+
+  it('recognises the treatments that really are special', () => {
+    expect(isSpecialPrinting(borderless('239'))).toBe(true)
+    expect(isSpecialPrinting(base({ frame_effects: ['legendary', 'showcase'] }))).toBe(true)
+    expect(isSpecialPrinting(base({ frame_effects: ['extendedart'] }))).toBe(true)
+    expect(isSpecialPrinting(base({ full_art: true }))).toBe(true)
+    expect(isSpecialPrinting(base({ promo: true }))).toBe(true)
+  })
+
+  const printings = [base({ id: '15' }), borderless('239'), borderless('275')]
+
+  it('keeps every printing in "all"', () => {
+    expect(applyPrintingMode(printings, 'all')).toHaveLength(3)
+  })
+
+  it('splits base from special', () => {
+    expect(applyPrintingMode(printings, 'base').map(c => c.collector_number)).toEqual(['15'])
+    expect(applyPrintingMode(printings, 'special').map(c => c.collector_number)).toEqual(['239', '275'])
+  })
+
+  it('picks the lowest collector number as the one printing per card', () => {
+    expect(applyPrintingMode(printings, 'unique').map(c => c.collector_number)).toEqual(['15'])
+  })
+
+  it('keeps one printing per card across different cards', () => {
+    const other = base({ id: 'x', oracle_id: 'o2', name: 'Other', collector_number: '3' })
+    const result = applyPrintingMode([...printings, other], 'unique')
+    expect(result.map(c => c.name).sort()).toEqual(['Gleaming Splendor', 'Other'])
+  })
+
+  // Smaug the Magnificent really does have two ordinary printings in the set,
+  // so "base" is a filter and cannot double as a one-per-card rule.
+  it('keeps both ordinary printings of a card that genuinely has two', () => {
+    const smaug = [
+      base({ id: 'a', oracle_id: 'o9', name: 'Smaug', collector_number: '110', frame_effects: ['legendary'] }),
+      base({ id: 'b', oracle_id: 'o9', name: 'Smaug', collector_number: '249', frame_effects: ['legendary'] }),
+    ]
+    expect(applyPrintingMode(smaug, 'base')).toHaveLength(2)
+    expect(applyPrintingMode(smaug, 'unique').map(c => c.collector_number)).toEqual(['110'])
+  })
+
+  it('preserves the incoming order so the spoiled sort still means something', () => {
+    const cards = [borderless('275'), base({ id: '15' }), base({ id: 'z', oracle_id: 'o2', collector_number: '3' })]
+    expect(applyPrintingMode(cards, 'unique').map(c => c.collector_number)).toEqual(['15', '3'])
+  })
+
+  it('counts distinct cards rather than printings', () => {
+    expect(countUniqueCards(printings)).toBe(1)
+    expect(countUniqueCards([...printings, base({ oracle_id: 'o2' })])).toBe(2)
   })
 })
