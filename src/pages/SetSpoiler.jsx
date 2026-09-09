@@ -10,6 +10,7 @@ import { ChevronLeftIcon, ExternalLinkIcon, FilterIcon, SearchIcon, WishlistsIco
 import { sb } from '../lib/supabase'
 import { addMissingToWishlist } from '../lib/setCompletion'
 import { rarityColor } from '../lib/rarity'
+import { needsNoveltyLookup } from '../lib/establishedKeywords'
 import { useSettings } from '../components/SettingsContext'
 import { getPrice, formatPrice } from '../lib/scryfall'
 import { useCardPreview, HOVER_PREVIEW_W } from '../components/deckBuilder/useCardPreview'
@@ -466,7 +467,14 @@ export default function SetSpoilerPage() {
   useEffect(() => {
     if (!set || !mechanics.length) return
     let cancelled = false
-    const wanted = mechanics.slice(0, MAX_MECHANIC_LOOKUPS)
+    // Only the keywords that could actually be new. Everything printed before
+    // the cutoff is established by definition and cannot be new to a later set,
+    // so asking Scryfall about it spends a request that has one possible
+    // answer — and spending 25 of those is what got the page rate-limited.
+    const wanted = mechanics
+      .filter(m => needsNoveltyLookup(m.name, set.released_at))
+      .slice(0, MAX_MECHANIC_LOOKUPS)
+    if (!wanted.length) return
     ;(async () => {
       for (const { name } of wanted) {
         if (cancelled) return
