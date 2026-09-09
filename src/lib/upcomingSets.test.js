@@ -1,4 +1,13 @@
-import { describe, it, expect } from 'vitest'
+// @vitest-environment jsdom
+// The mechanic-history cache lives in localStorage, so these need a DOM.
+
+import { beforeEach, describe, it, expect, vi } from 'vitest'
+
+const scryfallStatus = vi.fn()
+vi.mock('./scryfall', () => ({
+  sfGet: async () => null,
+  sfGetOrStatus: (...args) => scryfallStatus(...args),
+}))
 import {
   selectUpcomingSets,
   groupSetsByParent,
@@ -12,6 +21,7 @@ import {
   sortSpoilerCards,
   slimSpoilerCard,
   isNewMechanic,
+  fetchMechanicHistory,
   mechanicReminderText,
   setTypeLabel,
 } from './upcomingSets'
@@ -344,5 +354,77 @@ describe('setTypeLabel', () => {
     expect(setTypeLabel('expansion')).toBe('Expansion')
     expect(setTypeLabel('arsenal')).toBe('Arsenal')
     expect(setTypeLabel('from_the_vault')).toBe('From The Vault')
+  })
+})
+
+describe('fetchMechanicHistory', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    scryfallStatus.mockReset()
+  })
+
+  const history = (keyword = 'Ward') =>
+    fetchMechanicHistory(keyword, { setCode: 'hob', releasedAt: '2026-08-14' })
+
+  it('excludes the set itself and any other unreleased set from the lookup', async () => {
+    scryfallStatus.mockResolvedValue({ ok: true, status: 200, json: { total_cards: 0, data: [] } })
+    await history('Station')
+    const url = decodeURIComponent(scryfallStatus.mock.calls[0][0])
+    expect(url).toContain('keyword:"Station"')
+    expect(url).toContain('-e:hob')
+    expect(url).toContain('date<2026-08-14')
+  })
+
+  it('reports prior printings and the set that introduced the mechanic', async () => {
+    scryfallStatus.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: { total_cards: 34, data: [{ set: 'eoe', set_name: 'Edge of Eternities', released_at: '2025-08-01' }] },
+    })
+    const result = await history('Station')
+    expect(result.priorCount).toBe(34)
+    expect(result.firstSet).toBe('Edge of Eternities')
+    expect(isNewMechanic(result)).toBe(false)
+  })
+
+  // Scryfall answers 404 when a search matches nothing. That is a real answer,
+  // and the one that makes a mechanic new.
+  it('treats a 404 as a genuine zero', async () => {
+    scryfallStatus.mockResolvedValue({ ok: false, status: 404 })
+    const result = await history('Face a dilemma')
+    expect(result.priorCount).toBe(0)
+    expect(isNewMechanic(result)).toBe(true)
+  })
+
+  // The bug this pins: a rate-limited lookup used to come back as priorCount 0,
+  // which labelled Ward new on a set big enough to exhaust the rate limit — and
+  // then cached that for a week.
+  it('does not call a mechanic new when the lookup was rate-limited', async () => {
+    scryfallStatus.mockResolvedValue({ ok: false, status: 429 })
+    const result = await history('Ward')
+    expect(result).toBeNull()
+    expect(isNewMechanic(result)).toBe(false)
+  })
+
+  it('does not call a mechanic new when the request never completed', async () => {
+    scryfallStatus.mockResolvedValue({ ok: false, status: 0 })
+    expect(await history('Ward')).toBeNull()
+  })
+
+  it('never caches an unanswered lookup, so it is retried rather than remembered', async () => {
+    scryfallStatus.mockResolvedValue({ ok: false, status: 429 })
+    expect(await history('Ward')).toBeNull()
+
+    scryfallStatus.mockResolvedValue({ ok: true, status: 200, json: { total_cards: 900, data: [] } })
+    const retried = await history('Ward')
+    expect(retried.priorCount).toBe(900)
+    expect(scryfallStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('serves a definitive answer from cache instead of asking again', async () => {
+    scryfallStatus.mockResolvedValue({ ok: true, status: 200, json: { total_cards: 900, data: [] } })
+    await history('Ward')
+    await history('Ward')
+    expect(scryfallStatus).toHaveBeenCalledTimes(1)
   })
 })

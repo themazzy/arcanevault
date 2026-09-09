@@ -8,17 +8,39 @@
   background-size: 28px 28px;
 }
 
+/* Back goes to Home, because Home's Upcoming Sets panel is where these pages
+   are reached from. /sets stays in the trail so the full calendar is still one
+   click away — and for a signed-out visitor arriving on a shared link, it is
+   the one of the two that isn't the login page. */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  font-size: var(--font-sm);
+}
 .back {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-sm);
   color: var(--text-dim);
   text-decoration: none;
-  margin-bottom: 14px;
 }
 .back:hover { color: var(--gold); }
 .back:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 2px; }
+
+.crumbLink {
+  color: var(--text-faint);
+  text-decoration: none;
+}
+.crumbLink::before {
+  content: '/';
+  margin-right: 10px;
+  color: var(--text-faint);
+}
+.crumbLink:hover { color: var(--gold); }
+.crumbLink:focus-visible { outline: 1px solid var(--border-hi); outline-offset: 2px; }
 
 /* ── Header ───────────────────────────────────────────────────────────────── */
 

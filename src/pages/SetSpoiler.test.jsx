@@ -93,6 +93,30 @@ describe('SetSpoilerPage', () => {
     await waitFor(() => expect(screen.getByText(/Nothing has been previewed/i)).toBeTruthy())
   })
 
+  // Home's Upcoming Sets panel is where these pages are reached from, so back
+  // goes there; the calendar stays in the trail.
+  it('sends the back link to Home and keeps the calendar one click away', async () => {
+    fetchSpoiledCards.mockResolvedValue([card()])
+    renderPage()
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Star Trek' })).toBeTruthy())
+
+    const crumbs = within(screen.getByRole('navigation', { name: /breadcrumb/i })).getAllByRole('link')
+    expect(crumbs.map(a => a.getAttribute('href'))).toEqual(['/', '/sets'])
+  })
+
+  // A mechanic whose lookup could not be answered must not be labelled new —
+  // the rate-limit case that wrongly flagged Ward on a large set.
+  it('leaves a mechanic unflagged when its history lookup fails', async () => {
+    fetchSpoiledCards.mockResolvedValue([
+      card({ keywords: ['Ward'], oracle_text: 'Ward {2}' }),
+    ])
+    fetchMechanicHistory.mockResolvedValue(null)
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Ward')).toBeTruthy())
+    expect(screen.queryByText('New')).toBeNull()
+  })
+
   it('explains an unknown set code instead of rendering a blank page', async () => {
     fetchAllSets.mockResolvedValue([])
     renderPage('/sets/nope')

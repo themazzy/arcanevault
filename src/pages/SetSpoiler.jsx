@@ -421,14 +421,25 @@ export default function SetSpoilerPage() {
 
   // Novelty resolves after the cards are on screen; the rows render with their
   // counts immediately and grow a "New" flag as each answer lands.
+  //
+  // One at a time, not Promise.all. A big set carries 30+ keywords, and firing
+  // them together pushed past Scryfall's rate limit — which used to surface as
+  // evergreen keywords being labelled new. Nothing here is latency-sensitive:
+  // the badges are enrichment on a page that already rendered.
   useEffect(() => {
     if (!set || !mechanics.length) return
     let cancelled = false
     const wanted = mechanics.slice(0, MAX_MECHANIC_LOOKUPS)
-    Promise.all(wanted.map(async ({ name }) => {
-      const history = await fetchMechanicHistory(name, { setCode: set.code, releasedAt: set.released_at })
-      if (!cancelled && history) setMechanicHistory(prev => ({ ...prev, [name]: history }))
-    })).catch(() => { /* a missing novelty flag is not worth surfacing */ })
+    ;(async () => {
+      for (const { name } of wanted) {
+        if (cancelled) return
+        const history = await fetchMechanicHistory(name, { setCode: set.code, releasedAt: set.released_at })
+        if (cancelled) return
+        // null means the lookup could not be answered, not that the mechanic is
+        // new — leave it unflagged.
+        if (history) setMechanicHistory(prev => ({ ...prev, [name]: history }))
+      }
+    })().catch(() => { /* a missing novelty flag is not worth surfacing */ })
     return () => { cancelled = true }
   }, [set, mechanics])
 
@@ -459,7 +470,10 @@ export default function SetSpoilerPage() {
   if (set === null) {
     return (
       <div className={styles.page}>
-        <Link to="/sets" className={styles.back}><ChevronLeftIcon size={12} /> All upcoming sets</Link>
+      <nav className={styles.breadcrumb} aria-label="Breadcrumb">
+        <Link to="/" className={styles.back}><ChevronLeftIcon size={12} /> Home</Link>
+        <Link to="/sets" className={styles.crumbLink}>Upcoming sets</Link>
+      </nav>
         <EmptyState>No set with the code “{setCode}”. It may not have been announced yet.</EmptyState>
         <PublicPageFooter />
       </div>
@@ -470,7 +484,10 @@ export default function SetSpoilerPage() {
 
   return (
     <div className={styles.page}>
-      <Link to="/sets" className={styles.back}><ChevronLeftIcon size={12} /> All upcoming sets</Link>
+      <nav className={styles.breadcrumb} aria-label="Breadcrumb">
+        <Link to="/" className={styles.back}><ChevronLeftIcon size={12} /> Home</Link>
+        <Link to="/sets" className={styles.crumbLink}>Upcoming sets</Link>
+      </nav>
 
       <header className={styles.header}>
         {set?.icon_svg_uri && <img className={styles.setSymbol} src={set.icon_svg_uri} alt="" aria-hidden="true" />}

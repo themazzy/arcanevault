@@ -1,4 +1,4 @@
-import { sfGet } from './scryfall'
+import { sfGet, sfGetOrStatus } from './scryfall'
 
 // Release calendar and spoiler feed behind /sets and /sets/:code.
 //
@@ -425,7 +425,7 @@ export async function fetchSpoiledCards(code, { force = false } = {}) {
   return cards
 }
 
-const MECHANIC_CACHE_KEY = 'dl_set_mechanics_v1'
+const MECHANIC_CACHE_KEY = 'dl_set_mechanics_v2'
 const MECHANIC_CACHE_TTL = 7 * 24 * 60 * 60 * 1000
 
 function readMechanicCache() {
@@ -452,7 +452,17 @@ export async function fetchMechanicHistory(keyword, { setCode, releasedAt }) {
   const clauses = [`keyword:"${name}"`, `-e:${setCode}`]
   if (releasedAt) clauses.push(`date<${releasedAt}`)
   const url = `${SEARCH_URL}?q=${encodeURIComponent(clauses.join(' '))}&unique=cards&order=released&dir=asc`
-  const json = await sfGet(url)
+  const result = await sfGetOrStatus(url)
+
+  // 404 is Scryfall's "no cards match", and it is the answer that makes a
+  // mechanic new. Every other failure — 429, 5xx, offline — is the absence of
+  // an answer, and must never be read as zero: doing so flagged Ward as new on
+  // The Hobbit, because a set that big fires enough lookups to get
+  // rate-limited. Returning null leaves the mechanic unflagged and, crucially,
+  // uncached, so it is retried rather than remembered as wrong for a week.
+  if (!result.ok && result.status !== 404) return null
+
+  const json = result.ok ? result.json : null
   const first = json?.data?.[0] || null
   const data = {
     keyword: name,

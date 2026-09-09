@@ -121,17 +121,34 @@ async function runScryfallRequest(fn, { minDelayMs = DELAY_MS, retries = 3 } = {
   }
 }
 
-export async function sfGet(url, opts = {}) {
+/**
+ * Like `sfGet`, but says *why* there is no data.
+ *
+ * `sfGet` answers null for two different things, and a caller that reads an
+ * empty result as a fact needs them apart: `/cards/search` replies **404** when
+ * nothing matches, which is a real answer ("no such cards"), while a 429, a 5xx
+ * or a dropped connection is no answer at all. Conflating them turns a
+ * rate-limited request into a confident "zero results".
+ *
+ * Returns { ok, status, json? }. `status: 0` means the request never completed.
+ */
+export async function sfGetOrStatus(url, opts = {}) {
   try {
     const fetchOpts = { headers: SF_HEADERS }
     if (opts.noCache) fetchOpts.cache = 'no-store'
     const res = await runScryfallRequest(() => fetch(sfUrl(url), fetchOpts))
-    if (!res?.ok) return null
-    return res.json()
+    if (!res) return { ok: false, status: 0 }
+    if (!res.ok) return { ok: false, status: res.status }
+    return { ok: true, status: res.status, json: await res.json() }
   } catch (err) {
     console.warn('[SF] sfGet failed', url, err?.message || err)
-    return null
+    return { ok: false, status: 0 }
   }
+}
+
+export async function sfGet(url, opts = {}) {
+  const result = await sfGetOrStatus(url, opts)
+  return result.ok ? result.json : null
 }
 
 // Clear old localStorage keys
