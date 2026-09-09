@@ -21,7 +21,11 @@ import {
 import { perfSpan } from './perf'
 
 const BATCH_SIZE = 75
-const DELAY_MS   = 80
+// Scryfall asks for no more than ~10 requests/second. The semaphore spaces
+// request *starts* by this gap, so with SF_CONCURRENCY = 2 the app's ceiling is
+// 1000/DELAY_MS: 80 ms put it at 12.5/s, above what they publish. 100 ms lands
+// on 10/s.
+const DELAY_MS   = 100
 const SF_CONCURRENCY = 2
 // Metadata/price freshness window. Shared prices refresh on their own 10-minute
 // cycle in sharedCardPrices.js, so this only paces Scryfall metadata refetches.

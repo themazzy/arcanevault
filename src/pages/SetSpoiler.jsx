@@ -52,9 +52,19 @@ import styles from './SetSpoiler.module.css'
 // The painted width of a grid tile; CardImg needs the real CSS width to pick a
 // Scryfall image tier, and it must match .grid in the stylesheet.
 const TILE_WIDTH = 208
-// Novelty is one Scryfall request per mechanic. A set has ~25; the cap is there
-// so a pathological set cannot spend a minute of rate-limited requests.
-const MAX_MECHANIC_LOOKUPS = 40
+// Novelty is one Scryfall request per candidate keyword, so the page needs a
+// hard ceiling — and Universes Beyond sets are the reason it has to be low.
+// Scryfall's `keywords` array carries per-card flavor ability names there:
+// Final Fantasy reports 108 of them ("Blizzaga", "Selfie Shot",
+// "GOOOOAAAALLL!"), 67 of which postdate the established list, against 1 for
+// Star Trek and 2 for The Hobbit.
+//
+// Candidates arrive sorted by how many cards in the set carry them, so the
+// budget is spent on the ones most likely to be real: a set mechanic is on many
+// cards (Station 91 printings, Offspring 50, Mayhem 43) while a flavor name is
+// on two or three. Sets that behave have fewer candidates than this anyway, so
+// the cap only ever bites where it should.
+const MAX_MECHANIC_LOOKUPS = 12
 // Enough mechanics to say what a set is about; the rest are one click away
 // rather than turning the rail into a column of evergreen keywords.
 const MECHANICS_BEFORE_FOLD = 8
@@ -469,8 +479,11 @@ export default function SetSpoilerPage() {
     let cancelled = false
     // Only the keywords that could actually be new. Everything printed before
     // the cutoff is established by definition and cannot be new to a later set,
-    // so asking Scryfall about it spends a request that has one possible
-    // answer — and spending 25 of those is what got the page rate-limited.
+    // so asking Scryfall about it spends a request with one possible answer —
+    // and spending 25 of those is what got the page rate-limited.
+    //
+    // `mechanics` is already ordered by in-set count, so slicing takes the most
+    // widely used candidates rather than an arbitrary dozen.
     const wanted = mechanics
       .filter(m => needsNoveltyLookup(m.name, set.released_at))
       .slice(0, MAX_MECHANIC_LOOKUPS)

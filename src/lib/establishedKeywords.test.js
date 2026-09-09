@@ -62,3 +62,18 @@ describe('needsNoveltyLookup', () => {
     expect(asked).toEqual(['Face a dilemma', 'Station'])
   })
 })
+
+// Universes Beyond sets put per-card flavor ability names in Scryfall's
+// `keywords` array — Final Fantasy reports 108 of them. The established list
+// cannot help there (they are genuinely new), so the page relies on ranking by
+// in-set frequency and a hard cap; this pins the shape of the problem so the
+// cap is not quietly removed later.
+describe('Universes Beyond flavor abilities', () => {
+  const finFlavorNames = ['Blizzaga', 'Selfie Shot', '10,000 Needles', 'Wave Cannon', 'Job select']
+
+  it('does not recognise them as established, so a cap is what bounds them', () => {
+    for (const kw of finFlavorNames) {
+      expect(needsNoveltyLookup(kw, '2025-06-13')).toBe(true)
+    }
+  })
+})
