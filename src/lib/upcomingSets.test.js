@@ -4,10 +4,13 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
 
 const scryfallStatus = vi.fn()
-vi.mock('./scryfall', () => ({
-  sfGet: async () => null,
-  sfGetOrStatus: (...args) => scryfallStatus(...args),
-}))
+// Only the network surface is stubbed; getPrice is the real one, because the
+// point of these tests is that the page prices cards the same way the rest of
+// the app does.
+vi.mock('./scryfall', async () => {
+  const actual = await vi.importActual('./scryfall')
+  return { ...actual, sfGet: async () => null, sfGetOrStatus: (...args) => scryfallStatus(...args) }
+})
 import {
   selectUpcomingSets,
   groupSetsByParent,
@@ -22,6 +25,8 @@ import {
   slimSpoilerCard,
   isNewMechanic,
   fetchMechanicHistory,
+  buildPriceMap,
+  attachPrices,
   mechanicReminderText,
   setTypeLabel,
 } from './upcomingSets'
@@ -426,5 +431,75 @@ describe('fetchMechanicHistory', () => {
     await history('Ward')
     await history('Ward')
     expect(scryfallStatus).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('prices', () => {
+  const priceRow = (over = {}) => ({
+    scryfall_id: 'a',
+    snapshot_date: '2026-09-09',
+    price_regular_eur: 1.5,
+    price_foil_eur: 4,
+    price_regular_usd: 2,
+    price_foil_usd: 5,
+    ...over,
+  })
+
+  it('builds the price shape the app already reads', () => {
+    const map = buildPriceMap([priceRow()], ['2026-09-09', '2026-09-08'])
+    expect(map.get('a')).toEqual({ eur: '1.5', usd: '2', eur_foil: '4', usd_foil: '5' })
+  })
+
+  it("prefers today's snapshot over yesterday's", () => {
+    const map = buildPriceMap([
+      priceRow({ snapshot_date: '2026-09-08', price_regular_eur: 9 }),
+      priceRow({ snapshot_date: '2026-09-09', price_regular_eur: 1.5 }),
+    ], ['2026-09-09', '2026-09-08'])
+    expect(map.get('a').eur).toBe('1.5')
+  })
+
+  it('keeps a null price null rather than turning it into zero', () => {
+    const map = buildPriceMap([priceRow({ price_regular_eur: null })], ['2026-09-09'])
+    expect(map.get('a').eur).toBeNull()
+  })
+
+  it('attaches prices without mutating the cached cards', () => {
+    const cards = [card({ id: 'a' }), card({ id: 'b' })]
+    const attached = attachPrices(cards, buildPriceMap([priceRow()], ['2026-09-09']))
+    expect(attached[0].prices.eur).toBe('1.5')
+    expect(attached[1].prices).toBeUndefined()
+    expect(cards[0].prices).toBeUndefined()
+  })
+
+  it('returns the cards untouched when there are no prices at all', () => {
+    const cards = [card({ id: 'a' })]
+    expect(attachPrices(cards, new Map())).toBe(cards)
+  })
+})
+
+describe('sorting by price', () => {
+  const priced = (id, eur) => card({ id, name: id, prices: eur == null ? undefined : { eur: String(eur) } })
+
+  it('sorts high to low and low to high', () => {
+    const cards = [priced('mid', 5), priced('high', 20), priced('low', 1)]
+    expect(sortSpoilerCards(cards, 'priceDesc').map(c => c.id)).toEqual(['high', 'mid', 'low'])
+    expect(sortSpoilerCards(cards, 'priceAsc').map(c => c.id)).toEqual(['low', 'mid', 'high'])
+  })
+
+  // Most cards on an unreleased set have no price. Treating that as 0 would put
+  // every unknown ahead of the genuinely cheap cards on "low to high".
+  it('sinks unpriced cards to the bottom of both directions', () => {
+    const cards = [priced('none', null), priced('high', 20), priced('low', 1)]
+    expect(sortSpoilerCards(cards, 'priceDesc').map(c => c.id)).toEqual(['high', 'low', 'none'])
+    expect(sortSpoilerCards(cards, 'priceAsc').map(c => c.id)).toEqual(['low', 'high', 'none'])
+  })
+
+  it('follows the requested price source', () => {
+    const cards = [
+      card({ id: 'eurCheap', name: 'eurCheap', prices: { eur: '1', usd: '99' } }),
+      card({ id: 'eurRich', name: 'eurRich', prices: { eur: '50', usd: '2' } }),
+    ]
+    expect(sortSpoilerCards(cards, 'priceDesc', 'cardmarket_trend').map(c => c.id)).toEqual(['eurRich', 'eurCheap'])
+    expect(sortSpoilerCards(cards, 'priceDesc', 'tcgplayer_market').map(c => c.id)).toEqual(['eurCheap', 'eurRich'])
   })
 })

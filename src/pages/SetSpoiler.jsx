@@ -10,6 +10,8 @@ import { ChevronLeftIcon, ExternalLinkIcon, FilterIcon, SearchIcon, WishlistsIco
 import { sb } from '../lib/supabase'
 import { addMissingToWishlist } from '../lib/setCompletion'
 import { rarityColor } from '../lib/rarity'
+import { useSettings } from '../components/SettingsContext'
+import { getPrice, formatPrice } from '../lib/scryfall'
 import { useCardPreview, HOVER_PREVIEW_W } from '../components/deckBuilder/useCardPreview'
 import {
   EMPTY_SPOILER_FILTERS,
@@ -20,7 +22,9 @@ import {
   extractMechanics,
   fetchAllSets,
   fetchMechanicHistory,
+  fetchSetPrices,
   fetchSpoiledCards,
+  attachPrices,
   filterSpoilerCards,
   formatReleaseDate,
   isNewMechanic,
@@ -282,14 +286,20 @@ function SpoilerCardModal({ card, onClose }) {
 
 // ── Card grid ────────────────────────────────────────────────────────────────
 
-function SpoilerCardTile({ card, onOpen, previewProps }) {
+function SpoilerCardTile({ card, onOpen, previewProps, priceSource }) {
   const image = faceImages(card)[0]
+  const price = getPrice(card, false, { price_source: priceSource })
   return (
     <button
       type="button"
       className={styles.cardTile}
       onClick={() => onOpen(card)}
-      title={card.name}
+      // aria-label, not title: a native tooltip fires on the same hover that
+      // opens the card preview, so both appear at once and the tooltip lands on
+      // top of the image it is describing. Same fix as 6a8be86 in the build
+      // assistant. The tile already renders the name, and the preview shows the
+      // whole card, so nothing is lost visually.
+      aria-label={card.name}
       {...previewProps}
     >
       <span className={styles.imgContainer}>
@@ -305,12 +315,17 @@ function SpoilerCardTile({ card, onOpen, previewProps }) {
           : <span className={styles.cardImgEmpty}>{card.name}</span>}
       </span>
       <span className={styles.cardCaption}>
-        <span className={styles.cardName}>{card.name}</span>
         <span
           className={styles.rarityDot}
           style={{ background: rarityColor(card.rarity) }}
-          aria-label={card.rarity}
+          aria-hidden="true"
         />
+        <span className={styles.cardName}>{card.name}</span>
+        {/* No price is the normal state on an unreleased set, so it reads as
+            absent rather than as an error. */}
+        {price != null && (
+          <span className={styles.cardPrice}>{formatPrice(price, priceSource)}</span>
+        )}
       </span>
     </button>
   )
@@ -365,6 +380,8 @@ export default function SetSpoilerPage() {
   // of useCardPreview.js for the regression that shape exists to prevent.
   const { preview, hoverCapable, previewHandlers, anchorProps, clearPreview } = useCardPreview()
 
+  const { price_source } = useSettings()
+  const [prices, setPrices] = useState(null)
   const [filters, setFilters] = useState(EMPTY_SPOILER_FILTERS)
   const [sort, setSort] = useState('spoiled')
   const [railOpen, setRailOpen] = useState(false)
@@ -413,10 +430,23 @@ export default function SetSpoilerPage() {
     return () => { cancelled = true }
   }, [set])
 
+  // Loaded separately from the cards so a price failure costs prices only, and
+  // the grid paints before they arrive.
+  useEffect(() => {
+    if (!set) return
+    let cancelled = false
+    setPrices(null)
+    fetchSetPrices(set.code)
+      .then(map => { if (!cancelled) setPrices(map) })
+      .catch(() => { if (!cancelled) setPrices(new Map()) })
+    return () => { cancelled = true }
+  }, [set])
+
   useEffect(() => {
     document.title = set ? `${set.name} spoilers — DeckLoom` : 'Set spoilers — DeckLoom'
   }, [set])
 
+  const pricedCards = useMemo(() => attachPrices(cards, prices), [cards, prices])
   const mechanics = useMemo(() => extractMechanics(cards), [cards])
 
   // Novelty resolves after the cards are on screen; the rows render with their
@@ -445,8 +475,12 @@ export default function SetSpoilerPage() {
 
   const summary = useMemo(() => summarizeSpoilers(cards), [cards])
   const visible = useMemo(
-    () => sortSpoilerCards(filterSpoilerCards(cards, { ...filters, mechanic: mechanicParam }), sort),
-    [cards, filters, mechanicParam, sort],
+    () => sortSpoilerCards(
+      filterSpoilerCards(pricedCards, { ...filters, mechanic: mechanicParam }),
+      sort,
+      price_source,
+    ),
+    [pricedCards, filters, mechanicParam, sort, price_source],
   )
 
   // New mechanics float to the top of the rail: they are the reason to read the
@@ -656,6 +690,7 @@ export default function SetSpoilerPage() {
                   key={card.id}
                   card={card}
                   onOpen={openCard}
+                  priceSource={price_source}
                   // Only on pointer devices: on touch the hook's handlers are an
                   // onClick, which would fight the tile's own click. Tapping a
                   // tile opens the detail modal instead — a better answer than a

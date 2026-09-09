@@ -1,4 +1,5 @@
-import { sfGet, sfGetOrStatus } from './scryfall'
+import { sfGet, sfGetOrStatus, getPrice } from './scryfall'
+import { sb } from './supabase'
 
 // Release calendar and spoiler feed behind /sets and /sets/:code.
 //
@@ -238,6 +239,78 @@ export function mechanicReminderText(cards, keyword) {
   return null
 }
 
+// ── Prices ───────────────────────────────────────────────────────────────────
+
+// Prices come from our own `card_prices`, not from the Scryfall payload (which
+// `slimSpoilerCard` drops): it is the same shared daily snapshot the rest of the
+// app prices against, so a card cannot show one number here and another in the
+// collection. One query per set — `card_prices` is indexed by set_code and this
+// is the same shape sharedCardPrices.js already uses for its fallback path.
+//
+// Coverage is really a released-set feature. Measured 2026-09-09: The Hobbit
+// (released) 321/321 priced, Star Trek (Nov) 9/135 — preorder prices barely
+// exist in any source, so an unpriced spoiler is normal, not a failure.
+
+function snapshotDatesUtc() {
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+  const yesterday = new Date(today)
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1)
+  return [today.toISOString().slice(0, 10), yesterday.toISOString().slice(0, 10)]
+}
+
+/**
+ * Folds price rows into the Scryfall-shaped `prices` object the app's
+ * `getPrice`/`formatPrice` already read, so nothing downstream needs a second
+ * way to read a price. Today's snapshot wins over yesterday's.
+ */
+export function buildPriceMap(rows, [today] = snapshotDatesUtc()) {
+  const byId = new Map()
+  for (const row of rows || []) {
+    if (!row?.scryfall_id) continue
+    const existing = byId.get(row.scryfall_id)
+    // Rows arrive for both snapshot dates; keep today's, else whatever we have.
+    if (existing && existing.snapshot_date === today) continue
+    byId.set(row.scryfall_id, row)
+  }
+  const prices = new Map()
+  for (const [id, row] of byId) {
+    prices.set(id, {
+      eur: row.price_regular_eur != null ? String(row.price_regular_eur) : null,
+      usd: row.price_regular_usd != null ? String(row.price_regular_usd) : null,
+      eur_foil: row.price_foil_eur != null ? String(row.price_foil_eur) : null,
+      usd_foil: row.price_foil_usd != null ? String(row.price_foil_usd) : null,
+    })
+  }
+  return prices
+}
+
+/** Attaches prices without mutating the cached card objects. */
+export function attachPrices(cards, priceMap) {
+  if (!priceMap?.size) return cards || []
+  return (cards || []).map(card => {
+    const prices = priceMap.get(card.id)
+    return prices ? { ...card, prices } : card
+  })
+}
+
+export async function fetchSetPrices(setCode) {
+  const code = String(setCode || '').trim().toLowerCase()
+  if (!code) return new Map()
+  const snapshotDates = snapshotDatesUtc()
+  const { data, error } = await sb
+    .from('card_prices')
+    .select('scryfall_id,snapshot_date,price_regular_eur,price_foil_eur,price_regular_usd,price_foil_usd')
+    .eq('set_code', code)
+    .in('snapshot_date', snapshotDates)
+  // Prices are an enhancement — a set with none still browses fine.
+  if (error) {
+    console.warn('[sets] Could not load prices for', code, error.message)
+    return new Map()
+  }
+  return buildPriceMap(data, snapshotDates)
+}
+
 // ── Filter + sort ────────────────────────────────────────────────────────────
 
 export const EMPTY_SPOILER_FILTERS = { search: '', rarity: '', color: '', type: '', mechanic: '' }
@@ -261,6 +334,8 @@ export function filterSpoilerCards(cards, filters = {}) {
 export const SPOILER_SORTS = [
   { id: 'spoiled', label: 'Recently spoiled' },
   { id: 'name', label: 'Name' },
+  { id: 'priceDesc', label: 'Price — high to low' },
+  { id: 'priceAsc', label: 'Price — low to high' },
   { id: 'cmc', label: 'Mana value' },
   { id: 'rarity', label: 'Rarity' },
   { id: 'number', label: 'Card number' },
@@ -271,7 +346,7 @@ function collectorNumberValue(card) {
   return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER
 }
 
-export function sortSpoilerCards(cards, sortId) {
+export function sortSpoilerCards(cards, sortId, priceSource = 'cardmarket_trend') {
   const list = [...(cards || [])]
   // 'spoiled' is the order Scryfall already returned (order=spoiled), so it is
   // a copy rather than a re-sort — most cards carry no per-card preview date to
@@ -285,6 +360,21 @@ export function sortSpoilerCards(cards, sortId) {
   }
   if (sortId === 'number') {
     return list.sort((a, b) => collectorNumberValue(a) - collectorNumberValue(b) || byName(a, b))
+  }
+  if (sortId === 'priceDesc' || sortId === 'priceAsc') {
+    // An unpriced card sinks to the bottom of *both* directions rather than
+    // being treated as 0. On an unreleased set most cards have no price yet, so
+    // "cheapest first" would otherwise be a list of unknowns with the actual
+    // cheap cards buried under them.
+    const desc = sortId === 'priceDesc'
+    return list.sort((a, b) => {
+      const pa = getPrice(a, false, { price_source: priceSource })
+      const pb = getPrice(b, false, { price_source: priceSource })
+      if (pa == null && pb == null) return byName(a, b)
+      if (pa == null) return 1
+      if (pb == null) return -1
+      return (desc ? pb - pa : pa - pb) || byName(a, b)
+    })
   }
   return list
 }

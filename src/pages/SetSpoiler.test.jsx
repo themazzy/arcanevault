@@ -61,6 +61,12 @@ const card = (over = {}) => ({
   ...over,
 })
 
+// The tile carries its name as aria-label rather than title: a native tooltip
+// would fire on the same hover that opens the card preview and land on top of
+// the image (see 6a8be86).
+const tile = (name) => screen.getByRole('button', { name })
+const maybeTile = (name) => screen.queryByRole('button', { name })
+
 const renderPage = (path = '/sets/trk') => render(
   <MemoryRouter initialEntries={[path]}>
     <Routes><Route path="/sets/:code" element={<SetSpoilerPage />} /></Routes>
@@ -130,23 +136,23 @@ describe('SetSpoilerPage', () => {
     ])
     renderPage()
 
-    await waitFor(() => expect(screen.getByTitle('Rare One')).toBeTruthy())
+    await waitFor(() => expect(tile('Rare One')).toBeTruthy())
     const rarityGroup = screen.getByRole('heading', { name: 'Rarity' }).parentElement
     fireEvent.click(within(rarityGroup).getByText('rare'))
 
-    await waitFor(() => expect(screen.queryByTitle('Common One')).toBeNull())
+    await waitFor(() => expect(maybeTile('Common One')).toBeNull())
     expect(screen.getByText('1 of 2 cards')).toBeTruthy()
 
     fireEvent.click(screen.getByText('Clear filters'))
-    await waitFor(() => expect(screen.getByTitle('Common One')).toBeTruthy())
+    await waitFor(() => expect(tile('Common One')).toBeTruthy())
   })
 
   it('opens a card and shows its rules text', async () => {
     fetchSpoiledCards.mockResolvedValue([card({ oracle_text: 'Menace (This creature can\'t be blocked except by two or more creatures.)' })])
     renderPage()
 
-    await waitFor(() => expect(screen.getByTitle('General Chang')).toBeTruthy())
-    fireEvent.click(screen.getByTitle('General Chang'))
+    await waitFor(() => expect(tile('General Chang')).toBeTruthy())
+    fireEvent.click(tile('General Chang'))
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'General Chang' })).toBeTruthy())
     expect(screen.getByText(/can't be blocked except by two or more creatures/)).toBeTruthy()
@@ -176,10 +182,10 @@ describe('SetSpoilerPage', () => {
     fetchSpoiledCards.mockResolvedValue([card()])
     renderPage()
 
-    await waitFor(() => expect(screen.getByTitle('General Chang')).toBeTruthy())
+    await waitFor(() => expect(tile('General Chang')).toBeTruthy())
     const rail = screen.getByRole('complementary', { name: /filter the revealed cards/i })
     expect(within(rail).getByRole('heading', { name: 'Rarity' })).toBeTruthy()
-    expect(within(rail).queryByTitle('General Chang')).toBeNull()
+    expect(within(rail).queryByRole('button', { name: 'General Chang' })).toBeNull()
   })
 
   it('folds a long mechanic list behind a Show all', async () => {
@@ -203,8 +209,8 @@ describe('SetSpoilerPage', () => {
     ])
     renderPage('/sets/trk?mechanic=Station')
 
-    await waitFor(() => expect(screen.getByTitle('Stationed')).toBeTruthy())
-    expect(screen.queryByTitle('Flier')).toBeNull()
+    await waitFor(() => expect(tile('Stationed')).toBeTruthy())
+    expect(maybeTile('Flier')).toBeNull()
   })
 })
 
@@ -216,10 +222,10 @@ describe('hover preview', () => {
   it('shows an enlarged card while the pointer is over a tile', async () => {
     fetchSpoiledCards.mockResolvedValue([card()])
     renderPage()
-    await waitFor(() => expect(screen.getByTitle('General Chang')).toBeTruthy())
+    await waitFor(() => expect(tile('General Chang')).toBeTruthy())
     expect(previewAnchor()).toBeNull()
 
-    fireEvent.mouseEnter(screen.getByTitle('General Chang'), { clientX: 400, clientY: 300 })
+    fireEvent.mouseEnter(tile('General Chang'), { clientX: 400, clientY: 300 })
     const anchor = previewAnchor()
     expect(anchor).toBeTruthy()
     expect(anchor.style.width).toBe(`${340}px`)
@@ -230,25 +236,25 @@ describe('hover preview', () => {
   it('follows the cursor without re-rendering through React state', async () => {
     fetchSpoiledCards.mockResolvedValue([card()])
     renderPage()
-    await waitFor(() => expect(screen.getByTitle('General Chang')).toBeTruthy())
+    await waitFor(() => expect(tile('General Chang')).toBeTruthy())
 
-    const tile = screen.getByTitle('General Chang')
-    fireEvent.mouseEnter(tile, { clientX: 100, clientY: 200 })
+    const target = tile('General Chang')
+    fireEvent.mouseEnter(target, { clientX: 100, clientY: 200 })
     const first = previewAnchor().style.transform
 
-    fireEvent.mouseMove(tile, { clientX: 500, clientY: 400 })
+    fireEvent.mouseMove(target, { clientX: 500, clientY: 400 })
     expect(previewAnchor().style.transform).not.toBe(first)
   })
 
   it('hides the preview when the pointer leaves', async () => {
     fetchSpoiledCards.mockResolvedValue([card()])
     renderPage()
-    await waitFor(() => expect(screen.getByTitle('General Chang')).toBeTruthy())
+    await waitFor(() => expect(tile('General Chang')).toBeTruthy())
 
-    fireEvent.mouseEnter(screen.getByTitle('General Chang'), { clientX: 400, clientY: 300 })
+    fireEvent.mouseEnter(tile('General Chang'), { clientX: 400, clientY: 300 })
     expect(previewAnchor()).toBeTruthy()
 
-    fireEvent.mouseLeave(screen.getByTitle('General Chang'))
+    fireEvent.mouseLeave(tile('General Chang'))
     expect(previewAnchor()).toBeNull()
   })
 
@@ -257,12 +263,12 @@ describe('hover preview', () => {
   it('drops the preview when the card is opened', async () => {
     fetchSpoiledCards.mockResolvedValue([card()])
     renderPage()
-    await waitFor(() => expect(screen.getByTitle('General Chang')).toBeTruthy())
+    await waitFor(() => expect(tile('General Chang')).toBeTruthy())
 
-    fireEvent.mouseEnter(screen.getByTitle('General Chang'), { clientX: 400, clientY: 300 })
+    fireEvent.mouseEnter(tile('General Chang'), { clientX: 400, clientY: 300 })
     expect(previewAnchor()).toBeTruthy()
 
-    fireEvent.click(screen.getByTitle('General Chang'))
+    fireEvent.click(tile('General Chang'))
     expect(previewAnchor()).toBeNull()
   })
 })

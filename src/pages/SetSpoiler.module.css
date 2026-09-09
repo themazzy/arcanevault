@@ -368,6 +368,41 @@
   .cardTile:hover .cardName { color: var(--text); }
 }
 
+.cardCaption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cardName {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cardPrice {
+  flex-shrink: 0;
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+.tileSkeleton {
+  aspect-ratio: 63 / 88;
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, var(--s2) 25%, var(--s3) 37%, var(--s2) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+@keyframes shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
 /* The shared hover preview, matching BuildAssistant.module.css — the anchor is
    positioned by useCardPreview writing a transform straight to this node, so it
    must stay `position: fixed` at the origin with nothing else moving it. */
