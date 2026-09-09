@@ -136,7 +136,15 @@ export async function sfGetOrStatus(url, opts = {}) {
   try {
     const fetchOpts = { headers: SF_HEADERS }
     if (opts.noCache) fetchOpts.cache = 'no-store'
-    const res = await runScryfallRequest(() => fetch(sfUrl(url), fetchOpts))
+    // `retries` is exposed because retrying is not always right. A rate-limited
+    // Scryfall answers 429 *without* CORS headers, so the browser reports it as
+    // a network error and the retry loop treats it as transient — turning one
+    // rate-limited request into four, each one refreshing the cooldown. Callers
+    // doing optional enrichment should pass 0.
+    const res = await runScryfallRequest(
+      () => fetch(sfUrl(url), fetchOpts),
+      opts.retries != null ? { retries: opts.retries } : undefined,
+    )
     if (!res) return { ok: false, status: 0 }
     if (!res.ok) return { ok: false, status: res.status }
     return { ok: true, status: res.status, json: await res.json() }

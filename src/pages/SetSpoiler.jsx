@@ -473,8 +473,12 @@ export default function SetSpoilerPage() {
         const history = await fetchMechanicHistory(name, { setCode: set.code, releasedAt: set.released_at })
         if (cancelled) return
         // null means the lookup could not be answered, not that the mechanic is
-        // new — leave it unflagged.
-        if (history) setMechanicHistory(prev => ({ ...prev, [name]: history }))
+        // new — leave it unflagged. It also means we are being refused, so stop
+        // asking: continuing the loop against a rate-limited endpoint fills the
+        // console with failures and keeps the cooldown alive. The remaining
+        // keywords stay unflagged and uncached, and the next visit retries.
+        if (!history) return
+        setMechanicHistory(prev => ({ ...prev, [name]: history }))
       }
     })().catch(() => { /* a missing novelty flag is not worth surfacing */ })
     return () => { cancelled = true }

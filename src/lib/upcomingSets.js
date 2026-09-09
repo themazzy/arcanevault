@@ -612,7 +612,11 @@ export async function fetchMechanicHistory(keyword, { setCode, releasedAt }) {
   const clauses = [`keyword:"${name}"`, `-e:${setCode}`]
   if (releasedAt) clauses.push(`date<${releasedAt}`)
   const url = `${SEARCH_URL}?q=${encodeURIComponent(clauses.join(' '))}&unique=cards&order=released&dir=asc`
-  const result = await sfGetOrStatus(url)
+  // No retries: this is optional enrichment, and a rate-limited Scryfall
+  // answers 429 with no CORS headers, which the browser surfaces as a network
+  // error. The generic retry loop reads that as transient and turns one
+  // refused request into four, each extending the cooldown.
+  const result = await sfGetOrStatus(url, { retries: 0 })
 
   // 404 is Scryfall's "no cards match", and it is the answer that makes a
   // mechanic new. Every other failure — 429, 5xx, offline — is the absence of
