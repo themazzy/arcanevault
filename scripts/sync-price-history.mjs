@@ -1,4 +1,6 @@
 import 'dotenv/config'
+import fs from 'node:fs'
+import path from 'node:path'
 import { createClient } from '@supabase/supabase-js'
 import { streamBulkEntries } from './lib/mtgjson-stream.mjs'
 import { upsertWithRetry } from './lib/sync-retry.mjs'
@@ -35,6 +37,15 @@ const IDENTIFIERS_URL = 'https://mtgjson.com/api/v5/AllIdentifiers.json.gz'
 // inside the timeout. Same reasoning as the oracle sync's 100.
 const UPSERT_BATCH = 250
 const LOG_EVERY = 20000
+// The derived uuid -> scryfallId pairs, cached between runs by the workflow.
+// AllIdentifiers is 219 MB of the ~362 MB this job moves and is the slower half
+// to stream, while the mapping only changes when printings are added — so
+// re-downloading it every run is the single biggest avoidable cost here.
+const CACHE_PATH = process.env.ID_MAP_CACHE || '.cache/mtgjson-scryfall-ids.tsv'
+// How wrong a cached map may be before it is discarded. Steady state is ~22
+// unmapped of 101k; a new set landing pushes that into the thousands.
+const UNMAPPED_RATIO = 0.01
+const UNMAPPED_FLOOR = 500
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
   console.error('Missing SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY.')
@@ -49,11 +60,16 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY, {
  * MTGJSON keys everything by its own uuid, so a uuid -> scryfallId map is
  * needed before the prices mean anything.
  *
- * Streamed rather than stored: keeping mtgjson_uuid on card_prints would cost
- * ~4.4 MB of a database that is the scarce resource here, while runner
- * bandwidth is free. It also cannot drift.
+ * Not stored in Postgres: an mtgjson_uuid column on card_prints would cost
+ * ~4.4 MB of the resource that is actually scarce here, while runner bandwidth
+ * is free.
+ *
+ * It IS cached on the runner, because AllIdentifiers is 219 MB of the ~362 MB
+ * this job moves and is the slower half to stream — while the mapping itself
+ * only changes when printings are added. The cache holds the derived pairs
+ * (~9 MB of TSV) rather than the source file.
  */
-async function loadScryfallIdMap() {
+async function fetchScryfallIdMap() {
   const map = new Map()
   let scanned = 0
   for await (const [uuid, card] of streamBulkEntries(IDENTIFIERS_URL, { userAgent: USER_AGENT })) {
@@ -61,8 +77,29 @@ async function loadScryfallIdMap() {
     const sid = card?.identifiers?.scryfallId
     if (sid) map.set(uuid, sid)
   }
-  console.log(`[Price History] mapped ${map.size.toLocaleString()} of ${scanned.toLocaleString()} printings to Scryfall ids.`)
+  console.log(`[Price History] mapped ${map.size.toLocaleString()} of ${scanned.toLocaleString()} printings from AllIdentifiers.`)
   return map
+}
+
+function readCachedIdMap(cachePath) {
+  if (!cachePath || !fs.existsSync(cachePath)) return null
+  const map = new Map()
+  for (const line of fs.readFileSync(cachePath, 'utf8').split('\n')) {
+    if (!line) continue
+    const tab = line.indexOf('\t')
+    if (tab > 0) map.set(line.slice(0, tab), line.slice(tab + 1))
+  }
+  if (!map.size) return null
+  console.log(`[Price History] reusing cached id map (${map.size.toLocaleString()} printings) — AllIdentifiers not downloaded.`)
+  return map
+}
+
+function writeCachedIdMap(cachePath, map) {
+  if (!cachePath) return
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true })
+  const out = []
+  for (const [uuid, sid] of map) out.push(`${uuid}\t${sid}`)
+  fs.writeFileSync(cachePath, out.join('\n'))
 }
 
 async function flush(rows) {
@@ -81,33 +118,51 @@ async function flush(rows) {
 
 async function main() {
   const started = Date.now()
-  console.log('[Price History] Loading MTGJSON identifier map…')
-  const idMap = await loadScryfallIdMap()
 
-  // The window origin has to be the same for every row, so the client needs one
-  // start_date rather than one per card. It cannot be known before reading the
-  // data, so the stream is walked once to collect prices and the newest date,
-  // then rows are built. Only cards with a Cardmarket EUR price are retained,
-  // which is ~88% of the file.
+  // Prices are read first and keyed by uuid, so the id map can be validated
+  // against what the file actually contains before committing to it.
   console.log('[Price History] Streaming AllPrices…')
-  // Keyed by Scryfall id, not uuid: the mapping is many-to-one (MTGJSON gives
-  // etched/foil variants their own uuids where Scryfall keeps one id), so the
-  // finishes are merged here. Only the Cardmarket date maps are retained —
-  // dropping the rest of each entry keeps this far smaller than holding the
-  // parsed objects.
-  const byScryfallId = new Map()
-  let latest = null
-  let scanned = 0, unmapped = 0, merged = 0
+  const priced = []
+  let scanned = 0
 
   for await (const [uuid, entry] of streamBulkEntries(PRICES_URL, { userAgent: USER_AGENT })) {
     scanned++
     if (scanned % LOG_EVERY === 0) {
       console.log(`[Price History] scanned ${scanned.toLocaleString()} printings…`)
     }
-    if (!entry?.paper?.cardmarket?.retail) continue
-    const sid = idMap.get(uuid)
-    if (!sid) { unmapped++; continue }
+    if (entry?.paper?.cardmarket?.retail) priced.push([uuid, entry])
+  }
 
+  // Cached map first, then a freshness check: a cached map cannot know about
+  // printings added since it was built, and a new set release is exactly when
+  // it would silently drop a few hundred cards. If too many uuids fail to
+  // resolve, the cache is discarded and AllIdentifiers fetched for real — so
+  // the saving never costs coverage.
+  let idMap = readCachedIdMap(CACHE_PATH)
+  let fromCache = !!idMap
+  let unmapped = idMap ? priced.filter(([uuid]) => !idMap.has(uuid)).length : priced.length
+
+  if (fromCache && unmapped > Math.max(UNMAPPED_FLOOR, priced.length * UNMAPPED_RATIO)) {
+    console.log(`[Price History] cached map missed ${unmapped.toLocaleString()} printings — refreshing from AllIdentifiers.`)
+    idMap = null
+    fromCache = false
+  }
+  if (!idMap) {
+    idMap = await fetchScryfallIdMap()
+    writeCachedIdMap(CACHE_PATH, idMap)
+    unmapped = priced.filter(([uuid]) => !idMap.has(uuid)).length
+  }
+
+  // Keyed by Scryfall id, not uuid: the mapping is many-to-one (MTGJSON gives
+  // etched/foil variants their own uuids where Scryfall keeps one id), so the
+  // finishes are merged here.
+  const byScryfallId = new Map()
+  let latest = null
+  let merged = 0
+
+  for (const [uuid, entry] of priced) {
+    const sid = idMap.get(uuid)
+    if (!sid) continue
     if (byScryfallId.has(sid)) merged++
     byScryfallId.set(sid, mergeRetailInto(byScryfallId.get(sid), entry))
   }

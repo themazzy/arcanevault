@@ -67,3 +67,6 @@ harness-build-assist.txt
 
 # Database RPC latency report (npm run harness:db-perf)
 harness-db-perf.txt
+
+# MTGJSON id map cached between price-history sync runs
+.cache/

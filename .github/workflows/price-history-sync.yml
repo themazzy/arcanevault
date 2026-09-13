@@ -27,6 +27,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # AllIdentifiers is 219 MB of the ~362 MB this job moves, and it exists
+      # only to resolve MTGJSON uuids to Scryfall ids — a mapping that changes
+      # only when printings are added. The derived pairs (~9 MB of TSV) are
+      # cached instead, so most runs skip that download entirely.
+      #
+      # A unique key with a shared restore-keys prefix is the always-save
+      # pattern: every run restores the newest map and writes back whatever it
+      # ended up with. Freshness is not on a timer — the script counts how many
+      # printings the cached map fails to resolve and re-downloads
+      # AllIdentifiers when that crosses a threshold (a new set release), so a
+      # stale cache costs one download, never coverage.
+      - name: Restore MTGJSON id map
+        uses: actions/cache@v6
+        with:
+          path: .cache/mtgjson-scryfall-ids.tsv
+          key: mtgjson-ids-v1-${{ github.run_id }}
+          restore-keys: mtgjson-ids-v1-
+
       - name: Sync price history
         run: npm run sync:price-history
         env:
