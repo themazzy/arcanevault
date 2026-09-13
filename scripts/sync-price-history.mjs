@@ -5,14 +5,21 @@ import { createClient } from '@supabase/supabase-js'
 import { streamBulkEntries } from './lib/mtgjson-stream.mjs'
 import { upsertWithRetry } from './lib/sync-retry.mjs'
 import {
+  CURRENCIES,
   HISTORY_DAYS,
   fillSlots,
   globallyMissingSlots,
+  hasStorableRetail,
   latestDateInAccumulator,
   mergeRetailBlockInto,
+  retailBlocks,
   rowFromAccumulator,
   windowStart,
 } from './lib/price-history-core.mjs'
+
+// Every stored series column, in one place so the outage fill and the logging
+// stay in step with CURRENCIES.
+const PRICE_COLUMNS = CURRENCIES.flatMap(c => [c.column, c.foilColumn])
 
 // Fills card_price_history from MTGJSON's rolling ~90-day AllPrices export.
 //
@@ -130,11 +137,10 @@ async function main() {
     if (scanned % LOG_EVERY === 0) {
       console.log(`[Price History] scanned ${scanned.toLocaleString()} printings…`)
     }
-    // Only the Cardmarket retail block is retained. Keeping whole entries ran
-    // the job out of heap — each also carries tcgplayer, cardkingdom, manapool
-    // and every provider's buylist.
-    const retail = entry?.paper?.cardmarket?.retail
-    if (retail) priced.push([uuid, retail])
+    // Only the retail blocks we store are retained. Keeping whole entries ran
+    // the job out of heap — each also carries cardkingdom, manapool and every
+    // provider's buylist.
+    if (hasStorableRetail(entry)) priced.push([uuid, retailBlocks(entry)])
   }
 
   // Cached map first, then a freshness check: a cached map cannot know about
@@ -164,18 +170,18 @@ async function main() {
   let latest = null
   let merged = 0
 
-  for (const [uuid, retail] of priced) {
+  for (const [uuid, blocks] of priced) {
     const sid = idMap.get(uuid)
     if (!sid) continue
     if (byScryfallId.has(sid)) merged++
-    byScryfallId.set(sid, mergeRetailBlockInto(byScryfallId.get(sid), retail))
+    byScryfallId.set(sid, mergeRetailBlockInto(byScryfallId.get(sid), blocks))
   }
 
   for (const acc of byScryfallId.values()) {
     const cardLatest = latestDateInAccumulator(acc)
     if (cardLatest && (!latest || cardLatest > latest)) latest = cardLatest
   }
-  if (!latest) throw new Error('No Cardmarket dates found in AllPrices — has the format changed?')
+  if (!latest) throw new Error('No Cardmarket or TCGplayer dates found in AllPrices — has the format changed?')
 
   const startDate = windowStart(latest, HISTORY_DAYS)
   console.log(`[Price History] ${byScryfallId.size.toLocaleString()} printings; window ${startDate} -> ${latest} (${unmapped.toLocaleString()} unmapped, ${merged.toLocaleString()} variant merges).`)
@@ -189,17 +195,18 @@ async function main() {
     if (row) rows.push(row)
   }
 
-  const missingNormal = globallyMissingSlots(rows.map(r => r.prices_eur), HISTORY_DAYS)
-  const missingFoil = globallyMissingSlots(rows.map(r => r.prices_foil_eur), HISTORY_DAYS)
-  if (missingNormal.size || missingFoil.size) {
-    const asDates = slots => [...slots]
-      .map(i => new Date(Date.parse(`${startDate}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10))
-      .join(', ')
-    console.log(`[Price History] source published nothing on ${missingNormal.size} day(s): ${asDates(missingNormal) || '—'}. Interpolating those for every card.`)
-  }
-  for (const row of rows) {
-    fillSlots(row.prices_eur, missingNormal)
-    fillSlots(row.prices_foil_eur, missingFoil)
+  // Per column: a day Cardmarket failed to publish is not necessarily a day
+  // TCGplayer failed to publish, so the outage sets are computed independently.
+  const asDates = slots => [...slots]
+    .map(i => new Date(Date.parse(`${startDate}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10))
+    .join(', ')
+
+  for (const column of PRICE_COLUMNS) {
+    const missing = globallyMissingSlots(rows.map(r => r[column]), HISTORY_DAYS)
+    if (missing.size) {
+      console.log(`[Price History] ${column}: source published nothing on ${missing.size} day(s): ${asDates(missing)}. Interpolating for every card.`)
+    }
+    for (const row of rows) fillSlots(row[column], missing)
   }
 
   let written = 0

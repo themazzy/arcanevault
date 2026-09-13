@@ -1148,7 +1148,7 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
 
           {activeTab === 'prices' && (
             <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
-              <PriceHistoryChart scryfallId={fc.id || card.scryfall_id || null} foil={!!card.foil} />
+              <PriceHistoryChart scryfallId={fc.id || card.scryfall_id || null} foil={!!card.foil} priceSource={priceSource} />
               <div className={styles.priceSectionHead}>
                 <span className={styles.priceSectionLabel}>All prices</span>
                 {pricesAreLive && <span className={`${styles.detailStatusPill} ${styles.detailStatusLive}`}>Fetched live from Scryfall</span>}

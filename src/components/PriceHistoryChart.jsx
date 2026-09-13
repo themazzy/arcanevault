@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   bridgeShortGaps,
   expandSeries,
+  historySource,
   fetchPriceHistory,
   niceTicks,
   priceBounds,
@@ -11,7 +12,8 @@ import {
 import styles from './PriceHistoryChart.module.css'
 
 /**
- * Cardmarket price over the stored window, for one printing and one finish.
+ * Price history over the stored window, for one printing, one finish and the
+ * marketplace the user prices in (PRICE_SOURCES / useSettings().price_source).
  *
  * ONE series, so no legend — the heading names it. Normal and foil are not
  * drawn together: card detail is about a specific owned copy, the card knows
@@ -31,10 +33,6 @@ const MIN_WIDTH = 280
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-function formatEur(v) {
-  return `€${v.toFixed(2)}`
-}
-
 function formatDay(iso) {
   const [, m, d] = iso.split('-')
   return `${Number(d)} ${MONTHS[Number(m) - 1]}`
@@ -47,7 +45,7 @@ function formatTick(v) {
   return v.toFixed(2)
 }
 
-export default function PriceHistoryChart({ scryfallId, foil = false }) {
+export default function PriceHistoryChart({ scryfallId, foil = false, priceSource = 'cardmarket_trend' }) {
   const [row, setRow] = useState(undefined)     // undefined = loading, null = none
   const [hoverIdx, setHoverIdx] = useState(null)
   const [width, setWidth] = useState(0)
@@ -76,7 +74,12 @@ export default function PriceHistoryChart({ scryfallId, foil = false }) {
     return () => ro.disconnect()
   }, [row])
 
-  const points = useMemo(() => (row ? bridgeShortGaps(expandSeries(row, foil)) : []), [row, foil])
+  const source = useMemo(() => historySource(priceSource), [priceSource])
+  const money = v => `${source.symbol}${v.toFixed(2)}`
+  const points = useMemo(
+    () => (row ? bridgeShortGaps(expandSeries(row, foil, priceSource)) : []),
+    [row, foil, priceSource],
+  )
   const stats = useMemo(() => summarize(points), [points])
   const segments = useMemo(() => toSegments(points), [points])
   const bounds = useMemo(() => (stats ? priceBounds(stats.min, stats.max) : null), [stats])
@@ -130,12 +133,12 @@ export default function PriceHistoryChart({ scryfallId, foil = false }) {
     <figure className={`${styles.figure} ${tone}`}>
       <figcaption className={styles.head}>
         <span className={styles.label}>
-          Cardmarket{foil ? ' foil' : ''} · {formatDay(stats.first.date)} – {formatDay(stats.last.date)}
+          {source.label}{foil ? ' foil' : ''} · {formatDay(stats.first.date)} – {formatDay(stats.last.date)}
         </span>
         <span className={styles.headline}>
-          <span className={styles.now}>{formatEur(stats.last.price)}</span>
+          <span className={styles.now}>{money(stats.last.price)}</span>
           <span className={up ? styles.up : styles.down}>
-            {up ? '▲' : '▼'} {formatEur(Math.abs(stats.change))}
+            {up ? '▲' : '▼'} {money(Math.abs(stats.change))}
             {stats.changePct != null && ` (${up ? '+' : '−'}${Math.abs(stats.changePct).toFixed(1)}%)`}
           </span>
         </span>
@@ -155,10 +158,10 @@ export default function PriceHistoryChart({ scryfallId, foil = false }) {
             viewBox={`0 0 ${width} ${HEIGHT}`}
             role="img"
             aria-label={
-              `Cardmarket${foil ? ' foil' : ''} price, ${stats.first.date} to ${stats.last.date}: `
-              + `${formatEur(stats.first.price)} to ${formatEur(stats.last.price)}, `
+              `${source.label}${foil ? ' foil' : ''} price, ${stats.first.date} to ${stats.last.date}: `
+              + `${money(stats.first.price)} to ${money(stats.last.price)}, `
               + `${up ? 'up' : 'down'} ${Math.abs(stats.changePct ?? 0).toFixed(1)} percent. `
-              + `Low ${formatEur(stats.min)}, high ${formatEur(stats.max)}.`
+              + `Low ${money(stats.min)}, high ${money(stats.max)}.`
             }
           >
             {ticks.map(v => (
@@ -204,8 +207,8 @@ export default function PriceHistoryChart({ scryfallId, foil = false }) {
 
       <div className={styles.readout} aria-live="polite">
         {hovered
-          ? <><strong>{formatEur(hovered.price)}</strong><span className={styles.readoutSep}>·</span>{formatDay(hovered.date)}</>
-          : <>Low <strong>{formatEur(stats.min)}</strong><span className={styles.readoutSep}>·</span>High <strong>{formatEur(stats.max)}</strong></>}
+          ? <><strong>{money(hovered.price)}</strong><span className={styles.readoutSep}>·</span>{formatDay(hovered.date)}</>
+          : <>Low <strong>{money(stats.min)}</strong><span className={styles.readoutSep}>·</span>High <strong>{money(stats.max)}</strong></>}
       </div>
     </figure>
   )

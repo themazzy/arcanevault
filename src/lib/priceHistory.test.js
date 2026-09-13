@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bridgeShortGaps, expandSeries, niceTicks, priceBounds, summarize, toSegments } from './priceHistory'
+import { bridgeShortGaps, expandSeries, historySource, niceTicks, priceBounds, summarize, toSegments } from './priceHistory'
 
 // The stored row is an index-aligned array with a shared origin, so a point's
 // date is derived, never stored. These pin the derivation and — more
@@ -184,5 +184,57 @@ describe('niceTicks', () => {
   it('returns nothing for a degenerate range', () => {
     expect(niceTicks(5, 5)).toEqual([])
     expect(niceTicks(NaN, 3)).toEqual([])
+  })
+})
+
+// ── Price source ────────────────────────────────────────────────────────────
+// PRICE_SOURCES offers Cardmarket (EUR) and TCGplayer (USD). The chart drew
+// Cardmarket unconditionally at first, so someone pricing in TCGplayer read a
+// currency they do not use, ending on a number that disagreed with every other
+// figure on the page.
+
+const bothRow = {
+  start_date: '2026-09-01',
+  prices_eur: [4, 5],
+  prices_foil_eur: [9, 10],
+  prices_usd: [6, 7],
+  prices_usd_foil: [12, 13],
+}
+
+describe('historySource', () => {
+  it('maps each price source to its columns and symbol', () => {
+    expect(historySource('cardmarket_trend')).toMatchObject({ column: 'prices_eur', symbol: '€' })
+    expect(historySource('tcgplayer_market')).toMatchObject({ column: 'prices_usd', symbol: '$' })
+  })
+
+  it('falls back to Cardmarket for an unknown or missing source', () => {
+    // Rather than rendering an empty chart if a new source id ever appears.
+    expect(historySource('something_else').column).toBe('prices_eur')
+    expect(historySource(undefined).column).toBe('prices_eur')
+  })
+})
+
+describe('expandSeries with a price source', () => {
+  it('reads the EUR columns for Cardmarket', () => {
+    expect(expandSeries(bothRow, false, 'cardmarket_trend').map(p => p.price)).toEqual([4, 5])
+    expect(expandSeries(bothRow, true, 'cardmarket_trend').map(p => p.price)).toEqual([9, 10])
+  })
+
+  it('reads the USD columns for TCGplayer', () => {
+    expect(expandSeries(bothRow, false, 'tcgplayer_market').map(p => p.price)).toEqual([6, 7])
+    expect(expandSeries(bothRow, true, 'tcgplayer_market').map(p => p.price)).toEqual([12, 13])
+  })
+
+  it('defaults to Cardmarket when no source is given', () => {
+    expect(expandSeries(bothRow, false).map(p => p.price)).toEqual([4, 5])
+  })
+
+  it('is empty when the selected marketplace does not price the card', () => {
+    // ~4,600 printings have one marketplace but not the other, so the chart has
+    // to say "no history" rather than silently falling back to the other
+    // currency and showing a number in the wrong units.
+    const eurOnly = { start_date: '2026-09-01', prices_eur: [4], prices_usd: null }
+    expect(expandSeries(eurOnly, false, 'tcgplayer_market')).toEqual([])
+    expect(expandSeries(eurOnly, false, 'cardmarket_trend')).toHaveLength(1)
   })
 })

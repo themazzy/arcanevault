@@ -72,53 +72,86 @@ export function windowStart(latestIso, days = HISTORY_DAYS) {
 }
 
 /**
- * Fold one MTGJSON entry's Cardmarket retail dates into an accumulator keyed by
- * Scryfall id.
+ * The two marketplaces the app can price in, matching PRICE_SOURCES in
+ * src/lib/scryfall.js — Cardmarket (EUR) and TCGplayer (USD).
  *
- * Needed because the mapping is many-to-one: MTGJSON issues separate uuids for
- * variants (etched and foil printings above all) that Scryfall keeps as a
- * single id with several finishes. Left unmerged, a batch carries the same
- * scryfall_id twice and Postgres rejects the whole statement with "ON CONFLICT
- * DO UPDATE command cannot affect row a second time".
+ * MTGJSON also carries cardkingdom and manapool, and a buylist for each
+ * provider. None of those are stored: nothing in the app prices from them, and
+ * every extra series is ~24 MB of a 500 MB database.
  *
- * Merging rather than last-one-wins because the variants carry DIFFERENT
- * coverage — typically one has the normal series and the other the foil — so
- * picking either alone silently drops half the card's history.
+ * TCGplayer additionally reports an `etched` finish on ~1,200 printings. It is
+ * skipped for the same reason — PRICE_SOURCES has no etched entry, so there is
+ * no surface that could display it.
  */
-export function mergeRetailInto(acc, priceEntry) {
-  return mergeRetailBlockInto(acc, priceEntry?.paper?.cardmarket?.retail)
+export const CURRENCIES = [
+  { key: 'eur', provider: 'cardmarket', column: 'prices_eur', foilColumn: 'prices_foil_eur' },
+  { key: 'usd', provider: 'tcgplayer', column: 'prices_usd', foilColumn: 'prices_usd_foil' },
+]
+
+/** True when an entry has any retail block we care about. */
+export function hasStorableRetail(priceEntry) {
+  return CURRENCIES.some(c => priceEntry?.paper?.[c.provider]?.retail)
+}
+
+/** The blocks worth retaining while streaming, keyed by currency. */
+export function retailBlocks(priceEntry) {
+  const out = {}
+  for (const c of CURRENCIES) {
+    const retail = priceEntry?.paper?.[c.provider]?.retail
+    if (retail) out[c.key] = retail
+  }
+  return out
 }
 
 /**
- * As mergeRetailInto, but taking the `retail` block directly.
+ * Fold one printing's retail blocks into an accumulator keyed by Scryfall id.
  *
- * The ingest keeps only this block while streaming. Retaining whole parsed
- * entries instead ran the job out of heap: each one also carries tcgplayer,
- * cardkingdom and manapool, plus every provider's buylist — several times the
- * data, for four providers we do not store.
+ * Merging is required, not a nicety: the uuid -> scryfallId mapping is
+ * many-to-one, because MTGJSON issues separate uuids for variants (etched and
+ * foil above all) that Scryfall keeps as one id with several finishes. Left
+ * unmerged a batch carries the same scryfall_id twice and Postgres rejects the
+ * whole statement with "ON CONFLICT DO UPDATE command cannot affect row a
+ * second time". Last-one-wins would not do either — the variants carry
+ * DIFFERENT coverage, typically one the normal series and the other the foil,
+ * so keeping one drops half the card's history.
+ *
+ * The ingest keeps only these blocks while streaming. Retaining whole parsed
+ * entries instead ran the job out of heap: each also carries cardkingdom,
+ * manapool and every provider's buylist.
  */
-export function mergeRetailBlockInto(acc, retail) {
-  if (!retail) return acc
-  const target = acc || { normal: {}, foil: {} }
-  for (const finish of ['normal', 'foil']) {
-    const branch = retail[finish]
-    if (!branch) continue
-    for (const [iso, price] of Object.entries(branch)) {
-      // A day already claimed by another variant keeps its value; they are the
-      // same card on the same day, so this only decides ties.
-      if (target[finish][iso] == null) target[finish][iso] = price
+export function mergeRetailBlockInto(acc, blocks) {
+  if (!blocks) return acc
+  const target = acc || {}
+  for (const c of CURRENCIES) {
+    const retail = blocks[c.key]
+    if (!retail) continue
+    const bucket = target[c.key] || (target[c.key] = { normal: {}, foil: {} })
+    for (const finish of ['normal', 'foil']) {
+      const branch = retail[finish]
+      if (!branch) continue
+      for (const [iso, price] of Object.entries(branch)) {
+        // A day already claimed by another variant keeps its value; they are
+        // the same card on the same day, so this only decides ties.
+        if (bucket[finish][iso] == null) bucket[finish][iso] = price
+      }
     }
   }
-  return target
+  return Object.keys(target).length ? target : acc
 }
 
-/** Row builder for an accumulator produced by mergeRetailInto. */
+/** Row builder for an accumulator produced by mergeRetailBlockInto. */
 export function rowFromAccumulator(scryfallId, acc, startDate, days = HISTORY_DAYS) {
   if (!acc) return null
-  const normal = seriesFromDateMap(acc.normal, startDate, days)
-  const foil = seriesFromDateMap(acc.foil, startDate, days)
-  if (!normal && !foil) return null
-  return { scryfall_id: scryfallId, start_date: startDate, prices_eur: normal, prices_foil_eur: foil }
+  const row = { scryfall_id: scryfallId, start_date: startDate }
+  let any = false
+  for (const c of CURRENCIES) {
+    const normal = seriesFromDateMap(acc[c.key]?.normal, startDate, days)
+    const foil = seriesFromDateMap(acc[c.key]?.foil, startDate, days)
+    row[c.column] = normal
+    row[c.foilColumn] = foil
+    if (normal || foil) any = true
+  }
+  return any ? row : null
 }
 
 /**
@@ -179,45 +212,11 @@ export function fillSlots(series, slots) {
 /** Newest date present in an accumulator. */
 export function latestDateInAccumulator(acc) {
   let latest = null
-  for (const finish of ['normal', 'foil']) {
-    for (const iso of Object.keys(acc?.[finish] || {})) {
-      if (!latest || iso > latest) latest = iso
-    }
-  }
-  return latest
-}
-
-/**
- * Build the row for one printing, or null when the card has no EUR price at
- * all. `paper.cardmarket.retail` is the only branch read: it is EUR and it is
- * the same Cardmarket trend number already stored in card_prices, verified
- * identical to the cent on 2026-09-13.
- */
-export function priceHistoryRow(scryfallId, priceEntry, startDate, days = HISTORY_DAYS) {
-  const retail = priceEntry?.paper?.cardmarket?.retail
-  if (!retail) return null
-
-  const normal = seriesFromDateMap(retail.normal, startDate, days)
-  const foil = seriesFromDateMap(retail.foil, startDate, days)
-  if (!normal && !foil) return null
-
-  return {
-    scryfall_id: scryfallId,
-    start_date: startDate,
-    prices_eur: normal,
-    prices_foil_eur: foil,
-  }
-}
-
-/** Newest date present anywhere in a card's cardmarket retail block. */
-export function latestDateIn(priceEntry) {
-  const retail = priceEntry?.paper?.cardmarket?.retail
-  if (!retail) return null
-  let latest = null
-  for (const branch of [retail.normal, retail.foil]) {
-    if (!branch) continue
-    for (const iso of Object.keys(branch)) {
-      if (!latest || iso > latest) latest = iso
+  for (const c of CURRENCIES) {
+    for (const finish of ['normal', 'foil']) {
+      for (const iso of Object.keys(acc?.[c.key]?.[finish] || {})) {
+        if (!latest || iso > latest) latest = iso
+      }
     }
   }
   return latest

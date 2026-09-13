@@ -12,12 +12,29 @@ import { sb } from './supabase'
 
 const DAY_MS = 86400000
 
+/**
+ * Which stored columns a price source reads, and how to render it.
+ *
+ * Mirrors PRICE_SOURCES in src/lib/scryfall.js. The chart has to follow the
+ * user's setting: it previously drew Cardmarket EUR unconditionally, so someone
+ * pricing in TCGplayer read a chart in a currency they do not use, ending on a
+ * number that disagreed with every other figure on the page.
+ */
+export const HISTORY_SOURCES = {
+  cardmarket_trend: { column: 'prices_eur', foilColumn: 'prices_foil_eur', symbol: '€', label: 'Cardmarket' },
+  tcgplayer_market: { column: 'prices_usd', foilColumn: 'prices_usd_foil', symbol: '$', label: 'TCGplayer' },
+}
+
+export function historySource(priceSourceId) {
+  return HISTORY_SOURCES[priceSourceId] || HISTORY_SOURCES.cardmarket_trend
+}
+
 /** Fetches the stored series for one printing. Null when we have none. */
 export async function fetchPriceHistory(scryfallId) {
   if (!scryfallId) return null
   const { data, error } = await sb
     .from('card_price_history')
-    .select('start_date, prices_eur, prices_foil_eur')
+    .select('start_date, prices_eur, prices_foil_eur, prices_usd, prices_usd_foil')
     .eq('scryfall_id', scryfallId)
     .maybeSingle()
   if (error) throw error
@@ -33,8 +50,9 @@ export async function fetchPriceHistory(scryfallId) {
  * the traffic charts, where a categorical axis silently closed ranks over
  * missing days and three scattered points read as a growth trend.
  */
-export function expandSeries(row, foil = false) {
-  const prices = foil ? row?.prices_foil_eur : row?.prices_eur
+export function expandSeries(row, foil = false, priceSourceId = 'cardmarket_trend') {
+  const src = historySource(priceSourceId)
+  const prices = foil ? row?.[src.foilColumn] : row?.[src.column]
   if (!row?.start_date || !Array.isArray(prices) || !prices.length) return []
   const start = Date.parse(`${row.start_date}T00:00:00Z`)
   return prices.map((price, i) => ({
