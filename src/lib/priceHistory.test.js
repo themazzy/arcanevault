@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { expandSeries, priceBounds, summarize, toSegments } from './priceHistory'
+import { bridgeShortGaps, expandSeries, niceTicks, priceBounds, summarize, toSegments } from './priceHistory'
 
 // The stored row is an index-aligned array with a shared origin, so a point's
 // date is derived, never stored. These pin the derivation and — more
@@ -109,5 +109,80 @@ describe('priceBounds', () => {
 
   it('is null when there is nothing to scale', () => {
     expect(priceBounds(NaN, 1)).toBe(null)
+  })
+})
+
+// ── Gap bridging ────────────────────────────────────────────────────────────
+// Breaking the line on every missing day shattered sparse series — foil above
+// all — into confetti that read as a broken chart rather than as missing data.
+// A one- or two-day hole is Cardmarket not reporting; a week without a listing
+// is real information and still breaks.
+
+describe('bridgeShortGaps', () => {
+  const series = prices => expandSeries({ start_date: '2026-09-01', prices_eur: prices })
+
+  it('fills a one-day hole by interpolation', () => {
+    const out = bridgeShortGaps(series([10, null, 12]))
+    expect(out[1].price).toBe(11)
+    expect(out[1].estimated).toBe(true)
+  })
+
+  it('fills a two-day hole evenly', () => {
+    const out = bridgeShortGaps(series([10, null, null, 13]))
+    expect(out.map(p => p.price)).toEqual([10, 11, 12, 13])
+  })
+
+  it('leaves a longer gap as a real break', () => {
+    const out = bridgeShortGaps(series([10, null, null, null, 14]))
+    expect(out.slice(1, 4).every(p => p.price == null)).toBe(true)
+    expect(toSegments(out)).toHaveLength(2)
+  })
+
+  it('marks filled points so they are never mistaken for quoted prices', () => {
+    // The chart may draw through them; a spike alert must not fire on a number
+    // nobody published.
+    const out = bridgeShortGaps(series([10, null, 12]))
+    expect(out[0].estimated).toBeUndefined()
+    expect(out[2].estimated).toBeUndefined()
+  })
+
+  it('does not invent a leading value with nothing to anchor to', () => {
+    const out = bridgeShortGaps(series([null, null, 12]))
+    expect(out[0].price).toBe(null)
+    expect(out[1].price).toBe(null)
+  })
+
+  it('leaves a trailing gap open', () => {
+    const out = bridgeShortGaps(series([10, null, null]))
+    expect(out[1].price).toBe(null)
+    expect(out[2].price).toBe(null)
+  })
+})
+
+// ── Axis ticks ──────────────────────────────────────────────────────────────
+// The first version printed the padded bounds directly and produced an axis
+// labelled 56.06 / 64.44 / 72.81.
+
+describe('niceTicks', () => {
+  it('chooses round values a person would pick', () => {
+    for (const t of niceTicks(56.06, 72.81, 3)) {
+      expect(Math.round(t * 100) / 100).toBe(t)
+      expect(t % 2.5 === 0 || t % 5 === 0 || t % 10 === 0).toBe(true)
+    }
+  })
+
+  it('stays inside the given bounds', () => {
+    const ticks = niceTicks(56.06, 72.81, 3)
+    expect(Math.min(...ticks)).toBeGreaterThanOrEqual(56.06)
+    expect(Math.max(...ticks)).toBeLessThanOrEqual(72.81)
+  })
+
+  it('works on cheap cards without collapsing to one value', () => {
+    expect(niceTicks(0.12, 0.48, 3).length).toBeGreaterThan(1)
+  })
+
+  it('returns nothing for a degenerate range', () => {
+    expect(niceTicks(5, 5)).toEqual([])
+    expect(niceTicks(NaN, 3)).toEqual([])
   })
 })

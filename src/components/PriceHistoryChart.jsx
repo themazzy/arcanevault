@@ -1,23 +1,35 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { expandSeries, fetchPriceHistory, priceBounds, summarize, toSegments } from '../lib/priceHistory'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  bridgeShortGaps,
+  expandSeries,
+  fetchPriceHistory,
+  niceTicks,
+  priceBounds,
+  summarize,
+  toSegments,
+} from '../lib/priceHistory'
 import styles from './PriceHistoryChart.module.css'
 
 /**
  * Cardmarket price over the stored window, for one printing and one finish.
  *
- * ONE series, so there is no legend — the heading names it. Showing normal and
- * foil together was rejected: card detail is about a specific owned copy, the
- * card already knows its own finish, and a second line would need a legend plus
- * a second scale's worth of vertical range for two numbers that are rarely
- * compared.
+ * ONE series, so no legend — the heading names it. Normal and foil are not
+ * drawn together: card detail is about a specific owned copy, the card knows
+ * its own finish, and a second line costs a legend plus vertical range for two
+ * numbers that are rarely compared.
  *
- * Gaps are drawn as gaps (one path per run of priced days). A line bridging a
- * week with no Cardmarket listing invents market data that never existed.
+ * SIZING: the SVG is measured and drawn at 1 unit = 1 px. It previously used a
+ * fixed viewBox with preserveAspectRatio="none", which stretched the drawing
+ * horizontally to fill the panel — turning every marker into an ellipse and
+ * smearing the axis text. A viewBox is only safe here if the aspect is
+ * preserved, and this chart has to be full-width at any panel size.
  */
 
-const VIEW_W = 560
-const VIEW_H = 150
-const PAD = { top: 10, right: 10, bottom: 20, left: 44 }
+const HEIGHT = 168
+const PAD = { top: 12, right: 14, bottom: 22, left: 52 }
+const MIN_WIDTH = 280
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function formatEur(v) {
   return `€${v.toFixed(2)}`
@@ -25,17 +37,26 @@ function formatEur(v) {
 
 function formatDay(iso) {
   const [, m, d] = iso.split('-')
-  return `${Number(d)} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][Number(m) - 1]}`
+  return `${Number(d)} ${MONTHS[Number(m) - 1]}`
+}
+
+function formatTick(v) {
+  if (v >= 1000) return Math.round(v).toLocaleString()
+  if (v >= 100) return v.toFixed(0)
+  if (v >= 10) return v.toFixed(1)
+  return v.toFixed(2)
 }
 
 export default function PriceHistoryChart({ scryfallId, foil = false }) {
-  const [row, setRow] = useState(undefined)   // undefined = loading, null = none
-  const [hover, setHover] = useState(null)
-  const svgRef = useRef(null)
+  const [row, setRow] = useState(undefined)     // undefined = loading, null = none
+  const [hoverIdx, setHoverIdx] = useState(null)
+  const [width, setWidth] = useState(0)
+  const wrapRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
     setRow(undefined)
+    setHoverIdx(null)
     if (!scryfallId) { setRow(null); return undefined }
     fetchPriceHistory(scryfallId)
       .then(data => { if (!cancelled) setRow(data) })
@@ -43,57 +64,73 @@ export default function PriceHistoryChart({ scryfallId, foil = false }) {
     return () => { cancelled = true }
   }, [scryfallId])
 
-  const points = useMemo(() => (row ? expandSeries(row, foil) : []), [row, foil])
+  // Measured rather than stretched, so markers stay round and text stays put.
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return undefined
+    const apply = () => setWidth(Math.max(MIN_WIDTH, el.clientWidth))
+    apply()
+    if (typeof ResizeObserver === 'undefined') return undefined
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [row])
+
+  const points = useMemo(() => (row ? bridgeShortGaps(expandSeries(row, foil)) : []), [row, foil])
   const stats = useMemo(() => summarize(points), [points])
   const segments = useMemo(() => toSegments(points), [points])
   const bounds = useMemo(() => (stats ? priceBounds(stats.min, stats.max) : null), [stats])
+  const ticks = useMemo(() => (bounds ? niceTicks(bounds.lo, bounds.hi, 3) : []), [bounds])
 
-  const plotW = VIEW_W - PAD.left - PAD.right
-  const plotH = VIEW_H - PAD.top - PAD.bottom
-
+  const plotW = Math.max(1, width - PAD.left - PAD.right)
+  const plotH = HEIGHT - PAD.top - PAD.bottom
   const xOf = i => PAD.left + (points.length > 1 ? (i / (points.length - 1)) * plotW : plotW / 2)
   const yOf = v => PAD.top + plotH - ((v - bounds.lo) / (bounds.hi - bounds.lo)) * plotH
 
-  if (row === undefined) return <div className={styles.skeleton} aria-hidden="true" />
+  const tone = foil ? styles.foil : styles.normal
+
+  if (row === undefined) {
+    return <div ref={wrapRef} className={styles.skeleton} aria-hidden="true" />
+  }
   if (!stats || !bounds) {
     return (
-      <p className={styles.empty}>
-        No price history for this printing{foil ? ' in foil' : ''}.
-      </p>
+      <div ref={wrapRef} className={styles.empty}>
+        No price history recorded for this printing{foil ? ' in foil' : ''}.
+      </div>
     )
   }
 
-  const pathFor = seg => seg
-    .map((p, i) => `${i ? 'L' : 'M'}${xOf(points.indexOf(p)).toFixed(1)} ${yOf(p.price).toFixed(1)}`)
+  const lineFor = seg => seg
+    .map((p, i) => `${i ? 'L' : 'M'}${xOf(p.index).toFixed(1)} ${yOf(p.price).toFixed(1)}`)
     .join(' ')
 
-  // Area sits under the longest run only; filling across a gap would shade days
-  // that have no price.
-  const longest = segments.reduce((a, b) => (b.length > a.length ? b : a), segments[0])
-  const areaPath = longest.length > 1
-    ? `${pathFor(longest)} L${xOf(points.indexOf(longest[longest.length - 1])).toFixed(1)} ${(PAD.top + plotH).toFixed(1)}`
-      + ` L${xOf(points.indexOf(longest[0])).toFixed(1)} ${(PAD.top + plotH).toFixed(1)} Z`
-    : null
+  // One area per run, not one for the longest: a single fill spanning the whole
+  // width shaded days that had no price and read as a solid block rather than
+  // as the area under a line.
+  const areaFor = seg => {
+    if (seg.length < 2) return null
+    const base = (PAD.top + plotH).toFixed(1)
+    return `${lineFor(seg)} L${xOf(seg[seg.length - 1].index).toFixed(1)} ${base} L${xOf(seg[0].index).toFixed(1)} ${base} Z`
+  }
 
   const up = stats.change >= 0
-  const gridValues = [bounds.hi, (bounds.hi + bounds.lo) / 2, bounds.lo]
+  const hovered = hoverIdx != null ? points[hoverIdx] : null
 
-  function onMove(e) {
-    const svg = svgRef.current
-    if (!svg) return
-    const rect = svg.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * VIEW_W
-    const ratio = (x - PAD.left) / plotW
+  function locate(clientX) {
+    const el = wrapRef.current
+    if (!el || points.length < 2) return null
+    const rect = el.getBoundingClientRect()
+    const ratio = (clientX - rect.left - PAD.left) / plotW
     const idx = Math.round(ratio * (points.length - 1))
-    const p = points[Math.max(0, Math.min(points.length - 1, idx))]
-    setHover(p && p.price != null ? p : null)
+    const clamped = Math.max(0, Math.min(points.length - 1, idx))
+    return points[clamped]?.price != null ? clamped : null
   }
 
   return (
-    <figure className={styles.figure}>
+    <figure className={`${styles.figure} ${tone}`}>
       <figcaption className={styles.head}>
         <span className={styles.label}>
-          Cardmarket{foil ? ' foil' : ''} · last {stats.count} days
+          Cardmarket{foil ? ' foil' : ''} · {formatDay(stats.first.date)} – {formatDay(stats.last.date)}
         </span>
         <span className={styles.headline}>
           <span className={styles.now}>{formatEur(stats.last.price)}</span>
@@ -104,64 +141,71 @@ export default function PriceHistoryChart({ scryfallId, foil = false }) {
         </span>
       </figcaption>
 
-      <svg
-        ref={svgRef}
-        className={styles.svg}
-        viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={
-          `Cardmarket${foil ? ' foil' : ''} price over ${stats.count} days: `
-          + `from ${formatEur(stats.first.price)} on ${stats.first.date} `
-          + `to ${formatEur(stats.last.price)} on ${stats.last.date}. `
-          + `Low ${formatEur(stats.min)}, high ${formatEur(stats.max)}.`
-        }
-        onMouseMove={onMove}
-        onMouseLeave={() => setHover(null)}
+      <div
+        ref={wrapRef}
+        className={styles.plot}
+        onMouseMove={e => setHoverIdx(locate(e.clientX))}
+        onMouseLeave={() => setHoverIdx(null)}
       >
-        {gridValues.map((v, i) => (
-          <g key={i}>
-            <line
-              className={styles.grid}
-              x1={PAD.left} x2={VIEW_W - PAD.right}
-              y1={yOf(v)} y2={yOf(v)}
-            />
-            <text className={styles.axisText} x={PAD.left - 6} y={yOf(v) + 3} textAnchor="end">
-              {v >= 100 ? Math.round(v) : v.toFixed(2)}
+        {width > 0 && (
+          <svg
+            className={styles.svg}
+            width={width}
+            height={HEIGHT}
+            viewBox={`0 0 ${width} ${HEIGHT}`}
+            role="img"
+            aria-label={
+              `Cardmarket${foil ? ' foil' : ''} price, ${stats.first.date} to ${stats.last.date}: `
+              + `${formatEur(stats.first.price)} to ${formatEur(stats.last.price)}, `
+              + `${up ? 'up' : 'down'} ${Math.abs(stats.changePct ?? 0).toFixed(1)} percent. `
+              + `Low ${formatEur(stats.min)}, high ${formatEur(stats.max)}.`
+            }
+          >
+            {ticks.map(v => (
+              <g key={v}>
+                <line className={styles.grid} x1={PAD.left} x2={width - PAD.right} y1={yOf(v)} y2={yOf(v)} />
+                <text className={styles.axisText} x={PAD.left - 8} y={yOf(v) + 3} textAnchor="end">
+                  {formatTick(v)}
+                </text>
+              </g>
+            ))}
+
+            {segments.map((seg, i) => {
+              const d = areaFor(seg)
+              return d ? <path key={`a${i}`} className={styles.area} d={d} /> : null
+            })}
+
+            {segments.map((seg, i) =>
+              seg.length > 1
+                ? <path key={`l${i}`} className={styles.line} d={lineFor(seg)} />
+                : <circle key={`l${i}`} className={styles.point} cx={xOf(seg[0].index)} cy={yOf(seg[0].price)} r="2" />
+            )}
+
+            <circle className={styles.endpoint} cx={xOf(stats.last.index)} cy={yOf(stats.last.price)} r="3.5" />
+
+            {hovered && (
+              <>
+                <line
+                  className={styles.crosshair}
+                  x1={xOf(hovered.index)} x2={xOf(hovered.index)}
+                  y1={PAD.top} y2={PAD.top + plotH}
+                />
+                <circle className={styles.hoverDot} cx={xOf(hovered.index)} cy={yOf(hovered.price)} r="4" />
+              </>
+            )}
+
+            <text className={styles.axisText} x={PAD.left} y={HEIGHT - 6}>{formatDay(stats.first.date)}</text>
+            <text className={styles.axisText} x={width - PAD.right} y={HEIGHT - 6} textAnchor="end">
+              {formatDay(stats.last.date)}
             </text>
-          </g>
-        ))}
-
-        {areaPath && <path className={styles.area} d={areaPath} />}
-        {segments.map((seg, i) =>
-          seg.length > 1
-            ? <path key={i} className={styles.line} d={pathFor(seg)} />
-            : <circle key={i} className={styles.dot} cx={xOf(points.indexOf(seg[0]))} cy={yOf(seg[0].price)} r="2.5" />
+          </svg>
         )}
-
-        <circle className={styles.endpoint} cx={xOf(points.indexOf(stats.last))} cy={yOf(stats.last.price)} r="3.5" />
-
-        {hover && (
-          <g>
-            <line
-              className={styles.crosshair}
-              x1={xOf(points.indexOf(hover))} x2={xOf(points.indexOf(hover))}
-              y1={PAD.top} y2={PAD.top + plotH}
-            />
-            <circle className={styles.hoverDot} cx={xOf(points.indexOf(hover))} cy={yOf(hover.price)} r="4" />
-          </g>
-        )}
-
-        <text className={styles.axisText} x={PAD.left} y={VIEW_H - 5}>{formatDay(stats.first.date)}</text>
-        <text className={styles.axisText} x={VIEW_W - PAD.right} y={VIEW_H - 5} textAnchor="end">
-          {formatDay(stats.last.date)}
-        </text>
-      </svg>
+      </div>
 
       <div className={styles.readout} aria-live="polite">
-        {hover
-          ? <><strong>{formatEur(hover.price)}</strong> on {formatDay(hover.date)}</>
-          : <>Low {formatEur(stats.min)} · High {formatEur(stats.max)}</>}
+        {hovered
+          ? <><strong>{formatEur(hovered.price)}</strong><span className={styles.readoutSep}>·</span>{formatDay(hovered.date)}</>
+          : <>Low <strong>{formatEur(stats.min)}</strong><span className={styles.readoutSep}>·</span>High <strong>{formatEur(stats.max)}</strong></>}
       </div>
     </figure>
   )
