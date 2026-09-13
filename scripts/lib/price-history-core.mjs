@@ -86,7 +86,18 @@ export function windowStart(latestIso, days = HISTORY_DAYS) {
  * picking either alone silently drops half the card's history.
  */
 export function mergeRetailInto(acc, priceEntry) {
-  const retail = priceEntry?.paper?.cardmarket?.retail
+  return mergeRetailBlockInto(acc, priceEntry?.paper?.cardmarket?.retail)
+}
+
+/**
+ * As mergeRetailInto, but taking the `retail` block directly.
+ *
+ * The ingest keeps only this block while streaming. Retaining whole parsed
+ * entries instead ran the job out of heap: each one also carries tcgplayer,
+ * cardkingdom and manapool, plus every provider's buylist — several times the
+ * data, for four providers we do not store.
+ */
+export function mergeRetailBlockInto(acc, retail) {
   if (!retail) return acc
   const target = acc || { normal: {}, foil: {} }
   for (const finish of ['normal', 'foil']) {

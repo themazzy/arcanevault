@@ -9,7 +9,7 @@ import {
   fillSlots,
   globallyMissingSlots,
   latestDateInAccumulator,
-  mergeRetailInto,
+  mergeRetailBlockInto,
   rowFromAccumulator,
   windowStart,
 } from './lib/price-history-core.mjs'
@@ -130,7 +130,11 @@ async function main() {
     if (scanned % LOG_EVERY === 0) {
       console.log(`[Price History] scanned ${scanned.toLocaleString()} printings…`)
     }
-    if (entry?.paper?.cardmarket?.retail) priced.push([uuid, entry])
+    // Only the Cardmarket retail block is retained. Keeping whole entries ran
+    // the job out of heap — each also carries tcgplayer, cardkingdom, manapool
+    // and every provider's buylist.
+    const retail = entry?.paper?.cardmarket?.retail
+    if (retail) priced.push([uuid, retail])
   }
 
   // Cached map first, then a freshness check: a cached map cannot know about
@@ -160,11 +164,11 @@ async function main() {
   let latest = null
   let merged = 0
 
-  for (const [uuid, entry] of priced) {
+  for (const [uuid, retail] of priced) {
     const sid = idMap.get(uuid)
     if (!sid) continue
     if (byScryfallId.has(sid)) merged++
-    byScryfallId.set(sid, mergeRetailInto(byScryfallId.get(sid), entry))
+    byScryfallId.set(sid, mergeRetailBlockInto(byScryfallId.get(sid), retail))
   }
 
   for (const acc of byScryfallId.values()) {
