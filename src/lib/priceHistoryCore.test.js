@@ -9,6 +9,8 @@ import {
   mergeRetailInto,
   rowFromAccumulator,
   latestDateInAccumulator,
+  globallyMissingSlots,
+  fillSlots,
 } from '../../scripts/lib/price-history-core.mjs'
 
 // The ingest turns MTGJSON's sparse date->price maps into index-aligned arrays.
@@ -178,5 +180,64 @@ describe('latestDateInAccumulator', () => {
 
   it('is null for an empty accumulator', () => {
     expect(latestDateInAccumulator(null)).toBe(null)
+  })
+})
+
+// ── Source outages vs card-specific absence ─────────────────────────────────
+// Measured 2026-09-13: five days in the 60-day window had a price for ZERO of
+// 20,000 sampled cards — 2026-08-06, 08-29, and the run 08-31 / 09-01 / 09-02.
+// No weekend pattern (Thu, Sat, Mon, Tue, Wed), so they are failed MTGJSON
+// builds, not the market closing. The two cases deserve opposite treatment: a
+// day THIS card lacks is a real gap, a day NOBODY has is our plumbing.
+
+describe('globallyMissingSlots', () => {
+  it('finds only the slots no card prices', () => {
+    const missing = globallyMissingSlots([
+      [1, null, null, 4],
+      [2, 3, null, 5],
+    ], 4)
+    expect([...missing]).toEqual([2])
+  })
+
+  it('ignores a null series entirely', () => {
+    expect([...globallyMissingSlots([null, [1, null]], 2)]).toEqual([1])
+  })
+
+  it('is empty when every slot is covered somewhere', () => {
+    expect(globallyMissingSlots([[1, null], [null, 2]], 2).size).toBe(0)
+  })
+})
+
+describe('fillSlots', () => {
+  it('interpolates across a three-day source outage', () => {
+    // The exact shape of 08-31 / 09-01 / 09-02, which is longer than the
+    // client's card-specific bridge and so rendered as a break.
+    const series = [10, null, null, null, 14]
+    fillSlots(series, new Set([1, 2, 3]))
+    expect(series).toEqual([10, 11, 12, 13, 14])
+  })
+
+  it('leaves a card-specific gap alone even when adjacent to an outage', () => {
+    // Slot 2 is this card's own absence; only slot 1 was a source outage, and
+    // an unbounded run stays null.
+    const series = [10, null, null, 13]
+    fillSlots(series, new Set([1]))
+    expect(series[2]).toBe(null)
+  })
+
+  it('does not invent a leading or trailing value', () => {
+    const leading = [null, null, 5]
+    fillSlots(leading, new Set([0, 1]))
+    expect(leading.slice(0, 2)).toEqual([null, null])
+
+    const trailing = [5, null]
+    fillSlots(trailing, new Set([1]))
+    expect(trailing[1]).toBe(null)
+  })
+
+  it('is a no-op with nothing missing', () => {
+    const series = [1, 2, 3]
+    expect(fillSlots(series, new Set())).toEqual([1, 2, 3])
+    expect(fillSlots(null, new Set([0]))).toBe(null)
   })
 })

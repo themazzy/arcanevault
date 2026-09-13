@@ -110,6 +110,61 @@ export function rowFromAccumulator(scryfallId, acc, startDate, days = HISTORY_DA
   return { scryfall_id: scryfallId, start_date: startDate, prices_eur: normal, prices_foil_eur: foil }
 }
 
+/**
+ * Slots no printing in the whole file has a price for.
+ *
+ * These are MTGJSON publishing outages, not market events: measured 2026-09-13,
+ * five days in the 60-day window had a price for ZERO of 20,000 sampled cards
+ * (2026-08-06, 08-29, and the consecutive run 08-31 / 09-01 / 09-02). No
+ * weekend pattern — Thu, Sat, Mon, Tue, Wed — so they are failed builds.
+ *
+ * The distinction matters because the two cases deserve opposite treatment. A
+ * day THIS card has no price for means nobody listed it, and the chart should
+ * show a gap. A day NOBODY has a price for means the feed was down while the
+ * market carried on, and a gap there is an artefact of our plumbing.
+ */
+export function globallyMissingSlots(seriesList, days = HISTORY_DAYS) {
+  const covered = new Array(days).fill(false)
+  for (const series of seriesList) {
+    if (!series) continue
+    for (let i = 0; i < days; i++) {
+      if (series[i] != null) covered[i] = true
+    }
+  }
+  const missing = new Set()
+  for (let i = 0; i < days; i++) if (!covered[i]) missing.add(i)
+  return missing
+}
+
+/**
+ * Interpolate across the given slots only, in place.
+ *
+ * Applied solely to slots `globallyMissingSlots` identified, so a card-specific
+ * absence is never invented over. An unbounded run (leading or trailing) is
+ * left alone — there is nothing to interpolate between.
+ */
+export function fillSlots(series, slots) {
+  if (!series || !slots?.size) return series
+  for (let i = 0; i < series.length; i++) {
+    if (series[i] != null || !slots.has(i)) continue
+
+    let end = i
+    while (end < series.length && series[end] == null && slots.has(end)) end++
+    const before = i > 0 ? series[i - 1] : null
+    const after = end < series.length ? series[end] : null
+
+    if (before != null && after != null) {
+      const span = end - i + 1
+      for (let j = i; j < end; j++) {
+        const t = (j - i + 1) / span
+        series[j] = Math.round((before + (after - before) * t) * 100) / 100
+      }
+    }
+    i = end - 1
+  }
+  return series
+}
+
 /** Newest date present in an accumulator. */
 export function latestDateInAccumulator(acc) {
   let latest = null

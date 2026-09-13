@@ -4,6 +4,8 @@ import { streamBulkEntries } from './lib/mtgjson-stream.mjs'
 import { upsertWithRetry } from './lib/sync-retry.mjs'
 import {
   HISTORY_DAYS,
+  fillSlots,
+  globallyMissingSlots,
   latestDateInAccumulator,
   mergeRetailInto,
   rowFromAccumulator,
@@ -119,11 +121,31 @@ async function main() {
   const startDate = windowStart(latest, HISTORY_DAYS)
   console.log(`[Price History] ${byScryfallId.size.toLocaleString()} printings; window ${startDate} -> ${latest} (${unmapped.toLocaleString()} unmapped, ${merged.toLocaleString()} variant merges).`)
 
-  let written = 0
-  let pending = []
+  // Build every row before writing any, so the days MTGJSON simply failed to
+  // publish can be told apart from the days a given card had no listing. Only
+  // the former are interpolated — see globallyMissingSlots.
+  const rows = []
   for (const [sid, acc] of byScryfallId) {
     const row = rowFromAccumulator(sid, acc, startDate, HISTORY_DAYS)
-    if (!row) continue
+    if (row) rows.push(row)
+  }
+
+  const missingNormal = globallyMissingSlots(rows.map(r => r.prices_eur), HISTORY_DAYS)
+  const missingFoil = globallyMissingSlots(rows.map(r => r.prices_foil_eur), HISTORY_DAYS)
+  if (missingNormal.size || missingFoil.size) {
+    const asDates = slots => [...slots]
+      .map(i => new Date(Date.parse(`${startDate}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10))
+      .join(', ')
+    console.log(`[Price History] source published nothing on ${missingNormal.size} day(s): ${asDates(missingNormal) || '—'}. Interpolating those for every card.`)
+  }
+  for (const row of rows) {
+    fillSlots(row.prices_eur, missingNormal)
+    fillSlots(row.prices_foil_eur, missingFoil)
+  }
+
+  let written = 0
+  let pending = []
+  for (const row of rows) {
     pending.push(row)
     if (pending.length >= UPSERT_BATCH) {
       await flush(pending)
