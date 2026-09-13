@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
@@ -30,9 +31,9 @@ const ORACLE_TEXT_CAP = 600
 const FETCH_PAGE = 1000
 const LOG_EVERY = 5000
 
-// `--force` rewrites every row. Needed whenever oracleCardRow() itself changes
-// shape (new column, different slimming), because the skip below only knows
-// whether SCRYFALL changed the card, not whether we changed how we store it.
+// `--force` rewrites every row. Rarely needed now: the skip compares a digest
+// of the row we would write, so a shape change to oracleCardRow() already
+// invalidates every digest on its own. Kept for repairing the table by hand.
 const FORCE = process.argv.includes('--force')
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
@@ -106,32 +107,58 @@ export function oracleCardRow(card) {
 }
 
 /**
- * True when this row needs writing. Scryfall stamps every card with its own
- * `updated_at`, so an unchanged card can be skipped entirely.
+ * Digest of the row we would write, used to tell a changed card from an
+ * unchanged one.
+ *
+ * `synced_at` is excluded because it is a fresh timestamp on every run — leaving
+ * it in would make every digest differ and defeat the whole thing.
+ *
+ * A shape change is handled for free: add or drop a column in oracleCardRow()
+ * and every digest changes, so the full rewrite happens on its own instead of
+ * depending on someone remembering --force.
+ */
+export function contentHash(row) {
+  const { synced_at: _ignored, content_hash: _also, ...stable } = row
+  return createHash('sha1').update(JSON.stringify(stable)).digest('hex')
+}
+
+/**
+ * True when this row needs writing.
  *
  * Why this matters: Postgres implements UPDATE as insert-new-tuple +
  * mark-old-dead, so blind-upserting all 38k rows every week produced 38k dead
  * tuples a run. Autovacuum reclaimed them but never returns pages to the OS, so
  * the table sat at its high-water mark: measured 2026-08-01 at 103MB allocated
- * for 48MB of live rows — **52.9% empty**, on a 500MB database. A VACUUM FULL
- * recovered 60MB. This keeps it from filling back up.
+ * for 48MB of live rows — 52.9% empty, on a 500MB database. A VACUUM FULL
+ * recovered 60MB.
  *
- * @param {{oracle_id: string, source_updated_at: string|null}} row
- * @param {Map<string, string|null>} existing  oracle_id -> stored source_updated_at
+ * It filled straight back up, because the skip written to prevent that compared
+ * `source_updated_at` against the card's `updated_at` — and Scryfall's ORACLE
+ * BULK export has no `updated_at` field. The column was NULL for all 38,753
+ * rows, the null-guard below forced a write every time, and the table was
+ * measured at 49.9% empty again on 2026-09-13. Two runs 20 minutes apart, with
+ * nothing changed upstream, both logged "skipped 0 unchanged".
+ *
+ * Hence a digest of the row itself, which cannot silently not exist.
+ *
+ * @param {{oracle_id: string, content_hash: string}} row
+ * @param {Map<string, string|null>} existing  oracle_id -> stored content_hash
  * @param {boolean} force
  */
 export function needsWrite(row, existing, force = false) {
   if (force) return true
   if (!existing.has(row.oracle_id)) return true
   const stored = existing.get(row.oracle_id)
-  // A null on either side means we cannot prove it is unchanged — write it.
-  if (!stored || !row.source_updated_at) return true
-  return stored !== row.source_updated_at
+  // No stored digest means this row predates the column — write it once to
+  // populate it. A missing digest on the incoming row would be a bug, not a
+  // data condition, so it is not special-cased into a silent skip.
+  if (!stored) return true
+  return stored !== row.content_hash
 }
 
 // Keyset pagination, not .range() — an OFFSET walk over tens of thousands of
 // rows degrades into a statement timeout on this instance.
-async function fetchExistingTimestamps() {
+async function fetchExistingHashes() {
   const map = new Map()
   let cursor = null
   for (;;) {
@@ -140,7 +167,7 @@ async function fetchExistingTimestamps() {
     const { data } = await withRetry(
       () => {
         let q = sb.from('oracle_cards')
-          .select('oracle_id,source_updated_at')
+          .select('oracle_id,content_hash')
           .order('oracle_id', { ascending: true })
           .limit(FETCH_PAGE)
         if (cursor) q = q.gt('oracle_id', cursor)
@@ -152,7 +179,7 @@ async function fetchExistingTimestamps() {
       },
     )
     if (!data?.length) break
-    for (const r of data) map.set(r.oracle_id, r.source_updated_at)
+    for (const r of data) map.set(r.oracle_id, r.content_hash)
     cursor = data[data.length - 1].oracle_id
     if (data.length < FETCH_PAGE) break
   }
@@ -206,7 +233,7 @@ async function processBulkFile(bulk) {
     }
   }
 
-  const existing = FORCE ? new Map() : await fetchExistingTimestamps()
+  const existing = FORCE ? new Map() : await fetchExistingHashes()
   if (!FORCE) {
     console.log(`[Oracle Sync] ${existing.size.toLocaleString()} rows already stored; skipping unchanged.`)
   }
@@ -216,6 +243,7 @@ async function processBulkFile(bulk) {
     const row = oracleCardRow(card)
     if (!row || seen.has(row.oracle_id)) continue
     seen.add(row.oracle_id)
+    row.content_hash = contentHash(row)
 
     if (!needsWrite(row, existing, FORCE)) { skipped++; continue }
     pending.push(row)
