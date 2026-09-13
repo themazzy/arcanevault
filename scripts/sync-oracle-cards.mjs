@@ -4,6 +4,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 import { downloadBulkData, streamBulkCardsFromFile } from './lib/scryfall-bulk.mjs'
+import { upsertWithRetry, withRetry } from './lib/sync-retry.mjs'
 
 // Refreshes shared oracle-level recommendation metadata from Scryfall's bulk
 // export. This is an administrative sync, not a runtime card-API dependency.
@@ -134,13 +135,22 @@ async function fetchExistingTimestamps() {
   const map = new Map()
   let cursor = null
   for (;;) {
-    let q = sb.from('oracle_cards')
-      .select('oracle_id,source_updated_at')
-      .order('oracle_id', { ascending: true })
-      .limit(FETCH_PAGE)
-    if (cursor) q = q.gt('oracle_id', cursor)
-    const { data, error } = await q
-    if (error) throw error
+    // Retried: a single 504 here used to end the whole weekly run on page one,
+    // before a single row had been written. See scripts/lib/sync-retry.mjs.
+    const { data } = await withRetry(
+      () => {
+        let q = sb.from('oracle_cards')
+          .select('oracle_id,source_updated_at')
+          .order('oracle_id', { ascending: true })
+          .limit(FETCH_PAGE)
+        if (cursor) q = q.gt('oracle_id', cursor)
+        return q
+      },
+      {
+        onRetry: ({ attempt, attempts, delay, error }) =>
+          console.warn(`[Oracle Sync] read failed (${error?.message}) — retry ${attempt} of ${attempts} in ${delay}ms.`),
+      },
+    )
     if (!data?.length) break
     for (const r of data) map.set(r.oracle_id, r.source_updated_at)
     cursor = data[data.length - 1].oracle_id
@@ -149,73 +159,15 @@ async function fetchExistingTimestamps() {
   return map
 }
 
-/**
- * A cancelled statement says the instance was busy, not that the row was bad.
- * Retrying matters more here than it looks: the job runs weekly, so a single
- * cancelled batch used to abandon every remaining row for seven days.
- *
- * Postgres reports a statement timeout as SQLSTATE 57014. The transport errors
- * below are what fetch surfaces when the connection drops mid-write, and are
- * equally safe to repeat because the upsert is idempotent.
- */
-export function isRetryableWriteError(error) {
-  if (!error) return false
-  if (error.code === '57014') return true
-  const message = String(error?.message || '')
-  return /canceling statement|statement timeout|deadlock detected|server closed the connection|fetch failed|socket hang up|ECONNRESET|ETIMEDOUT|EAI_AGAIN/i.test(message)
-}
-
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
-
-/**
- * Writes one batch, halving it on a retryable failure before falling back to
- * plain backoff. Halving is the load-bearing half: a statement timeout means the
- * statement asked for too much work at once, so a smaller statement is an actual
- * fix, where repeating the same oversized one only waits for a quieter moment.
- * Below MIN_UPSERT_BATCH the batch size is no longer the problem, so it backs off
- * instead and eventually gives up.
- *
- * `upsert` is injected so this can be tested without a database.
- *
- * @param {object[]} rows
- * @param {(rows: object[]) => Promise<{error: any}>} upsert
- */
-export async function upsertWithRetry(rows, upsert, opts = {}) {
-  const {
-    minBatch = MIN_UPSERT_BATCH,
-    attempts = WRITE_ATTEMPTS,
-    baseDelayMs = RETRY_BASE_MS,
-    wait = sleep,
-    onRetry,
-  } = opts
-  if (!rows.length) return
-
-  for (let attempt = 1; ; attempt++) {
-    const { error } = await upsert(rows)
-    if (!error) return
-    if (!isRetryableWriteError(error)) throw error
-
-    if (rows.length > minBatch) {
-      const half = Math.ceil(rows.length / 2)
-      onRetry?.({ reason: 'split', size: rows.length, next: half, error })
-      await upsertWithRetry(rows.slice(0, half), upsert, opts)
-      await upsertWithRetry(rows.slice(half), upsert, opts)
-      return
-    }
-    if (attempt >= attempts) throw error
-
-    const delay = baseDelayMs * 2 ** (attempt - 1)
-    onRetry?.({ reason: 'backoff', size: rows.length, attempt, delay, error })
-    await wait(delay)
-  }
-}
-
 async function flush(rows) {
   if (!rows.length) return
   await upsertWithRetry(
     rows,
     batch => sb.from('oracle_cards').upsert(batch, { onConflict: 'oracle_id', ignoreDuplicates: false }),
     {
+      minBatch: MIN_UPSERT_BATCH,
+      attempts: WRITE_ATTEMPTS,
+      baseDelayMs: RETRY_BASE_MS,
       onRetry: ({ reason, size, next, attempt, delay, error }) => {
         const detail = reason === 'split'
           ? 'splitting into ' + next

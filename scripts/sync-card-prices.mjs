@@ -4,6 +4,7 @@ import path from 'node:path'
 import { createClient } from '@supabase/supabase-js'
 import { shouldInsertPrint, buildPrintRow } from './lib/print-sync-core.mjs'
 import { downloadBulkData, streamBulkCardsFromFile } from './lib/scryfall-bulk.mjs'
+import { upsertWithRetry, withRetry } from './lib/sync-retry.mjs'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -99,16 +100,24 @@ async function loadCardPrintState() {
   const needsMetadataIds = new Set()
   let lastScryfallId = null
   while (true) {
-    let query = sb
-      .from('card_prints')
-      .select('scryfall_id,released_at')
-      .not('scryfall_id', 'is', null)
-      .order('scryfall_id', { ascending: true })
-      .limit(FETCH_BATCH_SIZE)
-    if (lastScryfallId) query = query.gt('scryfall_id', lastScryfallId)
-
-    const { data, error } = await query
-    if (error) throw error
+    // Retried: this walk took one of the three 504s that killed the
+    // 2026-09-13 run. See scripts/lib/sync-retry.mjs.
+    const { data } = await withRetry(
+      () => {
+        let query = sb
+          .from('card_prints')
+          .select('scryfall_id,released_at')
+          .not('scryfall_id', 'is', null)
+          .order('scryfall_id', { ascending: true })
+          .limit(FETCH_BATCH_SIZE)
+        if (lastScryfallId) query = query.gt('scryfall_id', lastScryfallId)
+        return query
+      },
+      {
+        onRetry: ({ attempt, attempts, delay, error }) =>
+          console.warn(`[Price Sync] card_prints read failed (${error?.message}) — retry ${attempt} of ${attempts} in ${delay}ms.`),
+      },
+    )
     if (!data?.length) break
     for (const row of data) {
       existingIds.add(row.scryfall_id)
@@ -133,10 +142,10 @@ function createPrintSync(printState) {
     const rows = state.pending
     state.pending = []
     for (let i = 0; i < rows.length; i += PRINT_UPSERT_BATCH_SIZE) {
-      const { error } = await sb
-        .from('card_prints')
-        .upsert(rows.slice(i, i + PRINT_UPSERT_BATCH_SIZE), { onConflict: 'scryfall_id', ignoreDuplicates: false })
-      if (error) throw error
+      await upsertWithRetry(
+        rows.slice(i, i + PRINT_UPSERT_BATCH_SIZE),
+        batch => sb.from('card_prints').upsert(batch, { onConflict: 'scryfall_id', ignoreDuplicates: false }),
+      )
     }
   }
 
@@ -229,10 +238,20 @@ async function upsertRows(rows) {
 
   for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
     const { batch, duplicateCount } = dedupePriceRows(rows.slice(i, i + UPSERT_BATCH_SIZE))
-    const { error } = await sb
-      .from('card_prices')
-      .upsert(batch, { onConflict: 'scryfall_id,snapshot_date' })
-    if (error) throw error
+    // A single 504 on batch 201 of ~203 threw away the 2026-09-13 run with
+    // 100,000 rows already written and the retention prune still to come.
+    await upsertWithRetry(
+      batch,
+      rows => sb.from('card_prices').upsert(rows, { onConflict: 'scryfall_id,snapshot_date' }),
+      {
+        onRetry: ({ reason, size, next, attempt, delay, error }) => {
+          const detail = reason === 'split'
+            ? `splitting into ${next}`
+            : `retry ${attempt} in ${delay}ms`
+          console.warn(`[Price Sync] write of ${size} rows failed (${error?.message}) — ${detail}.`)
+        },
+      },
+    )
     written += batch.length
     duplicates += duplicateCount
   }
@@ -257,21 +276,26 @@ async function clearRows(table, label, applyFilter) {
   let cleared = 0
 
   while (true) {
-    const selectQuery = applyFilter(
+    // Built inside the retry callback, not hoisted: a PostgREST builder is
+    // one-shot, so re-awaiting the same object would replay the settled promise
+    // instead of issuing a new request and the retry would be a no-op.
+    const { data } = await withRetry(() => applyFilter(
       sb
         .from(table)
         .select('scryfall_id')
         .order('scryfall_id', { ascending: true })
         .limit(DELETE_BATCH_SIZE)
-    )
-    const { data, error: selectError } = await selectQuery
-    if (selectError) throw selectError
+    ), {
+      onRetry: ({ attempt, delay, error }) =>
+        console.warn(`[Price Sync] ${label} prune read failed (${error?.message}) — retry ${attempt} in ${delay}ms.`),
+    })
     if (!data?.length) break
 
     const ids = data.map(row => row.scryfall_id)
-    const deleteQuery = applyFilter(sb.from(table).delete().in('scryfall_id', ids))
-    const { error: deleteError } = await deleteQuery
-    if (deleteError) throw deleteError
+    await withRetry(() => applyFilter(sb.from(table).delete().in('scryfall_id', ids)), {
+      onRetry: ({ attempt, delay, error }) =>
+        console.warn(`[Price Sync] ${label} prune delete failed (${error?.message}) — retry ${attempt} in ${delay}ms.`),
+    })
 
     cleared += data.length
     if (cleared % 5000 === 0) {
