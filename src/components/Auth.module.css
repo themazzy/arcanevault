@@ -1052,6 +1052,13 @@
   line-height: 1.2;
 }
 
+.finalCtaProof {
+  margin: 14px 0 0;
+  color: var(--landing-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.035em;
+}
+
 .footer {
   min-height: 190px;
   padding: 55px 0;

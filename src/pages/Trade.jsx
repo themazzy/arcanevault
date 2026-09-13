@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import PublicPageFooter from '../components/PublicPageFooter'
+import GuestCta from '../components/GuestCta'
 import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
 import { EmptyState, Button } from '../components/UI'
@@ -246,6 +247,7 @@ export default function TradePage() {
             </div>
           : <EmptyState>No wants listed.</EmptyState>}
       </section>
+      <GuestCta show={!user} />
       <PublicPageFooter />
     </div>
   )

@@ -61,7 +61,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>DeckLoom</title>
-    <meta name="description" content="DeckLoom is a Magic: The Gathering collection tracker. Catalog cards, build decks, scan with your camera, organise binders and wishlists, and follow daily EUR and USD market prices." />
+    <meta name="description" content="DeckLoom is a free Magic: The Gathering collection tracker. Scan unlimited cards with your camera — no scan caps, no paywalls — then build decks, organise binders and wishlists, and follow daily EUR and USD market prices." />
+    <link rel="canonical" href="https://deckloom.app/" />
+
+    <!-- Link previews for the site root. The og-worker only rewrites /d/* (deck
+         shortlinks), so every other URL falls through to these static tags.
+         og:image is the 512px app icon with a `summary` card rather than
+         `summary_large_image` — a square mark stretched into a wide card reads
+         as broken. A dedicated 1200x630 banner would be the upgrade here. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="DeckLoom" />
+    <meta property="og:url" content="https://deckloom.app/" />
+    <meta property="og:title" content="DeckLoom — free MTG collection tracker and deck builder" />
+    <meta property="og:description" content="Scan unlimited Magic cards with your camera — no scan caps, no paywalls. Auto-build Commander decks, track collection value, and trade." />
+    <meta property="og:image" content="https://deckloom.app/android-chrome-512x512.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="DeckLoom — free MTG collection tracker and deck builder" />
+    <meta name="twitter:description" content="Scan unlimited Magic cards with your camera — no scan caps, no paywalls. Auto-build Commander decks, track collection value, and trade." />
+    <meta name="twitter:image" content="https://deckloom.app/android-chrome-512x512.png" />
+
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
@@ -87,6 +105,5 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
-    <!-- OpenCV.js is loaded lazily by the scanner only — see waitForOpenCV() in ScannerEngine.js -->
   </body>
 </html>

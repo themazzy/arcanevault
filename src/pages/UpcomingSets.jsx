@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import PublicPageFooter from '../components/PublicPageFooter'
+import GuestCta from '../components/GuestCta'
+import { useAuth } from '../components/Auth'
 import { EmptyState, ErrorBox } from '../components/UI'
 import { ChevronRightIcon } from '../icons'
 import {
@@ -73,6 +75,7 @@ function SetSkeleton() {
 }
 
 export default function UpcomingSetsPage() {
+  const { user } = useAuth() ?? {}
   const [sets, setSets] = useState(null)
   const [error, setError] = useState('')
   const today = todayIso()
@@ -130,6 +133,7 @@ export default function UpcomingSetsPage() {
         refreshed as previews are revealed.
       </p>
 
+      <GuestCta show={!user} />
       <PublicPageFooter />
     </div>
   )

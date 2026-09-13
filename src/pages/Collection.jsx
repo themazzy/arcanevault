@@ -1350,7 +1350,7 @@ export default function CollectionPage() {
           }}
           footer={showScanner ? (
             <Link to="/scanner" className={styles.emptyScannerLink}>
-              <ScannerIcon size={14} /> Scan physical cards with your camera
+              <ScannerIcon size={14} /> Scan physical cards with your camera — no scan limits
             </Link>
           ) : null}
         />

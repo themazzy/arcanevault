@@ -401,6 +401,10 @@ function DoneStep() {
       <div className={styles.doneNote}>
         You can revisit them any time from <strong>Settings → Personalization</strong>.
       </div>
+      <div className={styles.doneNote}>
+        Ready to fill your collection? The <strong>Scanner</strong> reads cards straight from your
+        camera. Matching runs on your device, so scan as many as you like — there is no limit.
+      </div>
     </div>
   )
 }

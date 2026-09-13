@@ -534,6 +534,25 @@ export function isDecisiveCandidate(best, gap) {
 }
 
 
+/**
+ * First-run "no scan limit" note.
+ *
+ * The startup modal is the obvious home for this and the wrong one:
+ * `startupCanContinue` flips as soon as the FIRST pack chunk lands, and a
+ * 400 ms timer dismisses the modal after that — on a warm IDB cache it is gone
+ * before anyone has read a word. The note therefore lives in the live overlay,
+ * where the camera is already up and the user is looking at the screen.
+ *
+ * It stands down for anything that has a better claim on the same space: the
+ * startup gate while it is still up, an error, and the first scanned card —
+ * the message is about scanning freely, so once they are scanning it has
+ * served its purpose whether or not it was explicitly dismissed.
+ */
+export function shouldShowScannerIntro({ introSeen, startupVisible, errorMsg, pendingCount }) {
+  if (introSeen || startupVisible || errorMsg) return false
+  return (pendingCount ?? 0) === 0
+}
+
 export function getStableVote(votes) {
   return [...votes.values()].sort((a, b) => {
     if (b.count !== a.count) return b.count - a.count
@@ -675,6 +694,11 @@ export default function CardScanner({ onMatch, onClose }) {
   const [dbReady, setDbReady]     = useState(false)
   const [preparing, setPreparing] = useState(true)
   const [startupDismissed, setStartupDismissed] = useState(false)
+  // One-time "no scan limit" note — see shouldShowScannerIntro for why it is
+  // not on the startup gate.
+  const [introSeen, setIntroSeen] = useState(() => {
+    try { return localStorage.getItem('arcanevault_scanner_intro_seen') === '1' } catch { return true }
+  })
   const [errorMsg, setErrorMsg]   = useState(null)
   const [scanning, setScanning]   = useState(false)
   const [cardCount, setCardCount] = useState(0)
@@ -812,6 +836,10 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => clearTimeout(timer)
   }, [startupDismissed, startupCanContinue])
 
+  const dismissIntro = useCallback(() => {
+    setIntroSeen(true)
+    try { localStorage.setItem('arcanevault_scanner_intro_seen', '1') } catch {}
+  }, [])
 
   // Persist basket to localStorage whenever it changes
   useEffect(() => { savePending(pendingCards) }, [pendingCards])
@@ -887,11 +915,11 @@ export default function CardScanner({ onMatch, onClose }) {
     return () => { cancelled = true }
   }, [setPickerOpen, setPickerSets.length])
 
-  // ── Init DB + OpenCV ───────────────────────────────────────────────────────
+  // ── Init DB ────────────────────────────────────────────────────────────────
   useEffect(() => {
     mountedRef.current = true
     // Marks this device as a scanner user so the app shell prefetches the
-    // hash pack + OpenCV on idle next session (see src/scanner/prefetch.js).
+    // hash pack on idle next session (see src/scanner/prefetch.js).
     try { localStorage.setItem('arcanevault_scanner_used', '1') } catch {}
     ;(async () => {
       try {
@@ -2412,6 +2440,30 @@ export default function CardScanner({ onMatch, onClose }) {
         {DEBUG && !debugInfo && (
           <div className={styles.debugStrip}>
             hashes: {cardCount.toLocaleString()} {databaseService.isFullyLoaded ? '✓' : '...'} | DB: {dbReady ? '✓' : '...'}
+          </div>
+        )}
+
+        {/* First-run note: no scan limit. Self-hides on the first scanned card. */}
+        {shouldShowScannerIntro({
+          introSeen,
+          startupVisible: showStartupModal,
+          errorMsg,
+          pendingCount: pendingCards.length,
+        }) && (
+          <div className={styles.introNote} role="note">
+            <div className={styles.introNoteBody}>
+              <strong>Scan as many cards as you like.</strong> The card database lives on this
+              device, so matching never touches a server — there is no scan limit and nothing to
+              pay for.
+            </div>
+            <button
+              type="button"
+              className={styles.introNoteClose}
+              onClick={dismissIntro}
+              aria-label="Dismiss"
+            >
+              <CloseIcon size={13} />
+            </button>
           </div>
         )}
 

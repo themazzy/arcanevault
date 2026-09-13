@@ -48,6 +48,10 @@ const FAQS = [
     a: 'DeckLoom may open from saved local data first and then refresh in the background. If you want an immediate recheck, use manual sync in Settings.',
   },
   {
+    q: 'Is there a limit on how many cards I can scan?',
+    a: 'No. There is no scan cap, no daily quota, and no subscription behind the scanner. The card fingerprint database downloads to your device the first time you open the scanner, and every match after that is computed locally — so scanning a single card and scanning a 2,000-card bulk box cost exactly the same: nothing.',
+  },
+  {
     q: 'Why is the scanner missing a card?',
     a: 'Strong glare, sleeves, dark lighting, and quick movement can all make scanning harder. Try softer light, hold the card still, and manually choose the printing if needed.',
   },
@@ -337,6 +341,12 @@ export default function HelpPage() {
             use, which means you can scan, review, correct, and save without leaving the flow.
             It is especially useful when processing new purchases, opening product, or cataloging
             a pile of cards into a binder or deck.
+          </p>
+          <p>
+            There is no scan limit. The card fingerprint database is downloaded to your device the
+            first time you open Scanner, and every match after that is computed locally rather than
+            on a server — so a bulk box costs no more than a single card, and nothing about scanning
+            sits behind a quota or a subscription.
           </p>
 
           <div className={styles.cardGrid}>

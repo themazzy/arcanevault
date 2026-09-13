@@ -725,7 +725,7 @@ export function LoginPage({ forcedMode = null }) {
             <div className={styles.eyebrow}><LightningIcon size={15} /> Build Assist for Commander</div>
             <h1 id="hero-title">Build your next Commander deck. <span>Instantly—or card by card.</span></h1>
             <p className={styles.heroLead}>
-              Auto-build a complete deck in seconds, or take the guided path and choose every card yourself. Your scanner, collection, and deck builder finally live in one app.
+              Auto-build a complete deck in seconds, or take the guided path and choose every card yourself. Your scanner, collection, and deck builder finally live in one app — with no cap on how much you scan.
             </p>
 
             <div className={styles.buildChoices}>
@@ -746,7 +746,7 @@ export function LoginPage({ forcedMode = null }) {
               <a className={styles.secondaryCta} href="#build-assist">Explore Build Assist</a>
             </div>
             <p className={styles.heroNote}>
-              Every feature is free · No paywalls{PAYMENTS_ENABLED ? ' · Donations are optional' : ''}
+              Every feature is free · Unlimited card scans · No paywalls{PAYMENTS_ENABLED ? ' · Donations are optional' : ''}
             </p>
           </div>
           <aside className={styles.heroForm} aria-label="DeckLoom account">{authForm}</aside>
@@ -793,11 +793,11 @@ export function LoginPage({ forcedMode = null }) {
             <article className={styles.coreFeature}>
               <span className={styles.coreIcon}><ScannerIcon size={26} /></span>
               <h3>Card Scanner</h3>
-              <p>Point your phone at a card and add the exact printing without typing collector numbers by hand. Review matches, adjust quantity, and move straight into your collection.</p>
+              <p>Point your phone at a card and add the exact printing without typing collector numbers by hand. Matching runs on your own device, so there is nothing to meter and no scan limit — review matches, adjust quantity, and move straight into your collection.</p>
               <ul>
+                <li><CheckIcon size={14} /> Unlimited scans, free — no caps, ever</li>
                 <li><CheckIcon size={14} /> Camera-based exact-print matching</li>
                 <li><CheckIcon size={14} /> Batch scanning and manual search</li>
-                <li><CheckIcon size={14} /> Built into the same collection workflow</li>
               </ul>
             </article>
             <article className={styles.coreFeature}>
@@ -834,6 +834,7 @@ export function LoginPage({ forcedMode = null }) {
           <div>
             <div className={styles.sectionLabel}>All your cards. All your decks. One app.</div>
             <h2 id="final-cta-title">Start with a commander. Let DeckLoom handle the rest.</h2>
+            <p className={styles.finalCtaProof}>No scan caps · No collection size limit · No export paywall</p>
           </div>
           <button className={styles.primaryCta} type="button" onClick={() => showForm('register')}>
             Create account <ChevronRightIcon size={16} />

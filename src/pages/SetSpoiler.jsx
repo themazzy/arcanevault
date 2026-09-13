@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import PublicPageFooter from '../components/PublicPageFooter'
+import GuestCta from '../components/GuestCta'
 import CardImg from '../components/CardImg'
 import { useAuth } from '../components/Auth'
 import { useToast } from '../components/ToastContext'
@@ -379,6 +380,7 @@ function RailRow({ label, count, active, onClick, dotColor = null, badge = null,
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SetSpoilerPage() {
+  const { user } = useAuth() ?? {}
   const { code } = useParams()
   const setCode = String(code || '').toLowerCase()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -776,6 +778,7 @@ export default function SetSpoilerPage() {
         Unreleased cards can change before release.
       </p>
 
+      <GuestCta show={!user} />
       <PublicPageFooter />
     </div>
   )

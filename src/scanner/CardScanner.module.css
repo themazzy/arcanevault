@@ -499,6 +499,60 @@
   gap: 10px;
 }
 
+/* First-run "no scan limit" note. Sits directly above the bottom bar and uses
+   the same dark treatment as .latestCardBar — the surface behind it is the
+   camera feed, not a themed surface, so the literal rgba values are correct
+   here rather than the --s-* tokens. */
+.introNote {
+  margin: 0 16px 10px;
+  padding: 11px 12px 11px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 14px;
+  background: rgba(7,8,11,0.88);
+  border: 1px solid rgba(201,168,76,0.3);
+  box-shadow: 0 16px 28px rgba(0,0,0,0.28);
+  animation: scannerBarIn 190ms cubic-bezier(.18,.8,.22,1);
+}
+
+.introNoteBody {
+  flex: 1;
+  min-width: 0;
+  color: rgba(255,255,255,0.78);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.introNoteBody strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+.introNoteClose {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+}
+
+.introNoteClose:hover {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+}
+
+.introNoteClose:focus-visible {
+  outline: 2px solid rgba(201,168,76,0.75);
+  outline-offset: 2px;
+}
+
 .scannedValueBadge {
   position: absolute;
   top: 72px;
@@ -2286,6 +2340,7 @@
   .detectOverlay,
   .spinner,
   .bottomBar,
+  .introNote,
   .overlayPanel,
   .basketItem,
   .primaryBtn,

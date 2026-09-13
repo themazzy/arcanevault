@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import PublicPageFooter from '../components/PublicPageFooter'
+import GuestCta from '../components/GuestCta'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
 import { useSettings } from '../components/SettingsContext'
@@ -1144,6 +1145,7 @@ export default function DeckViewPage() {
       </div>
 
       {deckMeta.is_public && <DeckComments deckId={id} user={user} />}
+      <GuestCta show={!user} />
       <PublicPageFooter />
     </div>
   )

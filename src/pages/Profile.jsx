@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import PublicPageFooter from '../components/PublicPageFooter'
+import GuestCta from '../components/GuestCta'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { useAuth } from '../components/Auth'
@@ -1529,6 +1530,7 @@ export default function ProfilePage() {
         <FollowListDialog username={decodedUsername} kind={followDialog}
           onClose={() => setFollowDialog(null)} />
       )}
+      <GuestCta show={!user} />
       <PublicPageFooter />
     </div>
   )
