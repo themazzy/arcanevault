@@ -1,0 +1,123 @@
+/* Price history chart. Colours come from the app's tokens — prices are already
+   green throughout card detail (.priceDetailVal), so the series inherits that
+   rather than introducing a chart-only hue. Text stays on text tokens; the
+   series colour is carried by the mark alone. */
+
+.figure {
+  margin: 0 0 18px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--s-border);
+  border-radius: var(--radius-md);
+  background: var(--s-subtle);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.label {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.headline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.now {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.up   { font-size: 0.76rem; color: var(--green); }
+.down { font-size: 0.76rem; color: var(--red, #c2554d); }
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 150px;
+  overflow: visible;
+  touch-action: pan-y;
+}
+
+.grid {
+  stroke: var(--s-border);
+  stroke-width: 1;
+}
+
+.axisText {
+  fill: var(--text-faint);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.area {
+  fill: var(--green);
+  opacity: 0.1;
+}
+
+.line {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.dot      { fill: var(--green); }
+.endpoint { fill: var(--green); stroke: var(--s-subtle); stroke-width: 2; }
+
+.crosshair {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.hoverDot {
+  fill: var(--green);
+  stroke: var(--s-subtle);
+  stroke-width: 2;
+}
+
+.readout {
+  margin-top: 8px;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-height: 1.2em;
+}
+
+.readout strong { color: var(--text); }
+
+.skeleton {
+  height: 196px;
+  margin-bottom: 18px;
+  border-radius: var(--radius-md);
+  background: var(--s-subtle);
+  border: 1px solid var(--s-border);
+}
+
+.empty {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--s-border);
+  border-radius: var(--radius-md);
+  background: var(--s-subtle);
+  color: var(--text-faint);
+  font-size: 0.78rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .svg * { transition: none !important; }
+}
