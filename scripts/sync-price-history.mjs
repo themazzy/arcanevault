@@ -4,8 +4,9 @@ import { streamBulkEntries } from './lib/mtgjson-stream.mjs'
 import { upsertWithRetry } from './lib/sync-retry.mjs'
 import {
   HISTORY_DAYS,
-  latestDateIn,
-  priceHistoryRow,
+  latestDateInAccumulator,
+  mergeRetailInto,
+  rowFromAccumulator,
   windowStart,
 } from './lib/price-history-core.mjs'
 
@@ -87,34 +88,41 @@ async function main() {
   // then rows are built. Only cards with a Cardmarket EUR price are retained,
   // which is ~88% of the file.
   console.log('[Price History] Streaming AllPrices…')
-  const entries = []
+  // Keyed by Scryfall id, not uuid: the mapping is many-to-one (MTGJSON gives
+  // etched/foil variants their own uuids where Scryfall keeps one id), so the
+  // finishes are merged here. Only the Cardmarket date maps are retained —
+  // dropping the rest of each entry keeps this far smaller than holding the
+  // parsed objects.
+  const byScryfallId = new Map()
   let latest = null
-  let scanned = 0, unmapped = 0
+  let scanned = 0, unmapped = 0, merged = 0
 
   for await (const [uuid, entry] of streamBulkEntries(PRICES_URL, { userAgent: USER_AGENT })) {
     scanned++
     if (scanned % LOG_EVERY === 0) {
       console.log(`[Price History] scanned ${scanned.toLocaleString()} printings…`)
     }
-    const retail = entry?.paper?.cardmarket?.retail
-    if (!retail) continue
+    if (!entry?.paper?.cardmarket?.retail) continue
     const sid = idMap.get(uuid)
     if (!sid) { unmapped++; continue }
 
-    const cardLatest = latestDateIn(entry)
-    if (cardLatest && (!latest || cardLatest > latest)) latest = cardLatest
-    entries.push([sid, entry])
+    if (byScryfallId.has(sid)) merged++
+    byScryfallId.set(sid, mergeRetailInto(byScryfallId.get(sid), entry))
   }
 
+  for (const acc of byScryfallId.values()) {
+    const cardLatest = latestDateInAccumulator(acc)
+    if (cardLatest && (!latest || cardLatest > latest)) latest = cardLatest
+  }
   if (!latest) throw new Error('No Cardmarket dates found in AllPrices — has the format changed?')
 
   const startDate = windowStart(latest, HISTORY_DAYS)
-  console.log(`[Price History] ${entries.length.toLocaleString()} priced printings; window ${startDate} -> ${latest} (${unmapped.toLocaleString()} unmapped).`)
+  console.log(`[Price History] ${byScryfallId.size.toLocaleString()} printings; window ${startDate} -> ${latest} (${unmapped.toLocaleString()} unmapped, ${merged.toLocaleString()} variant merges).`)
 
   let written = 0
   let pending = []
-  for (const [sid, entry] of entries) {
-    const row = priceHistoryRow(sid, entry, startDate, HISTORY_DAYS)
+  for (const [sid, acc] of byScryfallId) {
+    const row = rowFromAccumulator(sid, acc, startDate, HISTORY_DAYS)
     if (!row) continue
     pending.push(row)
     if (pending.length >= UPSERT_BATCH) {

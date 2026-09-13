@@ -63,6 +63,56 @@ export function windowStart(latestIso, days = HISTORY_DAYS) {
 }
 
 /**
+ * Fold one MTGJSON entry's Cardmarket retail dates into an accumulator keyed by
+ * Scryfall id.
+ *
+ * Needed because the mapping is many-to-one: MTGJSON issues separate uuids for
+ * variants (etched and foil printings above all) that Scryfall keeps as a
+ * single id with several finishes. Left unmerged, a batch carries the same
+ * scryfall_id twice and Postgres rejects the whole statement with "ON CONFLICT
+ * DO UPDATE command cannot affect row a second time".
+ *
+ * Merging rather than last-one-wins because the variants carry DIFFERENT
+ * coverage — typically one has the normal series and the other the foil — so
+ * picking either alone silently drops half the card's history.
+ */
+export function mergeRetailInto(acc, priceEntry) {
+  const retail = priceEntry?.paper?.cardmarket?.retail
+  if (!retail) return acc
+  const target = acc || { normal: {}, foil: {} }
+  for (const finish of ['normal', 'foil']) {
+    const branch = retail[finish]
+    if (!branch) continue
+    for (const [iso, price] of Object.entries(branch)) {
+      // A day already claimed by another variant keeps its value; they are the
+      // same card on the same day, so this only decides ties.
+      if (target[finish][iso] == null) target[finish][iso] = price
+    }
+  }
+  return target
+}
+
+/** Row builder for an accumulator produced by mergeRetailInto. */
+export function rowFromAccumulator(scryfallId, acc, startDate, days = HISTORY_DAYS) {
+  if (!acc) return null
+  const normal = seriesFromDateMap(acc.normal, startDate, days)
+  const foil = seriesFromDateMap(acc.foil, startDate, days)
+  if (!normal && !foil) return null
+  return { scryfall_id: scryfallId, start_date: startDate, prices_eur: normal, prices_foil_eur: foil }
+}
+
+/** Newest date present in an accumulator. */
+export function latestDateInAccumulator(acc) {
+  let latest = null
+  for (const finish of ['normal', 'foil']) {
+    for (const iso of Object.keys(acc?.[finish] || {})) {
+      if (!latest || iso > latest) latest = iso
+    }
+  }
+  return latest
+}
+
+/**
  * Build the row for one printing, or null when the card has no EUR price at
  * all. `paper.cardmarket.retail` is the only branch read: it is EUR and it is
  * the same Cardmarket trend number already stored in card_prices, verified

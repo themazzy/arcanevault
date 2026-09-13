@@ -6,6 +6,9 @@ import {
   priceHistoryRow,
   seriesFromDateMap,
   windowStart,
+  mergeRetailInto,
+  rowFromAccumulator,
+  latestDateInAccumulator,
 } from '../../scripts/lib/price-history-core.mjs'
 
 // The ingest turns MTGJSON's sparse date->price maps into index-aligned arrays.
@@ -129,5 +132,51 @@ describe('latestDateIn', () => {
 
   it('is null when there is no cardmarket block', () => {
     expect(latestDateIn({ paper: {} })).toBe(null)
+  })
+})
+
+// ── Variant merging ─────────────────────────────────────────────────────────
+// MTGJSON's uuid -> Scryfall id mapping is MANY-TO-ONE: etched and foil
+// variants get their own uuids where Scryfall keeps a single id. Unmerged, a
+// batch carries the same scryfall_id twice and Postgres rejects the entire
+// statement with "ON CONFLICT DO UPDATE command cannot affect row a second
+// time" — which is exactly how this was found, on a real 101,401-row run.
+
+describe('mergeRetailInto', () => {
+  const normalVariant = { paper: { cardmarket: { retail: { normal: { '2026-09-01': 4 } } } } }
+  const foilVariant = { paper: { cardmarket: { retail: { foil: { '2026-09-01': 12 } } } } }
+
+  it('combines two variants of one printing instead of one overwriting the other', () => {
+    // The usual real case: one uuid carries the normal series, the other the
+    // foil. Last-one-wins would silently drop half the card's history.
+    let acc = mergeRetailInto(null, normalVariant)
+    acc = mergeRetailInto(acc, foilVariant)
+    const row = rowFromAccumulator('sid', acc, '2026-09-01', 2)
+    expect(row.prices_eur).toEqual([4, null])
+    expect(row.prices_foil_eur).toEqual([12, null])
+  })
+
+  it('keeps the first value when both variants price the same day', () => {
+    let acc = mergeRetailInto(null, normalVariant)
+    acc = mergeRetailInto(acc, { paper: { cardmarket: { retail: { normal: { '2026-09-01': 99 } } } } })
+    expect(rowFromAccumulator('sid', acc, '2026-09-01', 1).prices_eur).toEqual([4])
+  })
+
+  it('ignores an entry with no cardmarket block', () => {
+    const acc = mergeRetailInto(null, { paper: { tcgplayer: { retail: { normal: { '2026-09-01': 5 } } } } })
+    expect(acc).toBe(null)
+    expect(rowFromAccumulator('sid', acc, '2026-09-01', 1)).toBe(null)
+  })
+})
+
+describe('latestDateInAccumulator', () => {
+  it('takes the newest date across both finishes', () => {
+    let acc = mergeRetailInto(null, { paper: { cardmarket: { retail: { normal: { '2026-09-01': 1 } } } } })
+    acc = mergeRetailInto(acc, { paper: { cardmarket: { retail: { foil: { '2026-09-11': 2 } } } } })
+    expect(latestDateInAccumulator(acc)).toBe('2026-09-11')
+  })
+
+  it('is null for an empty accumulator', () => {
+    expect(latestDateInAccumulator(null)).toBe(null)
   })
 })
