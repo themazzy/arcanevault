@@ -5,8 +5,17 @@
  * 143 MB bulk file. Tested in src/lib/priceHistoryCore.test.js.
  */
 
-/** Days the chart keeps. MTGJSON's window is ~86-90; this is the ceiling. */
-export const HISTORY_DAYS = 90
+/**
+ * Days of history kept per printing.
+ *
+ * NOT 90, which is what MTGJSON offers. The window slides daily, so every row
+ * is rewritten every run, and Postgres cannot update an array in place — one
+ * full rewrite took the table from 72 MB to 96 MB (measured, two consecutive
+ * runs). At 90 days the steady state projects to ~140 MB and the database to
+ * ~465 MB against a 500 MB cap. 60 days holds a real two-month trend on every
+ * card for ~95 MB of steady state and leaves ~80 MB of headroom.
+ */
+export const HISTORY_DAYS = 60
 
 const DAY_MS = 86400000
 
