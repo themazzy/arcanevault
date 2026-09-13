@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getMyNotifications, getUnreadNotificationCount, markAllNotificationsRead } from '../../lib/community'
 import { MILESTONES } from '../../lib/milestones'
+import { ANNOUNCEMENT_BY_ID } from '../../lib/announcements'
 import { useSettings } from '../SettingsContext'
 import { BellIcon } from '../../icons'
 import styles from './NotificationBell.module.css'
@@ -67,7 +68,12 @@ export default function NotificationBell() {
 
   const go = (n) => {
     setOpen(false)
-    if (n.type === 'milestone') {
+    if (n.type === 'announcement') {
+      // Straight to the feature being announced — an announcement nobody can
+      // act on is just noise.
+      const announcement = ANNOUNCEMENT_BY_ID.get(n.milestone_id)
+      if (announcement?.href) navigate(announcement.href)
+    } else if (n.type === 'milestone') {
       // The milestones block lives on the owner's own profile.
       if (nickname) navigate(`/profile/${encodeURIComponent(nickname)}`)
     } else if (n.type === 'trade_proposal' || n.type === 'trade_response') {
@@ -92,16 +98,23 @@ export default function NotificationBell() {
           {notes === null ? (
             <div className={styles.empty}>Loading…</div>
           ) : notes.length === 0 ? (
-            <div className={styles.empty}>Nothing yet. Milestones, likes, comments and follows show up here.</div>
+            <div className={styles.empty}>Nothing yet. Updates, milestones, likes, comments and follows show up here.</div>
           ) : (
             <ul className={styles.list}>
               {notes.map(n => {
                 const milestone = n.type === 'milestone' ? MILESTONE_BY_ID.get(n.milestone_id) : null
+                const announcement = n.type === 'announcement' ? ANNOUNCEMENT_BY_ID.get(n.milestone_id) : null
                 return (
                   <li key={n.id}>
                     <button className={`${styles.item} ${n.read ? '' : styles.itemUnread}`} onClick={() => go(n)}>
                       <span className={styles.text}>
-                        {n.type === 'milestone' ? (
+                        {n.type === 'announcement' ? (
+                          <>
+                            <span className={styles.milestoneIcon}>{announcement?.icon || '✨'}</span>
+                            <strong>{announcement?.title || 'What’s new'}</strong>
+                            {announcement?.body ? <span className={styles.announcementBody}>{announcement.body}</span> : null}
+                          </>
+                        ) : n.type === 'milestone' ? (
                           <>
                             <span className={styles.milestoneIcon}>{milestone?.icon || '🏆'}</span>
                             Milestone unlocked — <strong>{milestone?.label || 'New milestone'}</strong>

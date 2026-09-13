@@ -110,3 +110,13 @@
 /* Milestone rows lead with the milestone's emoji instead of an actor name. */
 .milestoneIcon { margin-right: 6px; }
 .time { flex: 0 0 auto; font-size: 0.7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* Announcement body sits under its title on its own line — a release note needs
+   a sentence, where a milestone or a like is a single phrase. */
+.announcementBody {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}

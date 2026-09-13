@@ -14,6 +14,7 @@ import { isDeckPubliclyViewable } from './lib/deckViewData'
 import { AppBootSkeleton } from './components/Skeletons'
 import Layout from './components/Layout'
 import MilestoneWatcher from './components/MilestoneWatcher'
+import AnnouncementWatcher from './components/AnnouncementWatcher'
 
 class ChunkErrorBoundary extends Component {
   constructor(props) {
@@ -149,6 +150,7 @@ function PrivateApp() {
     <SettingsProvider>
       <SetupWizardProvider>
       <MilestoneWatcher />
+      <AnnouncementWatcher />
       <Layout>
         <Suspense fallback={null}>
           <Routes>

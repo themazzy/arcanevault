@@ -99,3 +99,27 @@ export async function recordMilestoneNotifications(userId, milestoneIds) {
     .upsert(rows, { onConflict: 'user_id,milestone_id', ignoreDuplicates: true })
   if (error) throw error
 }
+
+/**
+ * Release announcements, written the same way and deduped by the same index —
+ * see src/lib/announcements.js. The type differs so the bell can render a
+ * release note as a release note rather than as "Milestone unlocked".
+ */
+export async function recordAnnouncementNotifications(userId, announcementIds) {
+  if (!userId || !announcementIds?.length) return
+  const rows = announcementIds.map(id => ({ user_id: userId, type: 'announcement', milestone_id: id }))
+  const { error } = await sb.from('notifications')
+    .upsert(rows, { onConflict: 'user_id,milestone_id', ignoreDuplicates: true })
+  if (error) throw error
+}
+
+/** Ids of milestone/announcement rows already recorded for this user. */
+export async function fetchRecordedKeys(userId) {
+  if (!userId) return new Set()
+  const { data, error } = await sb.from('notifications')
+    .select('milestone_id')
+    .eq('user_id', userId)
+    .not('milestone_id', 'is', null)
+  if (error) throw error
+  return new Set((data || []).map(r => r.milestone_id))
+}
