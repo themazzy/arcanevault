@@ -45,6 +45,11 @@
 
 .up,
 .down {
+  /* inline-block, not inline: .deltaSince stacks underneath, and tabular
+     numerals keep the headline from shuffling as the cursor moves along the
+     line. */
+  display: inline-block;
+  text-align: right;
   font-size: var(--font-sm);
   font-variant-numeric: tabular-nums;
 }
@@ -134,18 +139,39 @@
   font-weight: 600;
 }
 
-.readoutFlat,
-.readoutHint,
-.readoutEstimate {
+.readoutHint {
   font-size: var(--font-xs);
+  color: var(--text-faint);
 }
 
-.readoutFlat,
-.readoutHint { color: var(--text-faint); }
-
 /* An interpolated day says something about our plumbing, not about the market,
-   so it is called out rather than blending into the readout. */
-.readoutEstimate { color: var(--orange); }
+   so it is called out rather than blending into the date it qualifies. */
+.estimateChip {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--orange);
+  border-radius: var(--radius-sm);
+  color: var(--orange);
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: help;
+}
+
+/* Sits under the delta so the number is not read as a whole-window move when
+   it is a single day's, and vice versa. */
+.deltaSince {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-faint);
+  font-size: var(--font-xs);
+  font-variant-numeric: normal;
+  text-align: right;
+}
+
+.flat {
+  font-size: var(--font-sm);
+  color: var(--text-faint);
+}
 
 .skeleton {
   height: 232px;

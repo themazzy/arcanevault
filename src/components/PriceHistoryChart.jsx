@@ -136,6 +136,16 @@ export default function PriceHistoryChart({ scryfallId, foil = false, priceSourc
   const up = stats.change >= 0
   const hovered = hoverIdx != null ? points[hoverIdx] : null
 
+  // Day-over-day, not against the window start: the headline already carries
+  // the whole-window change at rest, so repeating it on hover says nothing new.
+  const hoverDelta = (() => {
+    if (!hovered) return null
+    const prev = previousPriced(points, hovered.index)
+    if (!prev) return null
+    const value = hovered.price - prev.price
+    return { value, pct: prev.price > 0 ? (value / prev.price) * 100 : null }
+  })()
+
   function locate(clientX) {
     const el = wrapRef.current
     if (!el || points.length < 2) return null
@@ -148,16 +158,43 @@ export default function PriceHistoryChart({ scryfallId, foil = false, priceSourc
 
   return (
     <figure className={`${styles.figure} ${tone}`}>
-      <figcaption className={styles.head}>
+      {/* The headline IS the readout. Hovering retargets the big number to the
+          day under the cursor rather than echoing it in a second place below
+          the plot — the eye is already here, and two live numbers competed. */}
+      <figcaption className={styles.head} aria-live="polite">
         <span className={styles.label}>
-          {source.label}{foil ? ' foil' : ''} · {formatDay(stats.first.date)} – {formatDay(stats.last.date)}
+          {source.label}{foil ? ' foil' : ''} ·{' '}
+          {hovered
+            ? formatHoverDay(hovered.date)
+            : `${formatDay(stats.first.date)} – ${formatDay(stats.last.date)}`}
+          {/* Qualifies the DAY, not the price, so it sits with the date. */}
+          {hovered?.estimated && (
+            <span className={styles.estimateChip} title="No price was published that day — this point is interpolated from the days either side.">
+              estimated
+            </span>
+          )}
         </span>
         <span className={styles.headline}>
-          <span className={styles.now}>{money(stats.last.price)}</span>
-          <span className={up ? styles.up : styles.down}>
-            {up ? '▲' : '▼'} {money(Math.abs(stats.change))}
-            {stats.changePct != null && ` (${up ? '+' : '−'}${Math.abs(stats.changePct).toFixed(1)}%)`}
-          </span>
+          <span className={styles.now}>{money(hovered ? hovered.price : stats.last.price)}</span>
+          {hovered ? (
+            hoverDelta && (
+              <span className={hoverDelta.value === 0 ? styles.flat : hoverDelta.value > 0 ? styles.up : styles.down}>
+                {hoverDelta.value === 0
+                  ? 'unchanged'
+                  : `${hoverDelta.value > 0 ? '▲' : '▼'} ${money(Math.abs(hoverDelta.value))}`
+                    + (hoverDelta.pct != null
+                      ? ` (${hoverDelta.value > 0 ? '+' : '−'}${Math.abs(hoverDelta.pct).toFixed(1)}%)`
+                      : '')}
+                <span className={styles.deltaSince}>vs day before</span>
+              </span>
+            )
+          ) : (
+            <span className={up ? styles.up : styles.down}>
+              {up ? '▲' : '▼'} {money(Math.abs(stats.change))}
+              {stats.changePct != null && ` (${up ? '+' : '−'}${Math.abs(stats.changePct).toFixed(1)}%)`}
+              <span className={styles.deltaSince}>over {stats.count} days</span>
+            </span>
+          )}
         </span>
       </figcaption>
 
@@ -222,38 +259,12 @@ export default function PriceHistoryChart({ scryfallId, foil = false, priceSourc
         )}
       </div>
 
-      <div className={styles.readout} aria-live="polite">
-        {hovered ? (() => {
-          const prev = previousPriced(points, hovered.index)
-          const delta = prev ? hovered.price - prev.price : null
-          const deltaPct = prev && prev.price > 0 ? (delta / prev.price) * 100 : null
-          return (
-            <>
-              <span className={styles.readoutDay}>{formatHoverDay(hovered.date)}</span>
-              <strong className={styles.readoutPrice}>{money(hovered.price)}</strong>
-              {delta != null && (
-                <span className={delta === 0 ? styles.readoutFlat : delta > 0 ? styles.up : styles.down}>
-                  {delta === 0
-                    ? 'no change from the day before'
-                    : `${delta > 0 ? '▲' : '▼'} ${money(Math.abs(delta))}`
-                      + (deltaPct != null ? ` (${delta > 0 ? '+' : '−'}${Math.abs(deltaPct).toFixed(1)}%)` : '')
-                      + ' from the day before'}
-                </span>
-              )}
-              {/* Interpolated across a day nobody published. Saying so is the
-                  difference between a chart and a claim. */}
-              {hovered.estimated && (
-                <span className={styles.readoutEstimate}>estimated — no price published that day</span>
-              )}
-            </>
-          )
-        })() : (
-          <>
-            <span className={styles.readoutDay}>{stats.count}-day range</span>
-            <strong className={styles.readoutPrice}>{money(stats.min)} – {money(stats.max)}</strong>
-            <span className={styles.readoutHint}>hover the line for any day</span>
-          </>
-        )}
+      {/* Static on purpose. This used to be the hover target too, so the price
+          moved in two places at once and the eye did not know which to read. */}
+      <div className={styles.readout}>
+        <span className={styles.readoutDay}>{stats.count}-day range</span>
+        <strong className={styles.readoutPrice}>{money(stats.min)} – {money(stats.max)}</strong>
+        <span className={styles.readoutHint}>hover the line for any day</span>
       </div>
     </figure>
   )

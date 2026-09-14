@@ -87,5 +87,9 @@ describe('streamDataEntries', () => {
     // Two 36-character keys. Verified 2026-09-14 against the pre-fix reader,
     // which retained 2.25 MB here; the fixed one nets below zero.
     expect(process.memoryUsage().heapUsed - before).toBeLessThan(PAD)
-  })
+    // Allocating 4 MB of padding and forcing two GCs is slow, and slower again
+    // when vitest is running every other file in parallel: this passed alone in
+    // 2.7 s and timed out at the 5 s default in a full run. The duration is not
+    // part of what is being asserted, so it gets room rather than a flake.
+  }, 30000)
 })
