@@ -1,31 +1,47 @@
-/* Movers panel on Home. A top-level section card, so it takes the gold border
-   per DESIGN.md §1 — the rows nested inside it use the neutral ramp. */
+/* Movers panel on Home.
+   Every value here mirrors Home.module.css's own .section / .sectionTitle /
+   .sectionCount rather than approximating them: this sits directly under the
+   Collection section and any drift reads as a different app. The first version
+   invented its own surface, padding and title colour and looked pasted in. */
+
 .panel {
-  padding: 16px 18px;
+  /* .section */
+  background: var(--s1);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg2);
+  border-radius: 8px;
+  padding: 26px 30px;
+  margin-bottom: 24px;
 }
 
 .head {
+  /* .sectionHeader */
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
+  gap: 12px;
+  margin-bottom: 14px;
 }
 
 .title {
+  /* .sectionTitle — gold, display face, tracked, with the same glow. */
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--font-lg);
-  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--gold);
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 18px rgba(201, 168, 76, 0.2);
 }
 
 .sub {
-  composes: labelMd from '../styles/typography.module.css';
+  /* .sectionCount — the pill Home already uses for a header aside. */
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--s-border2);
+  border-radius: 10px;
+  background: var(--s2);
   color: var(--text-faint);
+  font-size: 0.7rem;
 }
 
 .list {
@@ -34,32 +50,36 @@
   padding: 0;
   display: flex;
   flex-direction: column;
+  gap: 8px;
 }
 
+/* Rows are tiles, like the stat tiles in the Collection section above — nested
+   inside a panel, so the neutral border ramp rather than gold (DESIGN.md §1). */
 .row {
   width: 100%;
-  padding: 9px 0;
+  padding: 10px 14px;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  border: 0;
-  border-bottom: 1px solid var(--s-border0);
-  background: none;
+  gap: 14px;
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: var(--s2);
   color: inherit;
   text-align: left;
   font: inherit;
   cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
 }
 
-.list li:last-child .row { border-bottom: 0; }
-
-.row:hover .name { color: var(--gold); }
+.row:hover {
+  border-color: var(--border-hi);
+  background: var(--s3);
+}
 
 .row:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
 }
 
 .name {
@@ -67,24 +87,24 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-sm);
   color: var(--text);
+  font-size: var(--font-sm);
 }
 
 .foilTag,
 .qty {
   margin-left: 6px;
   font-size: var(--font-xs);
-  color: var(--text-faint);
 }
 
 .foilTag { color: var(--purple); }
+.qty { color: var(--text-faint); }
 
 .figures {
   flex: none;
   display: inline-flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
   font-variant-numeric: tabular-nums;
   font-size: var(--font-sm);
 }
@@ -95,20 +115,22 @@
 .price { color: var(--text); }
 
 .holding {
-  min-width: 5.5ch;
+  min-width: 6ch;
   text-align: right;
   color: var(--text-faint);
   font-size: var(--font-xs);
 }
 
 .more {
-  margin: 10px 0 0;
+  margin: 12px 0 0;
   color: var(--text-faint);
   font-size: var(--font-xs);
 }
 
-@media (max-width: 560px) {
-  /* The holding delta is the first thing to go: the percentage and the new
-     price carry the story on a narrow screen. */
+@media (max-width: 700px) {
+  .panel { padding: 18px 16px; }
+  /* The holding delta goes first: the percentage and new price carry the story
+     on a narrow screen. */
   .holding { display: none; }
+  .figures { gap: 10px; }
 }
