@@ -2183,3 +2183,14 @@ a.priceDetailBlock:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* Explanatory note under a price subsection. Small, quiet, and doing real work:
+   the profit-and-loss figure is always EUR/Cardmarket regardless of the user's
+   price source, so it has to say what it compares against. */
+.priceNote {
+  margin: 10px 0 0;
+  color: var(--text-faint);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+  max-width: 56ch;
+}

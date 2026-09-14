@@ -114,21 +114,38 @@
   margin-top: 10px;
   padding-top: 9px;
   border-top: 1px solid var(--s-border0);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   font-size: var(--font-sm);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
   min-height: 1.3em;
 }
 
-.readout strong {
+.readoutDay {
+  composes: labelMd from '../styles/typography.module.css';
+  color: var(--text-faint);
+}
+
+.readoutPrice {
   color: var(--text);
   font-weight: 600;
 }
 
-.readoutSep {
-  margin: 0 8px;
-  color: var(--text-faint);
+.readoutFlat,
+.readoutHint,
+.readoutEstimate {
+  font-size: var(--font-xs);
 }
+
+.readoutFlat,
+.readoutHint { color: var(--text-faint); }
+
+/* An interpolated day says something about our plumbing, not about the market,
+   so it is called out rather than blending into the readout. */
+.readoutEstimate { color: var(--orange); }
 
 .skeleton {
   height: 232px;

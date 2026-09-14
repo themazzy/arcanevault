@@ -1150,61 +1150,101 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
             <div className={`${styles.detailSection} ${styles.tabContentBox}`}>
               <PriceHistoryChart scryfallId={fc.id || card.scryfall_id || null} foil={!!card.foil} priceSource={priceSource} />
               <div className={styles.priceSectionHead}>
-                <span className={styles.priceSectionLabel}>All prices</span>
+                <span className={styles.priceSectionLabel}>Today across marketplaces</span>
                 {pricesAreLive && <span className={`${styles.detailStatusPill} ${styles.detailStatusLive}`}>Fetched live from Scryfall</span>}
               </div>
               <div className={styles.pricesGrid}>
                 {[
-                  ['EUR', fc.prices?.eur,     'Cardmarket',      'EUR', fc.purchase_uris?.cardmarket],
-                  ['EUR', fc.prices?.eur_foil, 'Cardmarket Foil', 'EUR', fc.purchase_uris?.cardmarket],
-                  ['USD', fc.prices?.usd,     'TCGPlayer',       'USD', fc.purchase_uris?.tcgplayer],
-                  ['USD', fc.prices?.usd_foil, 'TCGPlayer Foil',  'USD', fc.purchase_uris?.tcgplayer],
-                  ['TIX', fc.prices?.tix,     'Cardhoarder',     'tix', fc.purchase_uris?.cardhoarder],
-                ].map(([cur, val, label, _unit, href]) => val ? (
-                  href
-                    ? <a key={label} href={href} target="_blank" rel="noreferrer" className={styles.priceDetailBlock}>
-                        <div className={styles.priceDetailLabel}>{label}</div>
-                        <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
-                          {cur !== 'TIX' ? `${cur} ` : ''}{parseFloat(val).toFixed(2)}{cur === 'TIX' ? ' tix' : ''}
-                        </div>
-                        {displayQty > 1 && cur !== 'TIX' && (
-                          <div className={styles.priceDetailSub}>
-                            x {displayQty} = {cur} {(parseFloat(val) * displayQty).toFixed(2)}
-                          </div>
-                        )}
-                      </a>
-                    : <div key={label} className={styles.priceDetailBlock}>
-                        <div className={styles.priceDetailLabel}>{label}</div>
-                        <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
-                          {cur !== 'TIX' ? `${cur} ` : ''}{parseFloat(val).toFixed(2)}{cur === 'TIX' ? ' tix' : ''}
-                        </div>
-                        {displayQty > 1 && cur !== 'TIX' && (
-                          <div className={styles.priceDetailSub}>
-                            x {displayQty} = {cur} {(parseFloat(val) * displayQty).toFixed(2)}
-                          </div>
-                        )}
+                  ['€', fc.prices?.eur,      'Cardmarket',      fc.purchase_uris?.cardmarket],
+                  ['€', fc.prices?.eur_foil, 'Cardmarket foil', fc.purchase_uris?.cardmarket],
+                  ['$', fc.prices?.usd,      'TCGPlayer',       fc.purchase_uris?.tcgplayer],
+                  ['$', fc.prices?.usd_foil, 'TCGPlayer foil',  fc.purchase_uris?.tcgplayer],
+                  ['',  fc.prices?.tix,      'Cardhoarder',     fc.purchase_uris?.cardhoarder],
+                ].map(([symbol, val, label, href]) => {
+                  if (!val) return null
+                  const each = parseFloat(val)
+                  const money = v => (symbol ? `${symbol}${v.toFixed(2)}` : `${v.toFixed(2)} tix`)
+                  const body = (
+                    <>
+                      <div className={styles.priceDetailLabel}>{label}</div>
+                      <div className={styles.priceDetailVal} style={{ color: 'var(--green)' }}>
+                        {money(each)}
                       </div>
-                ) : null)}
+                      {displayQty > 1 && (
+                        <div className={styles.priceDetailSub}>
+                          {money(each * displayQty)} for {displayQty}
+                        </div>
+                      )}
+                    </>
+                  )
+                  return href
+                    ? <a key={label} href={href} target="_blank" rel="noreferrer" className={styles.priceDetailBlock}>{body}</a>
+                    : <div key={label} className={styles.priceDetailBlock}>{body}</div>
+                })}
               </div>
+              <p className={styles.priceNote}>
+                {displayQty > 1
+                  ? 'Price for one copy, with the total for all your copies underneath.'
+                  : 'Price for one copy.'}
+                {' '}The chart above follows whichever marketplace you picked in Settings.
+              </p>
 
               {card.purchase_price > 0 && (
                 <div className={styles.detailSubsection}>
-                  <div className={styles.detailInfoRow}>
-                    <span className={styles.detailInfoLabel}>Purchase Price</span>
-                    <span className={styles.detailInfoVal}>
-                      EUR {parseFloat(card.purchase_price).toFixed(2)}
-                      {displayQty > 1 && ` x ${displayQty} = EUR ${(parseFloat(card.purchase_price) * displayQty).toFixed(2)}`}
+                  <div className={styles.priceSectionHead}>
+                    <span className={styles.priceSectionLabel}>
+                      {displayQty > 1 ? `Your ${displayQty} copies` : 'Your copy'}
                     </span>
                   </div>
-                  {pl != null && (
+                  <div className={styles.detailInfoRow}>
+                    <span className={styles.detailInfoLabel}>You paid</span>
+                    <span className={styles.detailInfoVal}>
+                      €{(parseFloat(card.purchase_price) * displayQty).toFixed(2)}
+                      {displayQty > 1 && (
+                        <span className={styles.inlineMuted}>
+                          €{parseFloat(card.purchase_price).toFixed(2)} each
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  {eurPrice != null && (
                     <div className={styles.detailInfoRow}>
-                      <span className={styles.detailInfoLabel}>P&L</span>
-                      <span className={styles.detailInfoVal} style={{ color: pl >= 0 ? 'var(--green)' : '#e05252', fontWeight: 600 }}>
-                        {pl >= 0 ? '+' : ''}EUR {pl.toFixed(2)}
-                        {plPct != null && <span className={styles.inlineMuted}>({plPct >= 0 ? '+' : ''}{plPct.toFixed(1)}%)</span>}
+                      <span className={styles.detailInfoLabel}>Worth now</span>
+                      <span className={styles.detailInfoVal}>
+                        €{(eurPrice * displayQty).toFixed(2)}
+                        {displayQty > 1 && (
+                          <span className={styles.inlineMuted}>€{eurPrice.toFixed(2)} each</span>
+                        )}
                       </span>
                     </div>
                   )}
+                  {pl != null && (
+                    <div className={styles.detailInfoRow}>
+                      {/* "P&L" meant nothing to anyone who had not met the term.
+                          The row now says which direction it went, and the note
+                          below says what it is measured against. */}
+                      <span className={styles.detailInfoLabel}>{pl >= 0 ? 'Gain' : 'Loss'}</span>
+                      <span
+                        className={styles.detailInfoVal}
+                        style={{ color: pl >= 0 ? 'var(--green)' : 'var(--red-bright)', fontWeight: 600 }}
+                      >
+                        {pl >= 0 ? '+' : '−'}€{Math.abs(pl).toFixed(2)}
+                        {plPct != null && (
+                          <span className={styles.inlineMuted}>
+                            {plPct >= 0 ? '+' : '−'}{Math.abs(plPct).toFixed(1)}%
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  {/* Always EUR/Cardmarket, even for someone whose price source
+                      is TCGplayer — every P&L surface in the app is hardcoded to
+                      it. Saying so beats letting the number quietly disagree
+                      with the price shown above. */}
+                  <p className={styles.priceNote}>
+                    Compared with the current Cardmarket price in EUR, which DeckLoom uses
+                    for profit and loss everywhere.
+                  </p>
                 </div>
               )}
 

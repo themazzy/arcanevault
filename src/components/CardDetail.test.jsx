@@ -107,12 +107,12 @@ describe('CardDetail', () => {
 
   it('defaults a read-only surface to the Prices tab', () => {
     render(<Detail card={CARD} />)
-    expect(screen.getByText('All prices')).toBeTruthy()
+    expect(screen.getByText('Today across marketplaces')).toBeTruthy()
   })
 
   it('honors readOnlyDefaultTab (deck builder opens on Legality, not Prices)', () => {
     render(<Detail card={CARD} readOnlyDefaultTab="legality" />)
-    expect(screen.queryByText('All prices')).toBe(null)
+    expect(screen.queryByText('Today across marketplaces')).toBe(null)
   })
 
   it('defaults an editable surface to the Edit tab', () => {

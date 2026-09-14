@@ -38,6 +38,23 @@ function formatDay(iso) {
   return `${Number(d)} ${MONTHS[Number(m) - 1]}`
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/** Weekday included on hover: it turns a bare number into a dated fact, and
+ *  weekends are where thin marketplace days cluster. */
+function formatHoverDay(iso) {
+  const day = WEEKDAYS[new Date(`${iso}T00:00:00Z`).getUTCDay()]
+  return `${day} ${formatDay(iso)}`
+}
+
+/** The most recent priced day before `index`, for the day-over-day change. */
+function previousPriced(points, index) {
+  for (let i = index - 1; i >= 0; i--) {
+    if (points[i]?.price != null) return points[i]
+  }
+  return null
+}
+
 function formatTick(v) {
   if (v >= 1000) return Math.round(v).toLocaleString()
   if (v >= 100) return v.toFixed(0)
@@ -206,9 +223,37 @@ export default function PriceHistoryChart({ scryfallId, foil = false, priceSourc
       </div>
 
       <div className={styles.readout} aria-live="polite">
-        {hovered
-          ? <><strong>{money(hovered.price)}</strong><span className={styles.readoutSep}>·</span>{formatDay(hovered.date)}</>
-          : <>Low <strong>{money(stats.min)}</strong><span className={styles.readoutSep}>·</span>High <strong>{money(stats.max)}</strong></>}
+        {hovered ? (() => {
+          const prev = previousPriced(points, hovered.index)
+          const delta = prev ? hovered.price - prev.price : null
+          const deltaPct = prev && prev.price > 0 ? (delta / prev.price) * 100 : null
+          return (
+            <>
+              <span className={styles.readoutDay}>{formatHoverDay(hovered.date)}</span>
+              <strong className={styles.readoutPrice}>{money(hovered.price)}</strong>
+              {delta != null && (
+                <span className={delta === 0 ? styles.readoutFlat : delta > 0 ? styles.up : styles.down}>
+                  {delta === 0
+                    ? 'no change from the day before'
+                    : `${delta > 0 ? '▲' : '▼'} ${money(Math.abs(delta))}`
+                      + (deltaPct != null ? ` (${delta > 0 ? '+' : '−'}${Math.abs(deltaPct).toFixed(1)}%)` : '')
+                      + ' from the day before'}
+                </span>
+              )}
+              {/* Interpolated across a day nobody published. Saying so is the
+                  difference between a chart and a claim. */}
+              {hovered.estimated && (
+                <span className={styles.readoutEstimate}>estimated — no price published that day</span>
+              )}
+            </>
+          )
+        })() : (
+          <>
+            <span className={styles.readoutDay}>{stats.count}-day range</span>
+            <strong className={styles.readoutPrice}>{money(stats.min)} – {money(stats.max)}</strong>
+            <span className={styles.readoutHint}>hover the line for any day</span>
+          </>
+        )}
       </div>
     </figure>
   )
