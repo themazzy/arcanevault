@@ -19,6 +19,16 @@ export const HISTORY_DAYS = 60
 
 const DAY_MS = 86400000
 
+/**
+ * A day with no price, in the integer-cent series below.
+ *
+ * A sentinel rather than `null` because the series are Int32Arrays, which
+ * cannot hold one — see `newSeries` for why they are typed at all. Negative is
+ * safe: `toCents` rejects zero and everything below it, so no real price can
+ * collide with it.
+ */
+export const NO_PRICE = -1
+
 /** `YYYY-MM-DD` in UTC. Local-date arithmetic repeats a day across a DST
  *  boundary, which is exactly the bug the traffic charts hit. */
 export function isoDay(ms) {
@@ -32,34 +42,6 @@ export function dayMs(iso) {
 /** Inclusive whole-day difference between two `YYYY-MM-DD` strings. */
 export function daysBetween(fromIso, toIso) {
   return Math.round((dayMs(toIso) - dayMs(fromIso)) / DAY_MS)
-}
-
-/**
- * Turn MTGJSON's sparse `{ "2026-09-13": 4.02 }` map into a contiguous array
- * anchored at `startDate`.
- *
- * A day the source has no price for becomes `null`, NOT a carried-forward or
- * interpolated value: the chart has to draw a gap there. Inventing a point
- * would turn "Cardmarket had no listing" into a flat line that looks like real
- * market data, and a spike alert would then fire off a number nobody quoted.
- *
- * Returns null when there is nothing to store, so the caller can omit the
- * column rather than write an array of nulls.
- */
-export function seriesFromDateMap(dateMap, startDate, days = HISTORY_DAYS) {
-  if (!dateMap) return null
-  const out = new Array(days).fill(null)
-  let any = false
-
-  for (const [iso, price] of Object.entries(dateMap)) {
-    const idx = daysBetween(startDate, iso)
-    if (idx < 0 || idx >= days) continue
-    const n = Number(price)
-    if (!Number.isFinite(n) || n <= 0) continue
-    out[idx] = Math.round(n * 100) / 100
-    any = true
-  }
-  return any ? out : null
 }
 
 /**
@@ -88,23 +70,108 @@ export const CURRENCIES = [
   { key: 'usd', provider: 'tcgplayer', column: 'prices_usd', foilColumn: 'prices_usd_foil' },
 ]
 
-/** True when an entry has any retail block we care about. */
-export function hasStorableRetail(priceEntry) {
-  return CURRENCIES.some(c => priceEntry?.paper?.[c.provider]?.retail)
-}
+/**
+ * One stored column per marketplace and finish, each naming the exact MTGJSON
+ * path it reads. Enumerating the paths here is what keeps `foldEntryInto` from
+ * ever touching the rest of an entry: every other provider, buylist and finish
+ * is unreachable rather than merely discarded afterwards.
+ */
+export const SERIES = CURRENCIES.flatMap(c => [
+  { column: c.column, provider: c.provider, finish: 'normal' },
+  { column: c.foilColumn, provider: c.provider, finish: 'foil' },
+])
 
-/** The blocks worth retaining while streaming, keyed by currency. */
-export function retailBlocks(priceEntry) {
-  const out = {}
-  for (const c of CURRENCIES) {
-    const retail = priceEntry?.paper?.[c.provider]?.retail
-    if (retail) out[c.key] = retail
-  }
-  return out
+export const SERIES_COLUMNS = SERIES.map(s => s.column)
+
+// ── Staging window ──────────────────────────────────────────────────────────
+// Prices are folded into fixed-length arrays AS THEY STREAM, which needs a day
+// zero before the newest published date is known. MTGJSON's own `meta.date` is
+// that anchor, with enough slack either side that the real window cannot fall
+// outside it — and the script asserts that it did not, so a wrong anchor fails
+// the run loudly instead of silently truncating history.
+//
+// Why fold at all, rather than retain the date maps and convert at the end:
+// each `{ "2026-09-13": 4.02 }` map costs ~6 KB in V8 (dictionary properties, a
+// freshly parsed key string per day, a boxed double per value) and there are
+// four per printing across ~101k printings. That is ~2.4 GB of staging for what
+// fits in ~2 KB of Int32Array per card, and it ran the job out of heap twice:
+// first retaining whole entries, then — once a second marketplace was added —
+// retaining just the two blocks it needed.
+
+/** Days of slack before the build date. Tolerates a badly stale feed. */
+export const STAGING_LAG = 120
+/** Days of slack after it. A build dated ahead of its own prices is not
+ *  something we have seen, but allowing for it costs one week of array. */
+export const STAGING_LEAD = 7
+export const STAGING_SPAN = STAGING_LAG + STAGING_LEAD + 1
+
+/** Day zero of the staging arrays, from the bulk file's own build date. */
+export function stagingBase(buildDate) {
+  return isoDay(dayMs(buildDate) - STAGING_LAG * DAY_MS)
 }
 
 /**
- * Fold one printing's retail blocks into an accumulator keyed by Scryfall id.
+ * A staging or output series: integer cents, `NO_PRICE` for a day with no
+ * price.
+ *
+ * Int32Array rather than a plain array because a slot of a JS array holding
+ * doubles costs ~8 bytes of pointer plus ~16 of boxed number, against a flat 4.
+ * Cents rather than floats because they are exact — the rounding every price
+ * needs anyway happens once, at ingest, instead of again on every
+ * interpolation.
+ */
+export function newSeries(span) {
+  return new Int32Array(span).fill(NO_PRICE)
+}
+
+/** A price as whole cents, or `NO_PRICE` if it is not one. */
+export function toCents(price) {
+  const n = Number(price)
+  if (!Number.isFinite(n) || n <= 0) return NO_PRICE
+  return Math.round(n * 100)
+}
+
+/**
+ * Fold one MTGJSON price entry into a dense accumulator.
+ *
+ * Returns the accumulator, creating it — and each series inside it — only when
+ * there is something to put there, so a card priced by one marketplace never
+ * allocates the other's arrays.
+ *
+ * `stats` collects the two things the caller cannot recover afterwards: the
+ * newest date anywhere in the file, which sets the shared window, and how many
+ * dates fell outside the staging span, which is how a wrong anchor announces
+ * itself.
+ *
+ * A day already holding a price keeps it. Within one entry each column is
+ * written once, so that only decides ties between variants merged later.
+ */
+export function foldEntryInto(acc, priceEntry, baseDate, span = STAGING_SPAN, stats = null) {
+  for (const s of SERIES) {
+    const branch = priceEntry?.paper?.[s.provider]?.retail?.[s.finish]
+    if (!branch) continue
+
+    for (const iso of Object.keys(branch)) {
+      const cents = toCents(branch[iso])
+      if (cents === NO_PRICE) continue
+      if (stats && (!stats.latest || iso > stats.latest)) stats.latest = iso
+
+      const idx = daysBetween(baseDate, iso)
+      if (idx < 0 || idx >= span) {
+        if (stats) stats.outOfRange++
+        continue
+      }
+      if (!acc) acc = {}
+      const series = acc[s.column] || (acc[s.column] = newSeries(span))
+      if (series[idx] === NO_PRICE) series[idx] = cents
+    }
+  }
+  return acc
+}
+
+/**
+ * Fold one accumulator into another, in place, the first value for a day
+ * winning.
  *
  * Merging is required, not a nicety: the uuid -> scryfallId mapping is
  * many-to-one, because MTGJSON issues separate uuids for variants (etched and
@@ -114,44 +181,76 @@ export function retailBlocks(priceEntry) {
  * second time". Last-one-wins would not do either — the variants carry
  * DIFFERENT coverage, typically one the normal series and the other the foil,
  * so keeping one drops half the card's history.
- *
- * The ingest keeps only these blocks while streaming. Retaining whole parsed
- * entries instead ran the job out of heap: each also carries cardkingdom,
- * manapool and every provider's buylist.
  */
-export function mergeRetailBlockInto(acc, blocks) {
-  if (!blocks) return acc
-  const target = acc || {}
-  for (const c of CURRENCIES) {
-    const retail = blocks[c.key]
-    if (!retail) continue
-    const bucket = target[c.key] || (target[c.key] = { normal: {}, foil: {} })
-    for (const finish of ['normal', 'foil']) {
-      const branch = retail[finish]
-      if (!branch) continue
-      for (const [iso, price] of Object.entries(branch)) {
-        // A day already claimed by another variant keeps its value; they are
-        // the same card on the same day, so this only decides ties.
-        if (bucket[finish][iso] == null) bucket[finish][iso] = price
-      }
+export function mergeAccumulators(target, source) {
+  if (!source) return target
+  if (!target) return source
+
+  for (const column of SERIES_COLUMNS) {
+    const from = source[column]
+    if (!from) continue
+    const into = target[column]
+    if (!into) { target[column] = from; continue }
+    for (let i = 0; i < into.length; i++) {
+      if (into[i] === NO_PRICE) into[i] = from[i]
     }
   }
-  return Object.keys(target).length ? target : acc
+  return target
 }
 
-/** Row builder for an accumulator produced by mergeRetailBlockInto. */
-export function rowFromAccumulator(scryfallId, acc, startDate, days = HISTORY_DAYS) {
+/**
+ * Cut the shared `days`-long window out of a staged accumulator.
+ *
+ * The window is copied, not a subarray view: a view would keep the whole
+ * staging buffer alive behind every row, which defeats the point of narrowing.
+ *
+ * Returns null when no marketplace priced the card inside the window, so the
+ * caller can skip the row rather than write one that is entirely nulls.
+ */
+export function rowFromAccumulator(scryfallId, acc, baseDate, startDate, days = HISTORY_DAYS) {
   if (!acc) return null
+  const offset = daysBetween(baseDate, startDate)
   const row = { scryfall_id: scryfallId, start_date: startDate }
   let any = false
-  for (const c of CURRENCIES) {
-    const normal = seriesFromDateMap(acc[c.key]?.normal, startDate, days)
-    const foil = seriesFromDateMap(acc[c.key]?.foil, startDate, days)
-    row[c.column] = normal
-    row[c.foilColumn] = foil
-    if (normal || foil) any = true
+
+  for (const column of SERIES_COLUMNS) {
+    const staged = acc[column]
+    let series = null
+
+    if (staged && offset >= 0) {
+      const end = Math.min(offset + days, staged.length)
+      const window = newSeries(days)
+      if (end > offset) window.set(staged.subarray(offset, end), 0)
+      for (let i = 0; i < days; i++) {
+        if (window[i] !== NO_PRICE) { series = window; break }
+      }
+    }
+    row[column] = series
+    if (series) any = true
   }
   return any ? row : null
+}
+
+/**
+ * The upsert payload: cents back to a currency amount, `NO_PRICE` to null.
+ *
+ * A gap stays null, NOT a carried-forward or interpolated value: the chart has
+ * to draw a gap there. Inventing a point would turn "Cardmarket had no listing"
+ * into a flat line that reads as real market data, and a spike alert would then
+ * fire off a number nobody ever quoted.
+ */
+export function wireRow(row) {
+  const out = { scryfall_id: row.scryfall_id, start_date: row.start_date }
+  for (const column of SERIES_COLUMNS) {
+    const series = row[column]
+    if (!series) { out[column] = null; continue }
+    const list = new Array(series.length)
+    for (let i = 0; i < series.length; i++) {
+      list[i] = series[i] === NO_PRICE ? null : series[i] / 100
+    }
+    out[column] = list
+  }
+  return out
 }
 
 /**
@@ -168,11 +267,11 @@ export function rowFromAccumulator(scryfallId, acc, startDate, days = HISTORY_DA
  * market carried on, and a gap there is an artefact of our plumbing.
  */
 export function globallyMissingSlots(seriesList, days = HISTORY_DAYS) {
-  const covered = new Array(days).fill(false)
+  const covered = new Uint8Array(days)
   for (const series of seriesList) {
     if (!series) continue
     for (let i = 0; i < days; i++) {
-      if (series[i] != null) covered[i] = true
+      if (series[i] !== NO_PRICE) covered[i] = 1
     }
   }
   const missing = new Set()
@@ -189,35 +288,22 @@ export function globallyMissingSlots(seriesList, days = HISTORY_DAYS) {
  */
 export function fillSlots(series, slots) {
   if (!series || !slots?.size) return series
+
   for (let i = 0; i < series.length; i++) {
-    if (series[i] != null || !slots.has(i)) continue
+    if (series[i] !== NO_PRICE || !slots.has(i)) continue
 
     let end = i
-    while (end < series.length && series[end] == null && slots.has(end)) end++
-    const before = i > 0 ? series[i - 1] : null
-    const after = end < series.length ? series[end] : null
+    while (end < series.length && series[end] === NO_PRICE && slots.has(end)) end++
+    const before = i > 0 ? series[i - 1] : NO_PRICE
+    const after = end < series.length ? series[end] : NO_PRICE
 
-    if (before != null && after != null) {
+    if (before !== NO_PRICE && after !== NO_PRICE) {
       const span = end - i + 1
       for (let j = i; j < end; j++) {
-        const t = (j - i + 1) / span
-        series[j] = Math.round((before + (after - before) * t) * 100) / 100
+        series[j] = Math.round(before + (after - before) * ((j - i + 1) / span))
       }
     }
     i = end - 1
   }
   return series
-}
-
-/** Newest date present in an accumulator. */
-export function latestDateInAccumulator(acc) {
-  let latest = null
-  for (const c of CURRENCIES) {
-    for (const finish of ['normal', 'foil']) {
-      for (const iso of Object.keys(acc?.[c.key]?.[finish] || {})) {
-        if (!latest || iso > latest) latest = iso
-      }
-    }
-  }
-  return latest
 }

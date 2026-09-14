@@ -14,7 +14,7 @@
     "postinstall": "node scripts/patch-camera-preview.js",
     "sync:prices": "node scripts/sync-card-prices.mjs",
     "sync:oracle-cards": "node scripts/sync-oracle-cards.mjs",
-    "sync:price-history": "node --max-old-space-size=6144 scripts/sync-price-history.mjs",
+    "sync:price-history": "node scripts/sync-price-history.mjs",
     "check:migrations": "node scripts/check-migration-drift.mjs",
     "sync": "npm run build && npx cap sync",
     "sync:android": "npm run build && npx cap sync android",

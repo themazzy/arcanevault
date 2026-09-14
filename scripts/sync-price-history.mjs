@@ -5,21 +5,20 @@ import { createClient } from '@supabase/supabase-js'
 import { streamBulkEntries } from './lib/mtgjson-stream.mjs'
 import { upsertWithRetry } from './lib/sync-retry.mjs'
 import {
-  CURRENCIES,
   HISTORY_DAYS,
+  SERIES_COLUMNS,
+  STAGING_SPAN,
+  daysBetween,
   fillSlots,
+  foldEntryInto,
   globallyMissingSlots,
-  hasStorableRetail,
-  latestDateInAccumulator,
-  mergeRetailBlockInto,
-  retailBlocks,
+  isoDay,
+  mergeAccumulators,
   rowFromAccumulator,
+  stagingBase,
   windowStart,
+  wireRow,
 } from './lib/price-history-core.mjs'
-
-// Every stored series column, in one place so the outage fill and the logging
-// stay in step with CURRENCIES.
-const PRICE_COLUMNS = CURRENCIES.flatMap(c => [c.column, c.foilColumn])
 
 // Fills card_price_history from MTGJSON's rolling ~90-day AllPrices export.
 //
@@ -33,13 +32,20 @@ const PRICE_COLUMNS = CURRENCIES.flatMap(c => [c.column, c.foilColumn])
 // Why bulk and not per-card: there is no per-card endpoint. The only artifact
 // is a 143 MB gzip, which is also why both files are STREAMED — AllPrices
 // uncompressed exceeds Node's maximum string length and cannot be JSON.parse'd.
+//
+// Streaming the file is not on its own enough to stream the JOB: what the
+// stream retains decides the peak. Every date map is therefore folded into a
+// dense Int32 cent array on arrival (see the staging-window note in
+// price-history-core.mjs) and MTGJSON's own objects are dropped immediately.
+// Retaining them instead exhausted the heap twice, the second time within one
+// commit of the first fix.
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY
 const USER_AGENT = 'DeckLoomPriceHistorySync/1.0'
 const PRICES_URL = 'https://mtgjson.com/api/v5/AllPrices.json.gz'
 const IDENTIFIERS_URL = 'https://mtgjson.com/api/v5/AllIdentifiers.json.gz'
-// card_price_history rows are small (two ~90-element real[] plus a key), but
+// card_price_history rows are small (two ~60-element real[] plus a key), but
 // the table is 90k rows, so batches stay modest to keep each statement well
 // inside the timeout. Same reasoning as the oracle sync's 100.
 const UPSERT_BATCH = 250
@@ -112,7 +118,7 @@ function writeCachedIdMap(cachePath, map) {
 async function flush(rows) {
   if (!rows.length) return
   await upsertWithRetry(
-    rows,
+    rows.map(wireRow),
     batch => sb.from('card_price_history').upsert(batch, { onConflict: 'scryfall_id' }),
     {
       onRetry: ({ reason, size, next, attempt, delay, error }) => {
@@ -129,18 +135,43 @@ async function main() {
   // Prices are read first and keyed by uuid, so the id map can be validated
   // against what the file actually contains before committing to it.
   console.log('[Price History] Streaming AllPrices…')
-  const priced = []
+  const byUuid = new Map()
+  const stats = { latest: null, outOfRange: 0 }
   let scanned = 0
+  let buildDate = null
+  let baseDate = null
 
-  for await (const [uuid, entry] of streamBulkEntries(PRICES_URL, { userAgent: USER_AGENT })) {
+  for await (const [uuid, entry] of streamBulkEntries(PRICES_URL, {
+    userAgent: USER_AGENT,
+    onMeta: meta => { buildDate = meta?.date || null },
+  })) {
     scanned++
     if (scanned % LOG_EVERY === 0) {
       console.log(`[Price History] scanned ${scanned.toLocaleString()} printings…`)
     }
-    // Only the retail blocks we store are retained. Keeping whole entries ran
-    // the job out of heap — each also carries cardkingdom, manapool and every
-    // provider's buylist.
-    if (hasStorableRetail(entry)) priced.push([uuid, retailBlocks(entry)])
+    if (!baseDate) {
+      // Today only if the file declined to say — its own build date is both
+      // more accurate and immune to the runner's clock.
+      baseDate = stagingBase(buildDate || isoDay(Date.now()))
+      console.log(`[Price History] AllPrices built ${buildDate || '(no meta)'} — staging ${STAGING_SPAN} days from ${baseDate}.`)
+    }
+    // Only the days we store survive this line. MTGJSON's own date maps are
+    // dropped with the entry: keeping them is what exhausted the heap.
+    const acc = foldEntryInto(null, entry, baseDate, STAGING_SPAN, stats)
+    if (acc) byUuid.set(uuid, acc)
+  }
+
+  if (!stats.latest) throw new Error('No Cardmarket or TCGplayer dates found in AllPrices — has the format changed?')
+
+  const latest = stats.latest
+  const startDate = windowStart(latest, HISTORY_DAYS)
+  // A window that does not fit the staging span means the anchor was wrong and
+  // days have already been dropped on the floor. Fail rather than write a row
+  // that is silently short of history.
+  if (daysBetween(baseDate, startDate) < 0 || daysBetween(baseDate, latest) >= STAGING_SPAN) {
+    throw new Error(
+      `AllPrices is dated ${buildDate} but prices run to ${latest}; the ${STAGING_SPAN}-day staging window from ${baseDate} cannot hold ${startDate}..${latest}.`,
+    )
   }
 
   // Cached map first, then a freshness check: a cached map cannot know about
@@ -148,60 +179,65 @@ async function main() {
   // it would silently drop a few hundred cards. If too many uuids fail to
   // resolve, the cache is discarded and AllIdentifiers fetched for real — so
   // the saving never costs coverage.
-  let idMap = readCachedIdMap(CACHE_PATH)
-  let fromCache = !!idMap
-  let unmapped = idMap ? priced.filter(([uuid]) => !idMap.has(uuid)).length : priced.length
+  const countUnmapped = map => {
+    let n = 0
+    for (const uuid of byUuid.keys()) if (!map.has(uuid)) n++
+    return n
+  }
 
-  if (fromCache && unmapped > Math.max(UNMAPPED_FLOOR, priced.length * UNMAPPED_RATIO)) {
+  let idMap = readCachedIdMap(CACHE_PATH)
+  let unmapped = idMap ? countUnmapped(idMap) : byUuid.size
+
+  if (idMap && unmapped > Math.max(UNMAPPED_FLOOR, byUuid.size * UNMAPPED_RATIO)) {
     console.log(`[Price History] cached map missed ${unmapped.toLocaleString()} printings — refreshing from AllIdentifiers.`)
     idMap = null
-    fromCache = false
   }
   if (!idMap) {
     idMap = await fetchScryfallIdMap()
     writeCachedIdMap(CACHE_PATH, idMap)
-    unmapped = priced.filter(([uuid]) => !idMap.has(uuid)).length
+    unmapped = countUnmapped(idMap)
   }
 
   // Keyed by Scryfall id, not uuid: the mapping is many-to-one (MTGJSON gives
   // etched/foil variants their own uuids where Scryfall keeps one id), so the
   // finishes are merged here.
+  //
+  // Each staged entry is handed over and dropped as it goes, so the two maps
+  // are never both fully populated — the peak is one of them, not their sum.
   const byScryfallId = new Map()
-  let latest = null
   let merged = 0
 
-  for (const [uuid, blocks] of priced) {
+  for (const [uuid, acc] of byUuid) {
+    byUuid.delete(uuid)
     const sid = idMap.get(uuid)
     if (!sid) continue
-    if (byScryfallId.has(sid)) merged++
-    byScryfallId.set(sid, mergeRetailBlockInto(byScryfallId.get(sid), blocks))
+    const existing = byScryfallId.get(sid)
+    if (existing) merged++
+    byScryfallId.set(sid, mergeAccumulators(existing, acc))
   }
 
-  for (const acc of byScryfallId.values()) {
-    const cardLatest = latestDateInAccumulator(acc)
-    if (cardLatest && (!latest || cardLatest > latest)) latest = cardLatest
-  }
-  if (!latest) throw new Error('No Cardmarket or TCGplayer dates found in AllPrices — has the format changed?')
+  const outOfRange = stats.outOfRange
+    ? ` ${stats.outOfRange.toLocaleString()} dates outside the staging window,` : ''
+  console.log(`[Price History] ${byScryfallId.size.toLocaleString()} printings; window ${startDate} -> ${latest} (${unmapped.toLocaleString()} unmapped,${outOfRange} ${merged.toLocaleString()} variant merges).`)
 
-  const startDate = windowStart(latest, HISTORY_DAYS)
-  console.log(`[Price History] ${byScryfallId.size.toLocaleString()} printings; window ${startDate} -> ${latest} (${unmapped.toLocaleString()} unmapped, ${merged.toLocaleString()} variant merges).`)
-
-  // Build every row before writing any, so the days MTGJSON simply failed to
-  // publish can be told apart from the days a given card had no listing. Only
-  // the former are interpolated — see globallyMissingSlots.
+  // Narrow every staged card to the shared window before writing any, so the
+  // days MTGJSON simply failed to publish can be told apart from the days a
+  // given card had no listing. Only the former are interpolated — see
+  // globallyMissingSlots.
   const rows = []
   for (const [sid, acc] of byScryfallId) {
-    const row = rowFromAccumulator(sid, acc, startDate, HISTORY_DAYS)
+    byScryfallId.delete(sid)
+    const row = rowFromAccumulator(sid, acc, baseDate, startDate, HISTORY_DAYS)
     if (row) rows.push(row)
   }
 
   // Per column: a day Cardmarket failed to publish is not necessarily a day
   // TCGplayer failed to publish, so the outage sets are computed independently.
   const asDates = slots => [...slots]
-    .map(i => new Date(Date.parse(`${startDate}T00:00:00Z`) + i * 86400000).toISOString().slice(0, 10))
+    .map(i => isoDay(Date.parse(`${startDate}T00:00:00Z`) + i * 86400000))
     .join(', ')
 
-  for (const column of PRICE_COLUMNS) {
+  for (const column of SERIES_COLUMNS) {
     const missing = globallyMissingSlots(rows.map(r => r[column]), HISTORY_DAYS)
     if (missing.size) {
       console.log(`[Price History] ${column}: source published nothing on ${missing.size} day(s): ${asDates(missing)}. Interpolating for every card.`)
@@ -225,7 +261,8 @@ async function main() {
   if (pending.length) { await flush(pending); written += pending.length }
 
   const secs = Math.round((Date.now() - started) / 1000)
-  console.log(`[Price History] Done. Wrote ${written.toLocaleString()} rows in ${secs}s.`)
+  const peakMb = Math.round(process.memoryUsage().heapTotal / 1048576)
+  console.log(`[Price History] Done. Wrote ${written.toLocaleString()} rows in ${secs}s (heap ${peakMb} MB).`)
 }
 
 main().catch(error => {
