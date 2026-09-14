@@ -79,7 +79,7 @@ export default function NotificationBell() {
     if (n.type === 'price_alert') {
       // Straight to the card's own page, where the chart explains the move.
       const parsed = parseAlertKey(n.milestone_id)
-      if (parsed) navigate(`/collection?card=${parsed.scryfall_id}`)
+      if (parsed) navigate(`/collection?card=${parsed.scryfall_id}&foil=${parsed.finish === 'foil' ? 1 : 0}`)
     } else if (n.type === 'announcement') {
       // Straight to the feature being announced — an announcement nobody can
       // act on is just noise.

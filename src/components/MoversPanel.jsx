@@ -83,7 +83,7 @@ export default function MoversPanel() {
               <button
                 type="button"
                 className={styles.row}
-                onClick={() => navigate(`/collection?card=${a.scryfall_id}`)}
+                onClick={() => navigate(`/collection?card=${a.scryfall_id}&foil=${a.finish === 'foil' ? 1 : 0}`)}
               >
                 <span className={styles.name}>
                   {a.name || 'Unknown card'}

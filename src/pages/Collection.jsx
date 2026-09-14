@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, startTransition } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { sb } from '../lib/supabase'
 import { getScryfallKey, getPrice, formatPrice, getInstantCache, SCRYFALL_CACHE_TTL_MS } from '../lib/scryfall'
@@ -208,6 +208,7 @@ export default function CollectionPage() {
   const [sort, setSort]     = useState(default_sort || 'name')
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [detailCardKey, setDetailCardKey] = useState(null)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [showAdd, setShowAdd] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
@@ -1264,6 +1265,31 @@ export default function CollectionPage() {
   const selectableDisplayQty = useMemo(() =>
     displayCards.reduce((sum, card) => sum + (card._folder_qty ?? card.qty ?? 1), 0)
   , [displayCards])
+
+  // Deep link: /collection?card=<scryfall_id>&foil=1 opens that printing's
+  // detail. Price alerts and the Movers panel link here, and without this they
+  // simply dropped the reader on the collection with no idea which card the
+  // notification had been about.
+  //
+  // Runs once per link rather than on every render: displayCards arrives async,
+  // so the effect waits for it, and the param is cleared afterwards so closing
+  // the modal does not immediately reopen it.
+  useEffect(() => {
+    const wanted = searchParams.get('card')
+    if (!wanted || !displayCards.length) return
+    const wantFoil = searchParams.get('foil') === '1'
+
+    const match = displayCards.find(c => c.scryfall_id === wanted && !!c.foil === wantFoil)
+      // Falls back to any finish: better to open the right card in the wrong
+      // finish than to silently do nothing.
+      || displayCards.find(c => c.scryfall_id === wanted)
+
+    if (match) setDetailCardKey(match._displayKey || match.id)
+    const next = new URLSearchParams(searchParams)
+    next.delete('card')
+    next.delete('foil')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams, displayCards])
 
   const selectedCard = detailCardKey ? displayCards.find(c => (c._displayKey || c.id) === detailCardKey) : null
   const selectedSf   = selectedCard ? sfMap[getScryfallKey(selectedCard)] : null

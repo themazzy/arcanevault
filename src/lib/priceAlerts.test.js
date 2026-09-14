@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ALERT_DEFAULTS, alertsFor, indexOwned, windowCutoff } from './priceAlerts'
+import { ALERT_DEFAULTS, alertsFor, indexOwned, parseAlertKey, windowCutoff } from './priceAlerts'
 
 // The ingest stores movers for the whole catalogue at a floor of >=10% and
 // >=0.50. Everything a given user sees is this filter, run locally against the
@@ -128,5 +128,35 @@ describe('windowCutoff', () => {
 
   it('never asks for a zero or negative window', () => {
     expect(windowCutoff(0, now)).toBe('2026-09-14')
+  })
+})
+
+// ── Deep links ──────────────────────────────────────────────────────────────
+// Both the bell and the Movers panel link to /collection?card=<id>&foil=<0|1>.
+// The first version omitted the finish and Collection had no handler at all, so
+// clicking an alert dropped the reader on the collection with no indication of
+// which card the notification had been about.
+
+describe('parseAlertKey', () => {
+  it('round-trips the key an alert is built with', () => {
+    const [alert] = alertsFor([move({ finish: 'foil' })],
+      indexOwned([{ scryfall_id: 'sid-1', foil: true, qty: 1, name: 'A' }]), ALERT_DEFAULTS)
+    expect(parseAlertKey(alert.key)).toEqual({
+      scryfall_id: 'sid-1', move_date: '2026-09-14', finish: 'foil',
+    })
+  })
+
+  it('carries the finish, so a foil alert opens the foil copy', () => {
+    // Owning both finishes of one printing is common, and they are separate
+    // price series — landing on the wrong one misrepresents the alert.
+    expect(parseAlertKey('price:sid-1:2026-09-14:foil').finish).toBe('foil')
+    expect(parseAlertKey('price:sid-1:2026-09-14:normal').finish).toBe('normal')
+  })
+
+  it('returns null for anything malformed rather than throwing', () => {
+    // A stale key from an older format must not break the whole bell.
+    for (const bad of ['', null, 'price:sid-1', 'price:sid-1:2026-09-14:gilded', 'other:a:b:c']) {
+      expect(parseAlertKey(bad)).toBe(null)
+    }
   })
 })
