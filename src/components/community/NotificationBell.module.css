@@ -175,10 +175,11 @@
   color: var(--text-dim);
   transition: background 0.12s, border-color 0.12s;
 }
-.item:hover {
-  background: var(--s2);
-  border-color: var(--s-border2);
-}
+/* Background only. A border on hover outlined every row the cursor crossed and
+   turned a quiet list into a grid of boxes; the tint alone is enough to say
+   which row is under the pointer. The transparent border stays so the row does
+   not shift by a pixel when the unread rail is present. */
+.item:hover { background: var(--s2); }
 .item:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: -2px;
@@ -188,7 +189,6 @@
    invisible on the light themes, and a rail survives both. */
 .itemUnread {
   background: var(--s1);
-  border-color: var(--s-border);
   box-shadow: inset 2px 0 0 var(--gold-dim, var(--gold));
 }
 
