@@ -1,11 +1,53 @@
 import { useEffect, useMemo } from 'react'
 import { useAuth } from './Auth'
 import { useSettings } from './SettingsContext'
-import { getLocalCards } from '../lib/db'
+import { getLocalCardPriceRowsByIds, getLocalCards } from '../lib/db'
 import { alertsFor, fetchRecentMoves, indexOwned, windowCutoff } from '../lib/priceAlerts'
 import { fetchRecordedKeys, recordPriceAlertNotifications } from '../lib/community'
 import { historySource } from '../lib/priceHistory'
 import { notifyPriceAlerts } from '../lib/nativeNotifications'
+import { clearBackgroundAlerts, syncBackgroundAlerts } from '../lib/backgroundAlerts'
+
+/**
+ * Today's cached market price per printing, as a lookup.
+ *
+ * Owned rows carry only `purchase_price`, which is the wrong number here: a
+ * card bought cheap that has since climbed is exactly the one worth watching,
+ * and filtering on what was paid would drop it. Market prices live in their own
+ * IDB store, so they are read from there and folded into a map once rather than
+ * looked up per card.
+ *
+ * Returns a function so the watchlist builder stays pure and injectable.
+ */
+async function marketPriceLookup(cards, priceSourceId) {
+  const usd = historySource(priceSourceId).currency === 'usd'
+  const ids = [...new Set((cards || []).map(c => c?.scryfall_id).filter(Boolean))]
+  const today = new Date().toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+
+  const byId = new Map()
+  try {
+    const rows = await getLocalCardPriceRowsByIds(ids, [today, yesterday])
+    for (const row of rows) {
+      // Today wins; yesterday is the fallback before the daily sync lands.
+      if (row.snapshot_date === yesterday && byId.has(row.scryfall_id)) continue
+      byId.set(row.scryfall_id, row)
+    }
+  } catch {
+    // No cached prices yet. Everything then scores 0 and the watchlist comes
+    // back empty, which is correct: with no prices there is nothing to judge.
+  }
+
+  return card => {
+    const row = byId.get(card?.scryfall_id)
+    if (!row) return 0
+    const foil = !!card?.foil
+    const value = usd
+      ? (foil ? row.price_foil_usd : row.price_regular_usd)
+      : (foil ? row.price_foil_eur : row.price_regular_eur)
+    return Number(value) || 0
+  }
+}
 
 /**
  * Turns the catalogue-wide mover list into notifications for this user's cards.
@@ -45,11 +87,28 @@ export default function PriceAlertWatcher() {
     // least urgent read in the app.
     const timer = setTimeout(async () => {
       try {
-        const moves = await fetchRecentMoves(windowCutoff(days))
-        if (cancelled || !moves.length) return
-
         const cards = await getLocalCards(user.id)
         if (cancelled) return
+
+        // Mirrored BEFORE the movers are examined, and regardless of whether
+        // there are any: the runner's watchlist has to stay current on quiet
+        // days too, or it goes stale exactly while nothing prompts a refresh.
+        // Cleared rather than skipped when the phone toggle is off, so turning
+        // it off actually stops the buzzing.
+        if (phoneEnabled) {
+          syncBackgroundAlerts({
+            cards,
+            settings: { price_source: priceSource, ...thresholds, price_alert_days: days },
+            supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+            anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            priceOf: await marketPriceLookup(cards, priceSource),
+          }).catch(() => {})
+        } else {
+          clearBackgroundAlerts().catch(() => {})
+        }
+
+        const moves = await fetchRecentMoves(windowCutoff(days))
+        if (cancelled || !moves.length) return
 
         const alerts = alertsFor(moves, indexOwned(cards), thresholds, priceSource)
         if (!alerts.length || cancelled) return

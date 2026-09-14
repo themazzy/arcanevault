@@ -6,5 +6,15 @@
   "server": {
     "url": "https://deckloom.app",
     "cleartext": false
+  },
+  "plugins": {
+    "BackgroundRunner": {
+      "label": "app.deckloom.pricealerts",
+      "src": "runners/price-alerts.js",
+      "event": "checkPriceMoves",
+      "repeat": true,
+      "interval": 360,
+      "autoStart": true
+    }
   }
 }
