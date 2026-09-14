@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { clearNotifications, getMyNotifications, getUnreadNotificationCount, markAllNotificationsRead } from '../../lib/community'
+import { clearNotifications, deleteNotification, getMyNotifications, getUnreadNotificationCount, markAllNotificationsRead } from '../../lib/community'
 import { MILESTONES } from '../../lib/milestones'
 import { ANNOUNCEMENT_BY_ID } from '../../lib/announcements'
 import { fetchAlertDetails, parseAlertKey } from '../../lib/priceAlerts'
 import { useAuth } from '../Auth'
 import { useSettings } from '../SettingsContext'
-import { BellIcon } from '../../icons'
+import { BellIcon, CloseIcon } from '../../icons'
 import styles from './NotificationBell.module.css'
 
 function timeAgo(iso) {
@@ -30,6 +30,9 @@ const VERB = {
 
 const MILESTONE_BY_ID = new Map(MILESTONES.map(m => [m.id, m]))
 
+// Matches the row-leave animation in the stylesheet.
+const LEAVE_MS = 160
+
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [unread, setUnread] = useState(0)
@@ -39,6 +42,8 @@ export default function NotificationBell() {
   const [alertDetails, setAlertDetails] = useState(new Map())
   const [confirming, setConfirming] = useState(false)
   const [clearing, setClearing] = useState(false)
+  // Rows animate out before they are removed, so the list does not jump.
+  const [leaving, setLeaving] = useState(() => new Set())
   const wrapRef = useRef(null)
   const navigate = useNavigate()
   const { nickname } = useSettings()
@@ -77,6 +82,21 @@ export default function NotificationBell() {
         try { await markAllNotificationsRead() } catch {}
       }
     }
+  }
+
+  const dismiss = async (id) => {
+    setLeaving(prev => new Set(prev).add(id))
+    try {
+      await deleteNotification(user?.id, id)
+    } catch {
+      // Put it back rather than leaving a row that looks gone but is not.
+      setLeaving(prev => { const next = new Set(prev); next.delete(id); return next })
+      return
+    }
+    setTimeout(() => {
+      setNotes(prev => (prev || []).filter(n => n.id !== id))
+      setLeaving(prev => { const next = new Set(prev); next.delete(id); return next })
+    }, LEAVE_MS)
   }
 
   const handleClear = async () => {
@@ -135,11 +155,17 @@ export default function NotificationBell() {
             <div className={styles.empty}>Nothing yet. Updates, milestones, likes, comments and follows show up here.</div>
           ) : (
             <ul className={styles.list}>
-              {notes.map(n => {
+              {notes.map((n, i) => {
                 const milestone = n.type === 'milestone' ? MILESTONE_BY_ID.get(n.milestone_id) : null
                 const announcement = n.type === 'announcement' ? ANNOUNCEMENT_BY_ID.get(n.milestone_id) : null
                 return (
-                  <li key={n.id}>
+                  <li
+                    key={n.id}
+                    /* A row is a wrapper, not a button: the dismiss control is
+                       itself a button and one cannot nest inside another. */
+                    className={`${styles.row} ${leaving.has(n.id) ? styles.rowLeaving : ''}`}
+                    style={{ animationDelay: `${Math.min(i, 8) * 22}ms` }}
+                  >
                     <button className={`${styles.item} ${n.read ? '' : styles.itemUnread}`} onClick={() => go(n)}>
                       <span className={styles.text}>
                         {n.type === 'price_alert' ? (() => {
@@ -183,6 +209,15 @@ export default function NotificationBell() {
                         )}
                       </span>
                       <span className={styles.time}>{timeAgo(n.created_at)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.dismiss}
+                      onClick={() => dismiss(n.id)}
+                      aria-label="Dismiss notification"
+                      title="Dismiss"
+                    >
+                      <CloseIcon size={11} />
                     </button>
                   </li>
                 )

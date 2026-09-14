@@ -52,11 +52,19 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg3);
-  border: 1px solid var(--border);
+  /* Same surface recipe as .responsiveMenuPanel in UI.module.css — --popup-bg
+     rather than --bg3 (the light themes define popup-bg as a warm near-white,
+     where --bg3 stayed dark), the muted gold border those menus use rather
+     than full --border, and the same layered shadow. The panel read as a
+     different component because it invented all three. */
+  background: color-mix(in srgb, var(--popup-bg, var(--bg3)) 97%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 18%, var(--border) 82%);
   border-radius: var(--radius-lg);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  box-shadow:
+    0 16px 40px color-mix(in srgb, var(--scrim-medium, rgba(0,0,0,0.55)) 78%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--text) 4%, transparent);
   z-index: 400;
+  animation: bellPanelIn 0.15s cubic-bezier(0.2, 0, 0, 1);
 }
 /* On phones the bell sits ~60px from the right edge, so a 340px panel
    anchored right:0 runs off the left side of the screen. Pin it full-width
@@ -104,8 +112,57 @@
   gap: 2px;
 }
 
+/* The row holds the main button and the dismiss control side by side — a
+   button cannot nest inside a button, which is why the row is not one. */
+.row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  animation: bellRowIn 0.22s cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+/* Collapses to nothing before the row is removed from state, so the list
+   settles instead of snapping shut. Timing matches LEAVE_MS in the component. */
+.rowLeaving {
+  animation: bellRowOut 0.16s ease-in forwards;
+  pointer-events: none;
+}
+
+.dismiss {
+  flex: none;
+  width: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+.row:hover .dismiss,
+.dismiss:focus-visible { opacity: 1; }
+.dismiss:hover {
+  color: var(--red-bright);
+  background: var(--s2);
+}
+.dismiss:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+/* Touch has no hover, so the control would be unreachable if it stayed hidden.
+   Width, not hover, per the no-geometry-in-interaction-queries rule. */
+@media (max-width: 900px) {
+  .dismiss { opacity: 1; }
+}
+
 .item {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -202,4 +259,19 @@
   color: var(--red-bright);
   border-color: var(--red-bright);
   background: var(--s2);
+}
+
+@keyframes bellPanelIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+@keyframes bellRowIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes bellRowOut {
+  from { opacity: 1; max-height: 90px; transform: translateX(0); }
+  to   { opacity: 0; max-height: 0;    transform: translateX(12px); }
 }

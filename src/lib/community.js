@@ -126,6 +126,13 @@ export async function recordPriceAlertNotifications(userId, alertKeys) {
   if (error) throw error
 }
 
+/** Removes one notification. Scoped by user as well as by RLS, as below. */
+export async function deleteNotification(userId, id) {
+  if (!userId || !id) return
+  const { error } = await sb.from('notifications').delete().eq('user_id', userId).eq('id', id)
+  if (error) throw error
+}
+
 /**
  * Deletes this user's notifications.
  *

@@ -10,16 +10,17 @@ vi.mock('./supabase', () => ({
       state.table = table
       const chain = {
         delete: () => { state.deleted = true; return chain },
-        eq: (col, val) => { state.eq = [col, val]; return chain },
+        eq: (col, val) => { state.eq = [col, val]; (state.eqs ||= []).push([col, val]); return chain },
         lt: (col, val) => { state.lt = [col, val]; return chain },
         select: () => Promise.resolve({ data: [], error: null, count: 3 }),
+        then: (res) => res({ error: null }),
       }
       return chain
     },
   },
 }))
 
-const { clearNotifications } = await import('./community')
+const { clearNotifications, deleteNotification } = await import('./community')
 
 describe('clearNotifications', () => {
   beforeEach(() => { for (const k of Object.keys(state)) delete state[k] })
@@ -50,5 +51,23 @@ describe('clearNotifications', () => {
 
   it('reports how many rows went', async () => {
     expect(await clearNotifications('user-1')).toBe(3)
+  })
+})
+
+describe('deleteNotification', () => {
+  beforeEach(() => { for (const k of Object.keys(state)) delete state[k] })
+
+  it('scopes a single dismiss to the caller and the row', async () => {
+    await deleteNotification('user-1', 'note-9')
+    expect(state.table).toBe('notifications')
+    expect(state.deleted).toBe(true)
+    expect(state.eqs).toEqual([['user_id', 'user-1'], ['id', 'note-9']])
+  })
+
+  it('does nothing without both a user and a row', async () => {
+    await deleteNotification(null, 'note-9')
+    expect(state.deleted).toBeUndefined()
+    await deleteNotification('user-1', null)
+    expect(state.deleted).toBeUndefined()
   })
 })
