@@ -21,8 +21,8 @@ const DAY_MS = 86400000
  * number that disagreed with every other figure on the page.
  */
 export const HISTORY_SOURCES = {
-  cardmarket_trend: { column: 'prices_eur', foilColumn: 'prices_foil_eur', symbol: '€', label: 'Cardmarket' },
-  tcgplayer_market: { column: 'prices_usd', foilColumn: 'prices_usd_foil', symbol: '$', label: 'TCGplayer' },
+  cardmarket_trend: { column: 'prices_eur', foilColumn: 'prices_foil_eur', symbol: '€', label: 'Cardmarket', currency: 'eur' },
+  tcgplayer_market: { column: 'prices_usd', foilColumn: 'prices_usd_foil', symbol: '$', label: 'TCGplayer', currency: 'usd' },
 }
 
 export function historySource(priceSourceId) {

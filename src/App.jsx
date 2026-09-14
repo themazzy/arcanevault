@@ -15,6 +15,7 @@ import { AppBootSkeleton } from './components/Skeletons'
 import Layout from './components/Layout'
 import MilestoneWatcher from './components/MilestoneWatcher'
 import AnnouncementWatcher from './components/AnnouncementWatcher'
+import PriceAlertWatcher from './components/PriceAlertWatcher'
 
 class ChunkErrorBoundary extends Component {
   constructor(props) {
@@ -151,6 +152,7 @@ function PrivateApp() {
       <SetupWizardProvider>
       <MilestoneWatcher />
       <AnnouncementWatcher />
+      <PriceAlertWatcher />
       <Layout>
         <Suspense fallback={null}>
           <Routes>

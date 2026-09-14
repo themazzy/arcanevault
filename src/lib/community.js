@@ -113,6 +113,19 @@ export async function recordAnnouncementNotifications(userId, announcementIds) {
   if (error) throw error
 }
 
+/**
+ * Price-move alerts, written the same way and deduped by the same index. Keys
+ * are `price:<scryfall_id>:<date>:<finish>`, so a card moving on two days
+ * produces two alerts and two devices seeing one move produce one.
+ */
+export async function recordPriceAlertNotifications(userId, alertKeys) {
+  if (!userId || !alertKeys?.length) return
+  const rows = alertKeys.map(id => ({ user_id: userId, type: 'price_alert', milestone_id: id }))
+  const { error } = await sb.from('notifications')
+    .upsert(rows, { onConflict: 'user_id,milestone_id', ignoreDuplicates: true })
+  if (error) throw error
+}
+
 /** Ids of milestone/announcement rows already recorded for this user. */
 export async function fetchRecordedKeys(userId) {
   if (!userId) return new Set()

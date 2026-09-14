@@ -1,0 +1,114 @@
+/* Movers panel on Home. A top-level section card, so it takes the gold border
+   per DESIGN.md §1 — the rows nested inside it use the neutral ramp. */
+.panel {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg2);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--font-lg);
+  color: var(--text);
+}
+
+.sub {
+  composes: labelMd from '../styles/typography.module.css';
+  color: var(--text-faint);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  width: 100%;
+  padding: 9px 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--s-border0);
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.list li:last-child .row { border-bottom: 0; }
+
+.row:hover .name { color: var(--gold); }
+
+.row:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-sm);
+  color: var(--text);
+}
+
+.foilTag,
+.qty {
+  margin-left: 6px;
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+}
+
+.foilTag { color: var(--purple); }
+
+.figures {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-sm);
+}
+
+.up   { color: var(--green); }
+.down { color: var(--red-bright); }
+
+.price { color: var(--text); }
+
+.holding {
+  min-width: 5.5ch;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: var(--font-xs);
+}
+
+.more {
+  margin: 10px 0 0;
+  color: var(--text-faint);
+  font-size: var(--font-xs);
+}
+
+@media (max-width: 560px) {
+  /* The holding delta is the first thing to go: the percentage and the new
+     price carry the story on a narrow screen. */
+  .holding { display: none; }
+}

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { getMyNotifications, getUnreadNotificationCount, markAllNotificationsRead } from '../../lib/community'
 import { MILESTONES } from '../../lib/milestones'
 import { ANNOUNCEMENT_BY_ID } from '../../lib/announcements'
+import { fetchAlertDetails, parseAlertKey } from '../../lib/priceAlerts'
 import { useSettings } from '../SettingsContext'
 import { BellIcon } from '../../icons'
 import styles from './NotificationBell.module.css'
@@ -32,6 +33,9 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [unread, setUnread] = useState(0)
   const [notes, setNotes] = useState(null)   // null = not loaded
+  // Price alerts carry only a key; the move and the card name are looked up
+  // when the bell opens, not stored on the notification row.
+  const [alertDetails, setAlertDetails] = useState(new Map())
   const wrapRef = useRef(null)
   const navigate = useNavigate()
   const { nickname } = useSettings()
@@ -58,7 +62,11 @@ export default function NotificationBell() {
     const next = !open
     setOpen(next)
     if (next) {
-      getMyNotifications(30).then(setNotes).catch(() => setNotes([]))
+      getMyNotifications(30).then(rows => {
+        setNotes(rows)
+        const keys = rows.filter(r => r.type === 'price_alert').map(r => r.milestone_id)
+        if (keys.length) fetchAlertDetails(keys).then(setAlertDetails).catch(() => {})
+      }).catch(() => setNotes([]))
       if (unread > 0) {
         setUnread(0)
         try { await markAllNotificationsRead() } catch {}
@@ -68,7 +76,11 @@ export default function NotificationBell() {
 
   const go = (n) => {
     setOpen(false)
-    if (n.type === 'announcement') {
+    if (n.type === 'price_alert') {
+      // Straight to the card's own page, where the chart explains the move.
+      const parsed = parseAlertKey(n.milestone_id)
+      if (parsed) navigate(`/collection?card=${parsed.scryfall_id}`)
+    } else if (n.type === 'announcement') {
       // Straight to the feature being announced — an announcement nobody can
       // act on is just noise.
       const announcement = ANNOUNCEMENT_BY_ID.get(n.milestone_id)
@@ -108,7 +120,29 @@ export default function NotificationBell() {
                   <li key={n.id}>
                     <button className={`${styles.item} ${n.read ? '' : styles.itemUnread}`} onClick={() => go(n)}>
                       <span className={styles.text}>
-                        {n.type === 'announcement' ? (
+                        {n.type === 'price_alert' ? (() => {
+                          const move = alertDetails.get(n.milestone_id)
+                          const rose = (move?.delta ?? 0) > 0
+                          const symbol = move?.currency === 'usd' ? '$' : '€'
+                          return (
+                            <>
+                              <span className={styles.milestoneIcon}>{rose ? '📈' : '📉'}</span>
+                              <strong>{move?.name || 'A card you own'}</strong>
+                              {move ? (
+                                <span className={styles.announcementBody}>
+                                  {move.finish === 'foil' ? 'Foil ' : ''}
+                                  {rose ? 'rose' : 'fell'} {Math.abs(move.pct).toFixed(0)}% to {symbol}{move.price_to.toFixed(2)}
+                                  {' '}on {move.move_date}
+                                </span>
+                              ) : (
+                                // The move aged out of the 7-day table before the
+                                // bell was opened. The notification is still true,
+                                // so it says what it can rather than vanishing.
+                                <span className={styles.announcementBody}>moved sharply in price</span>
+                              )}
+                            </>
+                          )
+                        })() : n.type === 'announcement' ? (
                           <>
                             <span className={styles.milestoneIcon}>{announcement?.icon || '✨'}</span>
                             <strong>{announcement?.title || 'What’s new'}</strong>

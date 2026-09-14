@@ -26,6 +26,7 @@ import { PAYMENTS_ENABLED } from '../lib/premiumCheckout'
 import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { enrichDecksWithCommanderArt, useDeckArt } from '../lib/deckArt'
 import { fetchTrendingDeckRows } from '../lib/trendingDecks'
+import MoversPanel from '../components/MoversPanel'
 import {
   CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon,
   ChevronRightIcon, SearchIcon, FilterIcon,
@@ -1532,6 +1533,9 @@ export default function HomePage() {
           <ContinueBuilding decks={modeData?.builderDecks} />
           <CardLookupSection />
           <CollectionPulse data={collData} loading={collLoading} priceSource={price_source} />
+          {/* Hides itself when nothing in the collection moved, which at the
+              default thresholds is most days. */}
+          <MoversPanel />
           {showBelowFold && <DiscoverSection changelog={changelog} />}
         </>
       )}

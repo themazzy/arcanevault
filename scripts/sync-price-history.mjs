@@ -12,6 +12,7 @@ import {
   fillSlots,
   foldEntryInto,
   globallyMissingSlots,
+  priceMovesFor,
   isoDay,
   mergeAccumulators,
   rowFromAccumulator,
@@ -50,6 +51,9 @@ const IDENTIFIERS_URL = 'https://mtgjson.com/api/v5/AllIdentifiers.json.gz'
 // inside the timeout. Same reasoning as the oracle sync's 100.
 const UPSERT_BATCH = 250
 const LOG_EVERY = 20000
+// Movers are kept long enough for someone who opens the app weekly to still
+// see what happened, and no longer — the table is regenerated daily anyway.
+const MOVE_RETENTION_DAYS = 7
 // The derived uuid -> scryfallId pairs, cached between runs by the workflow.
 // AllIdentifiers is 219 MB of the ~362 MB this job moves and is the slower half
 // to stream, while the mapping only changes when printings are added — so
@@ -127,6 +131,39 @@ async function flush(rows) {
       },
     },
   )
+}
+
+/**
+ * Daily movers, computed once for the whole catalogue.
+ *
+ * This is what makes price alerts free: no per-user work happens anywhere. Each
+ * client reads this short list and intersects it against the collection it
+ * already holds, so tightening a threshold is a local filter rather than a
+ * recompute. Stored at a floor looser than any sane setting — see MIN_MOVE_PCT.
+ *
+ * Rows older than the retention window are pruned here rather than on a cron,
+ * so the table cannot outlive the job that fills it.
+ */
+async function writeMovers(rows, filled, moveDate) {
+  const moves = []
+  for (const row of rows) moves.push(...priceMovesFor(row, filled, moveDate))
+
+  if (moves.length) {
+    for (let i = 0; i < moves.length; i += UPSERT_BATCH) {
+      await upsertWithRetry(
+        moves.slice(i, i + UPSERT_BATCH),
+        batch => sb.from('card_price_moves')
+          .upsert(batch, { onConflict: 'scryfall_id,move_date,currency,finish' }),
+      )
+    }
+  }
+
+  const cutoff = isoDay(Date.parse(`${moveDate}T00:00:00Z`) - MOVE_RETENTION_DAYS * 86400000)
+  const { error } = await sb.from('card_price_moves').delete().lt('move_date', cutoff)
+  if (error) throw error
+
+  const rises = moves.filter(m => m.delta > 0).length
+  console.log(`[Price History] ${moves.length} movers on ${moveDate} (${rises} up, ${moves.length - rises} down); pruned before ${cutoff}.`)
 }
 
 async function main() {
@@ -237,8 +274,12 @@ async function main() {
     .map(i => isoDay(Date.parse(`${startDate}T00:00:00Z`) + i * 86400000))
     .join(', ')
 
+  // Kept per column so the mover pass can skip a day this run invented. An
+  // alert must never fire on a price nobody published.
+  const filled = {}
   for (const column of SERIES_COLUMNS) {
     const missing = globallyMissingSlots(rows.map(r => r[column]), HISTORY_DAYS)
+    filled[column] = missing
     if (missing.size) {
       console.log(`[Price History] ${column}: source published nothing on ${missing.size} day(s): ${asDates(missing)}. Interpolating for every card.`)
     }
@@ -259,6 +300,8 @@ async function main() {
     }
   }
   if (pending.length) { await flush(pending); written += pending.length }
+
+  await writeMovers(rows, filled, latest)
 
   const secs = Math.round((Date.now() - started) / 1000)
   const peakMb = Math.round(process.memoryUsage().heapTotal / 1048576)

@@ -83,6 +83,11 @@ export const SERIES = CURRENCIES.flatMap(c => [
 
 export const SERIES_COLUMNS = SERIES.map(s => s.column)
 
+/** column -> currency key, for anything that reports a series to the client. */
+export const SERIES_CURRENCY = Object.fromEntries(
+  CURRENCIES.flatMap(c => [[c.column, c.key], [c.foilColumn, c.key]]),
+)
+
 // ── Staging window ──────────────────────────────────────────────────────────
 // Prices are folded into fixed-length arrays AS THEY STREAM, which needs a day
 // zero before the newest published date is known. MTGJSON's own `meta.date` is
@@ -306,4 +311,64 @@ export function fillSlots(series, slots) {
     i = end - 1
   }
   return series
+}
+
+// ── Daily movers ────────────────────────────────────────────────────────────
+
+/**
+ * Floors for what counts as a move worth storing.
+ *
+ * Deliberately looser than any sane alert setting, so a user tightening their
+ * own threshold is a filter over rows we already have rather than a reason to
+ * recompute anything. MIN_MOVE_CENTS is the load-bearing half: measured
+ * 2026-09-14 over 87,163 priced printings, 6,751 moved >=10% in a single day
+ * but only 60 also moved >=0.50 — the rest are penny cards going 2c -> 3c,
+ * which is a 50% move and no information at all.
+ */
+export const MIN_MOVE_PCT = 10
+export const MIN_MOVE_CENTS = 50
+
+/**
+ * Day-over-day movers for one printing, across every stored series.
+ *
+ * `filled` maps a column to the slots this run interpolated across a source
+ * outage, and a move touching either end of one is skipped outright. That is
+ * the entire reason those slots are tracked: an alert must never fire on a
+ * price nobody published.
+ *
+ * Operates on the cents arrays, before wireRow, so it never re-parses anything.
+ */
+export function priceMovesFor(row, filled, moveDate) {
+  const moves = []
+
+  for (const { column, finish } of SERIES) {
+    const series = row[column]
+    if (!series || series.length < 2) continue
+
+    const last = series.length - 1
+    const prev = last - 1
+    const filledSlots = filled?.[column]
+    if (filledSlots?.has(last) || filledSlots?.has(prev)) continue
+
+    const to = series[last]
+    const from = series[prev]
+    if (to === NO_PRICE || from === NO_PRICE || from <= 0) continue
+
+    const deltaCents = to - from
+    if (Math.abs(deltaCents) < MIN_MOVE_CENTS) continue
+    const pct = (deltaCents / from) * 100
+    if (Math.abs(pct) < MIN_MOVE_PCT) continue
+
+    moves.push({
+      scryfall_id: row.scryfall_id,
+      move_date: moveDate,
+      currency: SERIES_CURRENCY[column],
+      finish,
+      price_from: from / 100,
+      price_to: to / 100,
+      delta: deltaCents / 100,
+      pct: Math.round(pct * 10) / 10,
+    })
+  }
+  return moves
 }

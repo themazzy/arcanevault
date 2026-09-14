@@ -11,6 +11,7 @@ import { maskEmailAddress, THEMES, PREMIUM_THEMES, THEME_TIERS, useSettings, get
 import { getLocalFolders } from '../lib/db'
 import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES, sfGet } from '../lib/scryfall'
+import { ALERT_WINDOWS } from '../lib/priceAlerts'
 import { deleteLocalFoldersAndPlacements, getDbStats } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { downloadCollectionBackup, restoreCollectionBackup, validateBackupFile, summarizeBackup } from '../lib/backup'
@@ -74,7 +75,7 @@ const KW_PERSONALIZATION = 'personalize deckloom preferences theme display price
 const KW_ADMIN = 'admin console deletion request review queue allowlisted'
 const KW_APPEARANCE = 'colour theme color palette premium themes obsidian crimson court verdant realm archive dark light oled black mode pixels power contrast higher borders separation'
 const KW_ACCESSIBILITY = 'body font serif sans-serif font weight thin regular medium bold font size small large text preview card name size compact default large reduced motion hover lifts transitions animation'
-const KW_PRICES = 'price source marketplace price type cardmarket tcgplayer show price cards grid label'
+const KW_PRICES = 'price source marketplace price type cardmarket tcgplayer show price cards grid label alerts price move spike notify threshold minimum change value look back movers'
 const KW_COLLECTION = 'default sort name price quantity set recently added grid density cozy comfortable compact cards per row'
 const KW_DECKBUILDER = 'deck builder default sort mana value color type rarity set price default grouping category type ungrouped'
 const KW_CACHE = 'local cache card metadata scryfall clear cached storage'
@@ -1058,6 +1059,9 @@ export default function SettingsPage() {
     : 'Idle'
 
   const set = (key, value) => settings.save({ [key]: value })
+  // Alert thresholds are money, so they have to be shown in the currency the
+  // user actually prices in rather than a hardcoded euro.
+  const priceSymbol = PRICE_SOURCES.find(s => s.id === settings.price_source)?.symbol || '€'
 
   const handleManualSync = () => settings.syncNow()
 
@@ -1368,6 +1372,63 @@ export default function SettingsPage() {
         >
           <Toggle value={settings.show_price} onChange={v => set('show_price', v)} />
         </SettingRow>
+
+        <SettingRow
+          label="Price Move Alerts"
+          description="Notify me when a card I own changes price sharply"
+          onRowClick={() => set('price_alerts_enabled', !settings.price_alerts_enabled)}
+        >
+          <Toggle value={!!settings.price_alerts_enabled} onChange={v => set('price_alerts_enabled', v)} />
+        </SettingRow>
+
+        {settings.price_alerts_enabled && (
+          <>
+            <SettingRow
+              label="Minimum Change"
+              description="How far a price must move before it is worth telling you about"
+            >
+              <UISelect
+                value={String(settings.price_alert_pct)}
+                onChange={e => set('price_alert_pct', Number(e.target.value))}
+                title="Minimum percentage change"
+              >
+                {[10, 15, 20, 25, 50].map(pct => (
+                  <option key={pct} value={pct}>{pct}% or more</option>
+                ))}
+              </UISelect>
+            </SettingRow>
+
+            <SettingRow
+              label="Minimum Value"
+              /* The load-bearing threshold. On one measured day 6,751 printings
+                 moved 10% or more, but only 60 also moved half a unit — the rest
+                 were penny cards going 2c to 3c. */
+              description={`Ignore small-money moves. A 50% jump on a ${priceSymbol}0.02 card is not news.`}
+            >
+              <UISelect
+                value={String(settings.price_alert_min_value)}
+                onChange={e => set('price_alert_min_value', Number(e.target.value))}
+                title="Minimum value change"
+              >
+                {[0.5, 1, 2, 5, 10].map(v => (
+                  <option key={v} value={v}>{priceSymbol}{v.toFixed(2)} or more</option>
+                ))}
+              </UISelect>
+            </SettingRow>
+
+            <SettingRow label="Look Back" description="How far back the Movers panel and alerts reach">
+              <UISelect
+                value={String(settings.price_alert_days)}
+                onChange={e => set('price_alert_days', Number(e.target.value))}
+                title="Alert window"
+              >
+                {ALERT_WINDOWS.map(w => (
+                  <option key={w.days} value={w.days}>{w.label}</option>
+                ))}
+              </UISelect>
+            </SettingRow>
+          </>
+        )}
       </SettingsSection>
 
       <SettingsSection title="Collection" keywords={KW_COLLECTION} query={search}>

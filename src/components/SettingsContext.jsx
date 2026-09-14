@@ -425,6 +425,12 @@ const DEFAULTS = {
   keep_screen_awake: false,
   show_sync_errors: false,
   page_tips_seen: {},
+  // Price-move alerts. The money floor is the load-bearing one: on a measured
+  // day 6,751 printings moved >=10%, but only 9 also moved >=1 unit.
+  price_alerts_enabled: true,
+  price_alert_pct: 20,
+  price_alert_min_value: 1,
+  price_alert_days: 7,
   archive_background_mode: 'random',
   archive_background_cards: [],
   archive_background_seed: 0,
@@ -1116,6 +1122,7 @@ export function SettingsProvider({ children }) {
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping, deckbuilder_sort,
         keep_screen_awake, show_sync_errors, page_tips_seen,
+        price_alerts_enabled, price_alert_pct, price_alert_min_value, price_alert_days,
         profile_bio, profile_accent, profile_config,
       } = next
       const payload = {
@@ -1124,6 +1131,7 @@ export function SettingsProvider({ children }) {
         binder_sort, deck_sort, list_sort, font_weight, font_size, body_font, theme, oled_mode, nickname,
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping, deckbuilder_sort,
         keep_screen_awake, show_sync_errors, page_tips_seen,
+        price_alerts_enabled, price_alert_pct, price_alert_min_value, price_alert_days,
         archive_background: buildArchiveBackground(next),
         profile_bio, profile_accent, profile_config,
         updated_at: new Date().toISOString(),
