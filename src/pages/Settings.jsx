@@ -12,6 +12,11 @@ import { getLocalFolders } from '../lib/db'
 import { useSetupWizard } from '../components/SetupWizard'
 import { clearScryfallCache, PRICE_SOURCES, sfGet } from '../lib/scryfall'
 import { ALERT_WINDOWS } from '../lib/priceAlerts'
+import {
+  nativeNotificationsSupported,
+  notificationPermission,
+  requestNotificationPermission,
+} from '../lib/nativeNotifications'
 import { deleteLocalFoldersAndPlacements, getDbStats } from '../lib/db'
 import { pruneUnplacedCards } from '../lib/collectionOwnership'
 import { downloadCollectionBackup, restoreCollectionBackup, validateBackupFile, summarizeBackup } from '../lib/backup'
@@ -1063,6 +1068,28 @@ export default function SettingsPage() {
   // user actually prices in rather than a hardcoded euro.
   const priceSymbol = PRICE_SOURCES.find(s => s.id === settings.price_source)?.symbol || '€'
 
+  // Android 13+ prompts at runtime for POST_NOTIFICATIONS, so the toggle has to
+  // reflect the OS state rather than only our own setting — otherwise it reads
+  // "on" while the phone silently drops everything.
+  const [notifyPermission, setNotifyPermission] = useState('unsupported')
+  useEffect(() => {
+    let cancelled = false
+    notificationPermission().then(p => { if (!cancelled) setNotifyPermission(p) })
+    return () => { cancelled = true }
+  }, [])
+
+  const togglePhoneNotifications = async () => {
+    const next = !settings.phone_notifications_enabled
+    if (next) {
+      // Ask on the way on, not at app start: a permission prompt makes sense
+      // when someone has just said they want the thing.
+      const granted = await requestNotificationPermission()
+      setNotifyPermission(granted)
+      if (granted !== 'granted') return
+    }
+    set('phone_notifications_enabled', next)
+  }
+
   const handleManualSync = () => settings.syncNow()
 
   const isSyncing = settings.syncState === 'pending' || settings.syncState === 'syncing'
@@ -1415,6 +1442,25 @@ export default function SettingsPage() {
                 ))}
               </UISelect>
             </SettingRow>
+
+            {/* Android only. Rendered nowhere on the web, where the plugin has
+                no implementation and the row would be a dead control. */}
+            {nativeNotificationsSupported() && (
+              <SettingRow
+                label="Show on Phone"
+                description={
+                  notifyPermission === 'denied'
+                    ? 'Blocked in Android settings. Enable notifications for DeckLoom there to turn this back on.'
+                    : 'Also raise price alerts as notifications on this device.'
+                }
+                onRowClick={togglePhoneNotifications}
+              >
+                <Toggle
+                  value={!!settings.phone_notifications_enabled && notifyPermission !== 'denied'}
+                  onChange={togglePhoneNotifications}
+                />
+              </SettingRow>
+            )}
 
             <SettingRow label="Look Back" description="How far back the Movers panel and alerts reach">
               <UISelect

@@ -3,7 +3,9 @@ import { useAuth } from './Auth'
 import { useSettings } from './SettingsContext'
 import { getLocalCards } from '../lib/db'
 import { alertsFor, fetchRecentMoves, indexOwned, windowCutoff } from '../lib/priceAlerts'
-import { recordPriceAlertNotifications } from '../lib/community'
+import { fetchRecordedKeys, recordPriceAlertNotifications } from '../lib/community'
+import { historySource } from '../lib/priceHistory'
+import { notifyPriceAlerts } from '../lib/nativeNotifications'
 
 /**
  * Turns the catalogue-wide mover list into notifications for this user's cards.
@@ -29,6 +31,7 @@ export default function PriceAlertWatcher() {
   const enabled = settings?.price_alerts_enabled !== false
   const days = settings?.price_alert_days ?? 7
   const priceSource = settings?.price_source
+  const phoneEnabled = settings?.phone_notifications_enabled !== false
   const thresholds = useMemo(() => ({
     price_alert_pct: settings?.price_alert_pct,
     price_alert_min_value: settings?.price_alert_min_value,
@@ -53,14 +56,25 @@ export default function PriceAlertWatcher() {
 
         // Capped: a genuinely wild day should not bury every other
         // notification, and the Movers panel shows the full list anyway.
-        await recordPriceAlertNotifications(user.id, alerts.slice(0, 10).map(a => a.key))
+        const batch = alerts.slice(0, 10)
+        const known = await fetchRecordedKeys(user.id)
+        await recordPriceAlertNotifications(user.id, batch.map(a => a.key))
+        if (cancelled) return
+
+        // Only the ones that were not already recorded get a phone
+        // notification. Without this, every app open would re-buzz about the
+        // same move for as long as it stayed inside the look-back window.
+        const fresh = batch.filter(a => !known.has(a.key))
+        if (fresh.length && phoneEnabled) {
+          await notifyPriceAlerts(fresh, { symbol: historySource(priceSource).symbol })
+        }
       } catch {
         // Intentionally silent — see above.
       }
     }, 6000)
 
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [user?.id, enabled, days, thresholds, priceSource])
+  }, [user?.id, enabled, days, thresholds, priceSource, phoneEnabled])
 
   return null
 }

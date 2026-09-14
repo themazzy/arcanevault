@@ -431,6 +431,7 @@ const DEFAULTS = {
   price_alert_pct: 20,
   price_alert_min_value: 1,
   price_alert_days: 7,
+  phone_notifications_enabled: true,
   archive_background_mode: 'random',
   archive_background_cards: [],
   archive_background_seed: 0,
@@ -1123,6 +1124,7 @@ export function SettingsProvider({ children }) {
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping, deckbuilder_sort,
         keep_screen_awake, show_sync_errors, page_tips_seen,
         price_alerts_enabled, price_alert_pct, price_alert_min_value, price_alert_days,
+        phone_notifications_enabled,
         profile_bio, profile_accent, profile_config,
       } = next
       const payload = {
@@ -1132,6 +1134,7 @@ export function SettingsProvider({ children }) {
         anonymize_email, reduce_motion, higher_contrast, card_name_size, default_grouping, deckbuilder_sort,
         keep_screen_awake, show_sync_errors, page_tips_seen,
         price_alerts_enabled, price_alert_pct, price_alert_min_value, price_alert_days,
+        phone_notifications_enabled,
         archive_background: buildArchiveBackground(next),
         profile_bio, profile_accent, profile_config,
         updated_at: new Date().toISOString(),
