@@ -9,7 +9,6 @@
   height: 34px;
   background: none;
   border: 0;
-  border-radius: 0;
   color: var(--text-dim);
   cursor: pointer;
   transition: color 0.15s;
@@ -28,7 +27,9 @@
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  background: #e05252;
+  /* --red-bright, not a literal: small badge text needs the lifted red to stay
+     legible, and a hex here is invisible to the light and contrast themes. */
+  background: var(--red-bright);
   color: #fff;
   border-radius: var(--radius-pill);
   font-size: 0.62rem;
@@ -39,21 +40,25 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A floating surface, so gold at rest is correct (DESIGN.md §1: gold outside,
+   silver inside) — but from the token, not a literal rgba. */
 .dropdown {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  width: 320px;
+  width: 340px;
   max-width: 86vw;
-  max-height: 420px;
-  overflow-y: auto;
-  background: var(--bg3, #1a1628);
-  border: 1px solid rgba(201,168,76,0.28);
+  max-height: 440px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg3);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 18px 48px rgba(0,0,0,0.55);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
   z-index: 400;
 }
-/* On phones the bell sits ~60px from the right edge, so a 320px panel
+/* On phones the bell sits ~60px from the right edge, so a 340px panel
    anchored right:0 runs off the left side of the screen. Pin it full-width
    under the header pill instead. The pill's backdrop-filter makes it the
    containing block for fixed descendants, so these offsets resolve against
@@ -71,52 +76,130 @@
 }
 
 .head {
-  padding: 11px 14px;
-  font-family: var(--font-display);
-  font-size: 0.74rem;
-  letter-spacing: var(--label-tracking-wide);
-  text-transform: uppercase;
+  composes: labelLg from '../../styles/typography.module.css';
+  flex: none;
+  padding: 12px 14px;
   color: var(--text-faint);
   border-bottom: 1px solid var(--s-border);
 }
+
 .empty {
-  padding: 22px 16px;
+  padding: 26px 18px;
   color: var(--text-faint);
-  font-size: 0.82rem;
-  font-style: italic;
+  font-size: var(--font-sm);
   text-align: center;
-  line-height: 1.5;
+  line-height: 1.55;
 }
-.list { list-style: none; margin: 0; padding: 4px; display: flex; flex-direction: column; }
+
+/* The list scrolls; the header and footer stay put. */
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .item {
   width: 100%;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 9px 10px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
   background: none;
-  border: none;
-  border-radius: 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   text-align: left;
   cursor: pointer;
   color: var(--text-dim);
-  transition: background 0.12s;
+  transition: background 0.12s, border-color 0.12s;
 }
-.item:hover { background: var(--s2); }
-.itemUnread { background: rgba(201,168,76,0.07); }
-.text { flex: 1; font-size: 0.84rem; line-height: 1.4; color: var(--text); }
+.item:hover {
+  background: var(--s2);
+  border-color: var(--s-border2);
+}
+.item:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+/* Unread carries a gold rail rather than a wash: the tint alone was almost
+   invisible on the light themes, and a rail survives both. */
+.itemUnread {
+  background: var(--s1);
+  border-color: var(--s-border);
+  box-shadow: inset 2px 0 0 var(--gold-dim, var(--gold));
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-sm);
+  line-height: 1.45;
+  color: var(--text);
+}
 .text strong { font-weight: 600; }
 .deck { color: var(--gold); }
-/* Milestone rows lead with the milestone's emoji instead of an actor name. */
-.milestoneIcon { margin-right: 6px; }
-.time { flex: 0 0 auto; font-size: 0.7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
 
-/* Announcement body sits under its title on its own line — a release note needs
-   a sentence, where a milestone or a like is a single phrase. */
+/* Milestone and announcement rows lead with their own emoji rather than an
+   actor name — these are content, not UI chrome (DESIGN.md §9). */
+.milestoneIcon { margin-right: 6px; }
+
+.time {
+  flex: 0 0 auto;
+  font-size: var(--font-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  padding-top: 1px;
+}
+
+/* A release note or a price move needs a sentence, where a like is a phrase. */
 .announcementBody {
   display: block;
   margin-top: 3px;
   color: var(--text-dim);
   font-size: var(--font-xs);
   line-height: 1.45;
+}
+
+.footer {
+  flex: none;
+  padding: 8px;
+  border-top: 1px solid var(--s-border);
+}
+
+.clear {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 var(--control-padding-x);
+  border: 1px solid var(--s-border2);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-dim);
+  font-size: var(--control-font-size);
+  letter-spacing: var(--control-letter-spacing);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.clear:hover {
+  color: var(--red-bright);
+  border-color: var(--red-bright);
+}
+.clear:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.clear:disabled { opacity: 0.6; cursor: default; }
+
+/* Armed state of the two-step confirm — the button already says what the next
+   tap does, and this makes it look like it means it. */
+.clearArmed {
+  color: var(--red-bright);
+  border-color: var(--red-bright);
+  background: var(--s2);
 }

@@ -126,6 +126,28 @@ export async function recordPriceAlertNotifications(userId, alertKeys) {
   if (error) throw error
 }
 
+/**
+ * Deletes this user's notifications.
+ *
+ * `before` (an ISO timestamp) clears only rows older than it; without it the
+ * lot goes. RLS already restricts deletes to the caller's own rows, so no
+ * user_id filter is needed here — but one is passed anyway so a misconfigured
+ * policy cannot turn this into a global wipe.
+ *
+ * Milestone and announcement rows are deleted too, and both watchers will
+ * happily write them again on the next load: the dedupe index is the only
+ * memory either of them has. That is the right trade for a "clear" button —
+ * the alternative is a tombstone table to remember what was dismissed.
+ */
+export async function clearNotifications(userId, { before = null } = {}) {
+  if (!userId) return 0
+  let query = sb.from('notifications').delete().eq('user_id', userId)
+  if (before) query = query.lt('created_at', before)
+  const { error, count } = await query.select('id', { count: 'exact' })
+  if (error) throw error
+  return count ?? 0
+}
+
 /** Ids of milestone/announcement rows already recorded for this user. */
 export async function fetchRecordedKeys(userId) {
   if (!userId) return new Set()

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getMyNotifications, getUnreadNotificationCount, markAllNotificationsRead } from '../../lib/community'
+import { clearNotifications, getMyNotifications, getUnreadNotificationCount, markAllNotificationsRead } from '../../lib/community'
 import { MILESTONES } from '../../lib/milestones'
 import { ANNOUNCEMENT_BY_ID } from '../../lib/announcements'
 import { fetchAlertDetails, parseAlertKey } from '../../lib/priceAlerts'
+import { useAuth } from '../Auth'
 import { useSettings } from '../SettingsContext'
 import { BellIcon } from '../../icons'
 import styles from './NotificationBell.module.css'
@@ -36,9 +37,12 @@ export default function NotificationBell() {
   // Price alerts carry only a key; the move and the card name are looked up
   // when the bell opens, not stored on the notification row.
   const [alertDetails, setAlertDetails] = useState(new Map())
+  const [confirming, setConfirming] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const wrapRef = useRef(null)
   const navigate = useNavigate()
   const { nickname } = useSettings()
+  const { user } = useAuth() ?? {}
 
   const refreshCount = useCallback(() => {
     getUnreadNotificationCount().then(setUnread).catch(() => {})
@@ -61,6 +65,7 @@ export default function NotificationBell() {
   const toggle = async () => {
     const next = !open
     setOpen(next)
+    if (!next) setConfirming(false)
     if (next) {
       getMyNotifications(30).then(rows => {
         setNotes(rows)
@@ -71,6 +76,23 @@ export default function NotificationBell() {
         setUnread(0)
         try { await markAllNotificationsRead() } catch {}
       }
+    }
+  }
+
+  const handleClear = async () => {
+    if (!confirming) { setConfirming(true); return }
+    setClearing(true)
+    try {
+      await clearNotifications(user?.id)
+      setNotes([])
+      setUnread(0)
+      setAlertDetails(new Map())
+    } catch {
+      // Leaving the rows in place is the safe failure: nothing was lost, and
+      // the next tap tries again.
+    } finally {
+      setClearing(false)
+      setConfirming(false)
     }
   }
 
@@ -166,6 +188,22 @@ export default function NotificationBell() {
                 )
               })}
             </ul>
+          )}
+
+          {!!notes?.length && (
+            <div className={styles.footer}>
+              {/* Two-step rather than a modal: these are low-value rows and a
+                  confirm dialog for them would be heavier than the thing it
+                  protects. The button says what the next click does. */}
+              <button
+                type="button"
+                className={`${styles.clear} ${confirming ? styles.clearArmed : ''}`}
+                onClick={handleClear}
+                disabled={clearing}
+              >
+                {clearing ? 'Clearing…' : confirming ? 'Tap again to clear all' : 'Clear all'}
+              </button>
+            </div>
           )}
         </div>
       )}
