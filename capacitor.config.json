@@ -9,9 +9,9 @@
   },
   "plugins": {
     "BackgroundRunner": {
-      "label": "app.deckloom.pricealerts",
-      "src": "runners/price-alerts.js",
-      "event": "checkPriceMoves",
+      "label": "app.deckloom.notifications",
+      "src": "runners/notifications.js",
+      "event": "checkNotifications",
       "repeat": true,
       "interval": 360,
       "autoStart": true

@@ -74,6 +74,7 @@ export default function PriceAlertWatcher() {
   const days = settings?.price_alert_days ?? 7
   const priceSource = settings?.price_source
   const phoneEnabled = settings?.phone_notifications_enabled !== false
+  const notificationKey = settings?.notification_key
   const thresholds = useMemo(() => ({
     price_alert_pct: settings?.price_alert_pct,
     price_alert_min_value: settings?.price_alert_min_value,
@@ -90,6 +91,11 @@ export default function PriceAlertWatcher() {
         const cards = await getLocalCards(user.id)
         if (cancelled) return
 
+        // Read before the mirror so the runner can be told what the app has
+        // already raised, and reused below rather than fetched twice.
+        const known = await fetchRecordedKeys(user.id)
+        if (cancelled) return
+
         // Mirrored BEFORE the movers are examined, and regardless of whether
         // there are any: the runner's watchlist has to stay current on quiet
         // days too, or it goes stale exactly while nothing prompts a refresh.
@@ -98,10 +104,16 @@ export default function PriceAlertWatcher() {
         if (phoneEnabled) {
           syncBackgroundAlerts({
             cards,
-            settings: { price_source: priceSource, ...thresholds, price_alert_days: days },
+            settings: {
+              price_source: priceSource,
+              ...thresholds,
+              price_alert_days: days,
+              notification_key: notificationKey,
+            },
             supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
             anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
             priceOf: await marketPriceLookup(cards, priceSource),
+            seenKeys: [...known].filter(k => String(k).startsWith('price:')),
           }).catch(() => {})
         } else {
           clearBackgroundAlerts().catch(() => {})
@@ -116,7 +128,6 @@ export default function PriceAlertWatcher() {
         // Capped: a genuinely wild day should not bury every other
         // notification, and the Movers panel shows the full list anyway.
         const batch = alerts.slice(0, 10)
-        const known = await fetchRecordedKeys(user.id)
         await recordPriceAlertNotifications(user.id, batch.map(a => a.key))
         if (cancelled) return
 
@@ -133,7 +144,7 @@ export default function PriceAlertWatcher() {
     }, 6000)
 
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [user?.id, enabled, days, thresholds, priceSource, phoneEnabled])
+  }, [user?.id, enabled, days, thresholds, priceSource, phoneEnabled, notificationKey])
 
   return null
 }

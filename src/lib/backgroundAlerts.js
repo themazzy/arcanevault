@@ -3,21 +3,24 @@ import { historySource } from './priceHistory'
 import { ALERT_DEFAULTS } from './priceAlerts'
 
 /**
- * Feeds the background price-alert runner.
+ * Feeds the background notification runner.
  *
- * public/runners/price-alerts.js executes in its own JS context with no DOM, no
- * IndexedDB and no access to app code — only a key-value store. So everything
- * it needs is mirrored here while the app is open, and the runner then works
- * for days without the app being launched.
+ * public/runners/notifications.js executes in its own JS context with no DOM,
+ * no IndexedDB and no access to app code — only a key-value store. So
+ * everything it needs is mirrored here while the app is open, and the runner
+ * then works for days without the app being launched.
  *
- * It reads card_price_moves with the anon key. That is fine and deliberate:
- * the table is public reference data, so there is no session to keep alive in a
- * context that might not run for a week.
+ * Two credentials go across, and neither is a session. Price moves come from
+ * card_price_moves with the anon key, because that table is public reference
+ * data. Social notifications come from get_notification_digest with a device
+ * key, because they are behind RLS — and holding a real session in a context
+ * that may not run for a week would mean refreshing it, which rotates the
+ * refresh token and can sign the user out of the app.
  */
 
 const KV_KEYS = [
   'bgUrl', 'bgKey', 'bgCurrency', 'bgSymbol',
-  'bgMinPct', 'bgMinValue', 'bgDays', 'bgWatch',
+  'bgMinPct', 'bgMinValue', 'bgDays', 'bgWatch', 'bgNotifyKey',
 ]
 
 let pluginPromise = null
@@ -77,7 +80,7 @@ export function buildWatchlist(cards, minValue, priceOf) {
  * it is a handful of string writes, and being up to date matters more than
  * avoiding them.
  */
-export async function syncBackgroundAlerts({ cards, settings, supabaseUrl, anonKey, priceOf }) {
+export async function syncBackgroundAlerts({ cards, settings, supabaseUrl, anonKey, priceOf, seenKeys }) {
   if (!isNativeApp()) return false
   const runner = await loadRunner()
   if (!runner || !supabaseUrl || !anonKey) return false
@@ -95,11 +98,21 @@ export async function syncBackgroundAlerts({ cards, settings, supabaseUrl, anonK
     bgMinValue: String(minValue),
     bgDays: String(settings?.price_alert_days ?? ALERT_DEFAULTS.price_alert_days),
     bgWatch: watch.join('\n'),
+    // Lets the runner read social notifications without holding a session —
+    // see the migration for why that matters.
+    bgNotifyKey: settings?.notification_key || '',
   }
 
   try {
     for (const key of KV_KEYS) {
       await runner.putKV({ key, value: values[key] })
+    }
+    // Anything the app has already raised is marked seen for the runner too.
+    // Without this the two paths notify about the same move independently: the
+    // runner keeps its own seen-set and cannot read the notifications table, so
+    // it has no other way to know the app got there first.
+    if (seenKeys?.length) {
+      await runner.putKV({ key: 'bgSeen', value: seenKeys.slice(-400).join('\n') })
     }
     return true
   } catch {

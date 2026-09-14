@@ -22,7 +22,7 @@ describe('watchKey', () => {
   it('is implemented identically in the runner, which cannot import it', () => {
     // A silent divergence here would mean the watchlist never matches and the
     // background check reports nothing, forever, with no error anywhere.
-    const runner = readFileSync(resolve(process.cwd(), 'public/runners/price-alerts.js'), 'utf8')
+    const runner = readFileSync(resolve(process.cwd(), 'public/runners/notifications.js'), 'utf8')
     const body = runner.match(/function watchKey\([^)]*\)\s*\{([\s\S]*?)\n\}/)[1]
     expect(body).toContain("slice(0, 16)")
     expect(body).toContain("=== 'foil' ? 'f' : 'n'")
@@ -76,5 +76,37 @@ describe('buildWatchlist', () => {
 
   it('falls back to the default threshold when none is given', () => {
     expect(buildWatchlist(cards, undefined, priceOf).length).toBeGreaterThan(0)
+  })
+})
+
+// ── What the runner is told ─────────────────────────────────────────────────
+// It covers both families that can occur while the app is closed: price moves
+// (public data, anon key) and social notifications (behind RLS, via a device
+// key). Neither path holds a session — refreshing one in a context that may not
+// run for a week rotates the refresh token and can sign the user out.
+
+describe('the runner contract', () => {
+  const runner = readFileSync(resolve(process.cwd(), 'public/runners/notifications.js'), 'utf8')
+
+  it('listens for the event the Capacitor config dispatches', () => {
+    const cfg = JSON.parse(readFileSync(resolve(process.cwd(), 'capacitor.config.json'), 'utf8'))
+    const { src, event } = cfg.plugins.BackgroundRunner
+    expect(src).toBe('runners/notifications.js')
+    expect(runner).toContain(`addEventListener('${event}'`)
+  })
+
+  it('reads both sources', () => {
+    expect(runner).toContain('card_price_moves')
+    expect(runner).toContain('get_notification_digest')
+  })
+
+  it('never rejects, so a flaky network cannot back off the schedule', () => {
+    // Android treats a rejected task as failed work and may stop scheduling it.
+    expect(runner).not.toMatch(/\breject\(/)
+  })
+
+  it('imports nothing — it has no module graph to import from', () => {
+    expect(runner).not.toMatch(/^\s*import\s/m)
+    expect(runner).not.toMatch(/\brequire\(/)
   })
 })
