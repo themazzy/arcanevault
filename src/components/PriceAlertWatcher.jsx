@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useAuth } from './Auth'
 import { useSettings } from './SettingsContext'
 import { getLocalCards } from '../lib/db'
@@ -22,7 +22,17 @@ import { recordPriceAlertNotifications } from '../lib/community'
 export default function PriceAlertWatcher() {
   const { user } = useAuth() ?? {}
   const settings = useSettings()
+  // Read off the fields rather than passing `settings` into the effect: the
+  // context hands back a new object every render, so depending on it would
+  // re-run this on any settings change anywhere in the app — and depending on
+  // the fields while still *using* the object is what tripped the lint rule.
   const enabled = settings?.price_alerts_enabled !== false
+  const days = settings?.price_alert_days ?? 7
+  const priceSource = settings?.price_source
+  const thresholds = useMemo(() => ({
+    price_alert_pct: settings?.price_alert_pct,
+    price_alert_min_value: settings?.price_alert_min_value,
+  }), [settings?.price_alert_pct, settings?.price_alert_min_value])
 
   useEffect(() => {
     if (!user?.id || !enabled) return undefined
@@ -32,14 +42,13 @@ export default function PriceAlertWatcher() {
     // least urgent read in the app.
     const timer = setTimeout(async () => {
       try {
-        const cutoff = windowCutoff(settings?.price_alert_days ?? 7)
-        const moves = await fetchRecentMoves(cutoff)
+        const moves = await fetchRecentMoves(windowCutoff(days))
         if (cancelled || !moves.length) return
 
         const cards = await getLocalCards(user.id)
         if (cancelled) return
 
-        const alerts = alertsFor(moves, indexOwned(cards), settings, settings?.price_source)
+        const alerts = alertsFor(moves, indexOwned(cards), thresholds, priceSource)
         if (!alerts.length || cancelled) return
 
         // Capped: a genuinely wild day should not bury every other
@@ -51,17 +60,7 @@ export default function PriceAlertWatcher() {
     }, 6000)
 
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [
-    // Individual fields, not `settings` itself: the context hands back a new
-    // object every render, so depending on it would re-run this on every
-    // keystroke anywhere in the app.
-    user?.id,
-    enabled,
-    settings?.price_alert_days,
-    settings?.price_alert_pct,
-    settings?.price_alert_min_value,
-    settings?.price_source,
-  ])
+  }, [user?.id, enabled, days, thresholds, priceSource])
 
   return null
 }

@@ -26,8 +26,17 @@ export default function MoversPanel() {
   const navigate = useNavigate()
   const [state, setState] = useState({ status: 'loading', alerts: [] })
 
+  // Read off the fields rather than passing `settings` into the effect: the
+  // context hands back a new object every render, so depending on it would
+  // re-run this on any settings change anywhere in the app — and depending on
+  // the fields while still *using* the object is what tripped the lint rule.
   const days = settings?.price_alert_days ?? 7
-  const source = historySource(settings?.price_source)
+  const priceSource = settings?.price_source
+  const source = historySource(priceSource)
+  const thresholds = useMemo(() => ({
+    price_alert_pct: settings?.price_alert_pct,
+    price_alert_min_value: settings?.price_alert_min_value,
+  }), [settings?.price_alert_pct, settings?.price_alert_min_value])
 
   useEffect(() => {
     if (!user?.id) return undefined
@@ -40,7 +49,7 @@ export default function MoversPanel() {
         if (cancelled) return
         setState({
           status: 'ready',
-          alerts: alertsFor(moves, indexOwned(cards), settings, settings?.price_source),
+          alerts: alertsFor(moves, indexOwned(cards), thresholds, priceSource),
         })
       } catch {
         if (!cancelled) setState({ status: 'error', alerts: [] })
@@ -48,16 +57,7 @@ export default function MoversPanel() {
     })()
 
     return () => { cancelled = true }
-  }, [
-    // Individual fields, not `settings` itself: the context hands back a new
-    // object every render, so depending on it would re-run this on every
-    // keystroke anywhere in the app.
-    user?.id,
-    days,
-    settings?.price_alert_pct,
-    settings?.price_alert_min_value,
-    settings?.price_source,
-  ])
+  }, [user?.id, days, thresholds, priceSource])
 
   const shown = useMemo(() => state.alerts.slice(0, SHOWN), [state.alerts])
   const money = v => `${source.symbol}${Math.abs(v).toFixed(2)}`
