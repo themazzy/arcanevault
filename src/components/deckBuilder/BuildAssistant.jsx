@@ -11,8 +11,8 @@ import { useCombosFetch } from '../../hooks/useCombosFetch'
 import { useSettings } from '../SettingsContext'
 import { fetchEdhrecCommander, fetchRecommendationMetadataByNames, fetchCardsByScryfallIds, fetchRecommenderRecs, getCardImageUri } from '../../lib/deckBuilderApi'
 import { PHASE, createAutoFillProgress, planAutoFillPhases } from '../../lib/autoFillProgress'
-import { fetchDeckBuilderDisplayPrintings } from '../../lib/cardSearch'
 import { cardImageUrl, tileArt } from './buildAssistantTiles'
+import { resolveDisplayPrintings } from './buildAssistantPricing'
 import { useCardPreview, HOVER_PREVIEW_W } from './useCardPreview'
 import { fetchCardPrintsByScryfallIds, fetchCardPrintsByOracleIds, fetchOracleTextByNames, cardPrintRowToSfEntry } from '../../lib/cardPrints'
 import {
@@ -1737,44 +1737,16 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
       if (missing.length >= BUDGET_PRICE_SLICE) break
     }
     if (!missing.length) return
-    const keys = missing.map(cacheKey)
-    for (const k of keys) priceInFlightRef.current.add(k)
-    // No cancellation guard on the write: the cache is name-keyed and
-    // idempotent, so a slice that lands after its effect was superseded is still
-    // correct — and dropping it would strand those names as permanently
-    // "unpriced" (the in-flight keys are freed, but nothing would re-trigger the
-    // sweep), leaving the build blocked on a wait that never ends.
-    ;(async () => {
-      try {
-        const displayPrints = await fetchDeckBuilderDisplayPrintings(missing, { priceSource: price_source })
-        const displayByName = new Map(displayPrints.map(card => [card.requested_name.toLowerCase(), card]))
-        setCheapestByName(prev => {
-          const next = new Map(prev)
-          for (const n of missing) {
-            const display = displayByName.get(n.toLowerCase())
-            next.set(cacheKey(n), display
-              ? {
-                  price: display.display_price,
-                  image: getCardImageUri(display, 'small'),
-                  finish: display.display_finish,
-                }
-              : { price: null, image: null, finish: null })
-          }
-          return next
-        })
-      } catch {
-        // Mark the slice failed rather than retrying forever. Under a hard cap
-        // an unpriced card is excluded, so a failed sweep costs slots — the
-        // shortfall note on the result screen says so.
-        setArtLookupFailed(prev => {
-          const next = new Set(prev)
-          for (const k of keys) next.add(k)
-          return next
-        })
-      } finally {
-        for (const k of keys) priceInFlightRef.current.delete(k)
-      }
-    })()
+    // Fire and forget, with no cancellation guard: a slice that lands after its
+    // effect was superseded is still correct, and dropping it would strand those
+    // names as permanently "unpriced" — see resolveDisplayPrintings.
+    resolveDisplayPrintings({
+      names: missing,
+      priceSource: price_source,
+      inFlight: priceInFlightRef.current,
+      setCheapest: setCheapestByName,
+      setFailed: setArtLookupFailed,
+    })
   }, [budgetPoolNames, cheapestByName, artLookupFailed, price_source])
 
   // Two dry runs drive the modal's option labels: binders only, and the
@@ -2351,44 +2323,17 @@ export function BuildAssistant({ userId, commander, deckCards = [], accessToken,
     const missing = [...names].filter(n =>
       !cheapestByName.has(cacheKey(n)) && !priceInFlightRef.current.has(cacheKey(n)))
     if (!missing.length) return
-    let cancelled = false
-    const keys = missing.map(cacheKey)
-    for (const k of keys) priceInFlightRef.current.add(k)
-    ;(async () => {
-      try {
-        const displayPrints = await fetchDeckBuilderDisplayPrintings(missing, { priceSource: price_source })
-        const displayByName = new Map(displayPrints.map(card => [card.requested_name.toLowerCase(), card]))
-        // Functional update: the budget sweep writes this same map, and a
-        // snapshot taken before the await would clobber whatever it landed.
-        if (!cancelled) setCheapestByName(prev => {
-          const next = new Map(prev)
-          for (const n of missing) {
-            const display = displayByName.get(n.toLowerCase())
-            next.set(cacheKey(n), display
-              ? {
-                  price: display.display_price,
-                  image: getCardImageUri(display, 'small'),
-                  finish: display.display_finish,
-                }
-              : { price: null, image: null, finish: null })
-          }
-          return next
-        })
-      } catch {
-        // Cache stays untouched so a later run retries, but the tiles must stop
-        // waiting on art that isn't coming — they fall back to what they have.
-        if (!cancelled) {
-          setArtLookupFailed(prev => {
-            const next = new Set(prev)
-            for (const k of keys) next.add(k)
-            return next
-          })
-        }
-      } finally {
-        for (const k of keys) priceInFlightRef.current.delete(k)
-      }
-    })()
-    return () => { cancelled = true }
+    // Fire and forget. This effect re-runs whenever `pricedNames` changes
+    // identity (the recommander merge re-ranks the pool), and cancelling the
+    // in-flight batch on that re-run left every tile shimmering forever — see
+    // resolveDisplayPrintings for why the write must never be guarded.
+    resolveDisplayPrintings({
+      names: missing,
+      priceSource: price_source,
+      inFlight: priceInFlightRef.current,
+      setCheapest: setCheapestByName,
+      setFailed: setArtLookupFailed,
+    })
   }, [pricedNames, price_source, cheapestByName])
 
   async function handleAdd(cardOrRec, name) {
