@@ -36,6 +36,24 @@ export const ANNOUNCEMENTS = []
 export const ANNOUNCEMENT_BY_ID = new Map(ANNOUNCEMENTS.map(a => [a.id, a]))
 
 /**
+ * Hide announcement rows whose entry no longer exists.
+ *
+ * A row is recorded per account, so it outlives the release it describes. Two
+ * ways an orphan appears: the rows already delivered when a feature is
+ * withdrawn, and the new ones a client keeps writing for as long as its service
+ * worker still serves the previous bundle (~20 min after a deploy — this
+ * happened on 2026-09-18, 13 minutes after the price-chart removal shipped).
+ *
+ * The bell fell back to a bare "What's new" with no body and no destination for
+ * those, so dropping them is the difference between a withdrawn feature being
+ * invisible and it being a broken row. Every other type passes through
+ * untouched — only announcements carry copy that lives in the bundle.
+ */
+export function withKnownAnnouncements(rows) {
+  return (rows || []).filter(n => n.type !== 'announcement' || ANNOUNCEMENT_BY_ID.has(n.milestone_id))
+}
+
+/**
  * Which announcements this account should be shown.
  *
  * `existing` is the set of ids already recorded, so this stays correct when the

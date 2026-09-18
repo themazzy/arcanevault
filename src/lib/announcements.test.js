@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ANNOUNCEMENTS, ANNOUNCEMENT_BY_ID, pendingAnnouncements } from './announcements'
+import { ANNOUNCEMENTS, ANNOUNCEMENT_BY_ID, pendingAnnouncements, withKnownAnnouncements } from './announcements'
 import { MILESTONES } from './milestones'
 
 // Announcements ride the milestone plumbing: the client writes its own row and
@@ -97,5 +97,37 @@ describe('pendingAnnouncements', () => {
     // The real call site passes no list. An empty ANNOUNCEMENTS must be a quiet
     // no-op, not an error, or AnnouncementWatcher throws on every session.
     expect(pendingAnnouncements(new Set(), before, now)).toEqual([])
+  })
+})
+
+describe('withKnownAnnouncements', () => {
+  // A row is recorded per account, so it outlives the release it describes.
+  // Measured on 2026-09-18: a client whose service worker still served the
+  // previous bundle re-recorded announce:price-history 13 minutes AFTER the
+  // removal deployed, so deleting the rows alone cannot be the whole fix.
+  it('hides an announcement whose entry no longer exists', () => {
+    const rows = [
+      { id: 1, type: 'announcement', milestone_id: 'announce:price-history' },
+      { id: 2, type: 'milestone', milestone_id: 'first-deck' },
+    ]
+    expect(withKnownAnnouncements(rows).map(r => r.id)).toEqual([2])
+  })
+
+  it('keeps every non-announcement type untouched', () => {
+    // Only announcements carry copy that lives in the bundle; the others render
+    // from the row itself, so an unknown id is not a reason to drop them.
+    const rows = [
+      { id: 1, type: 'price_alert', milestone_id: 'price:abc:2026-09-17:normal' },
+      { id: 2, type: 'milestone', milestone_id: 'not-a-known-milestone' },
+      { id: 3, type: 'follow', milestone_id: null },
+      { id: 4, type: 'comment', milestone_id: null },
+    ]
+    expect(withKnownAnnouncements(rows)).toHaveLength(4)
+  })
+
+  it('survives a null or empty list', () => {
+    expect(withKnownAnnouncements(null)).toEqual([])
+    expect(withKnownAnnouncements(undefined)).toEqual([])
+    expect(withKnownAnnouncements([])).toEqual([])
   })
 })

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { clearNotifications, deleteNotification, getMyNotifications, getUnreadNotificationCount, markAllNotificationsRead } from '../../lib/community'
 import { MILESTONES } from '../../lib/milestones'
-import { ANNOUNCEMENT_BY_ID } from '../../lib/announcements'
+import { ANNOUNCEMENT_BY_ID, withKnownAnnouncements } from '../../lib/announcements'
 import { fetchAlertDetails, parseAlertKey } from '../../lib/priceAlerts'
 import { useAuth } from '../Auth'
 import { useSettings } from '../SettingsContext'
@@ -72,7 +72,10 @@ export default function NotificationBell() {
     setOpen(next)
     if (!next) setConfirming(false)
     if (next) {
-      getMyNotifications(30).then(rows => {
+      getMyNotifications(30).then(all => {
+        // Withdrawn announcements would otherwise render as a contentless
+        // "What's new" that navigates nowhere — see withKnownAnnouncements.
+        const rows = withKnownAnnouncements(all)
         setNotes(rows)
         const keys = rows.filter(r => r.type === 'price_alert').map(r => r.milestone_id)
         if (keys.length) fetchAlertDetails(keys).then(setAlertDetails).catch(() => {})
