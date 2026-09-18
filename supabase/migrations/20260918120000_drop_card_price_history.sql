@@ -1,0 +1,34 @@
+-- Drop card_price_history: 142 MB of a 500 MB database for one chart.
+--
+-- The table went in on 2026-09-13 with a budget of ~89 MB and was measured at
+-- 142 MB five days later, which took the database to 494 MB against the free
+-- plan's 500 MB cap. Live rows were on budget (83 MB); the overrun was churn.
+--
+-- WHY IT COULD NOT BE VACUUMED SMALLER: the ingest slides a 60-day window, so
+-- every one of the 101,579 rows changed on every daily run and the whole table
+-- was rewritten. Postgres reclaims those dead tuples for REUSE but never hands
+-- the pages back to the OS, so the table sat at ~1.6x its live size (46 MB
+-- free, 0 dead tuples — the pgstattuple signature of a high-water mark). A
+-- VACUUM FULL would have been undone by the next 15:30 UTC run, and it could
+-- not have been run anyway: the new copy coexists with the old, peaking ~40 MB
+-- over the cap.
+--
+-- Anything that reintroduces per-printing history needs a budget for a full
+-- daily rewrite, not for the live row size. 78% of the rows (79,089 of 101,581)
+-- were for printings nobody in the app owned, wishlisted or had in a deck.
+--
+-- PRICE ALERTS ARE UNAFFECTED. Movers are computed from the staged arrays in
+-- memory during the sync and written to card_price_moves (~456 kB, 7-day
+-- retention), which never read this table. scripts/sync-price-history.mjs
+-- still runs daily; it just no longer persists a row per printing.
+--
+-- Verified before dropping: no view, materialized view or function references
+-- this table (pg_depend via pg_rewrite, and pg_get_functiondef over public).
+-- The client fetcher and PriceHistoryChart were removed in the same commit.
+--
+-- Data loss is total and not recoverable from our own backups, which is
+-- acceptable here and would not be for a user table: every value came from
+-- MTGJSON's rolling AllPrices export, so a future feature can re-ingest the
+-- window from the source rather than restore it.
+
+drop table if exists public.card_price_history;

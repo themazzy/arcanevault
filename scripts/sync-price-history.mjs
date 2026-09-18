@@ -18,17 +18,29 @@ import {
   rowFromAccumulator,
   stagingBase,
   windowStart,
-  wireRow,
 } from './lib/price-history-core.mjs'
 
-// Fills card_price_history from MTGJSON's rolling ~90-day AllPrices export.
+// Finds each day's price movers from MTGJSON's rolling AllPrices export and
+// writes them to card_price_moves, which is what feeds price alerts.
+//
+// NOTHING IS PERSISTED PER PRINTING. This job used to fill card_price_history
+// as well — one row per printing holding a 60-day array — and that table was
+// dropped 2026-09-18 at 142 MB of a 500 MB database. The arrays were only ever
+// read to draw a chart, and they could not be kept cheaply: the window slides
+// daily, so every one of the 101,579 rows genuinely changed on every run and
+// Postgres sat at ~1.6x the live size in churn space that no VACUUM returns.
+// Do not reintroduce a per-printing table here without a space budget that
+// accounts for a full daily rewrite, not just the live row size.
+//
+// The series are still built in memory, because a mover is a day-over-day
+// comparison and needs yesterday's price next to today's. priceMovesFor reads
+// only the last two slots of each one.
 //
 // Why MTGJSON and not our own accumulation: Scryfall publishes only today's
-// price, so building 90 days ourselves would mean shipping the feature and
-// showing an empty chart for three months. MTGJSON hands over the whole window
-// on the first run. Its paper.cardmarket.retail numbers were verified identical
+// price, so a day-over-day delta on the day we ship would have nothing to
+// compare against. Its paper.cardmarket.retail numbers were verified identical
 // to card_prices.price_regular_eur to the cent (both are Cardmarket trend), so
-// the chart ends on the number the rest of the app already shows.
+// an alert fires on the number the rest of the app already shows.
 //
 // Why bulk and not per-card: there is no per-card endpoint. The only artifact
 // is a 143 MB gzip, which is also why both files are STREAMED — AllPrices
@@ -46,9 +58,9 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABAS
 const USER_AGENT = 'DeckLoomPriceHistorySync/1.0'
 const PRICES_URL = 'https://mtgjson.com/api/v5/AllPrices.json.gz'
 const IDENTIFIERS_URL = 'https://mtgjson.com/api/v5/AllIdentifiers.json.gz'
-// card_price_history rows are small (two ~60-element real[] plus a key), but
-// the table is 90k rows, so batches stay modest to keep each statement well
-// inside the timeout. Same reasoning as the oracle sync's 100.
+// Mover rows are tiny, but a volatile day can produce thousands, so batches
+// stay modest to keep each statement well inside the timeout. Same reasoning
+// as the oracle sync's 100.
 const UPSERT_BATCH = 250
 const LOG_EVERY = 20000
 // Movers are kept long enough for someone who opens the app weekly to still
@@ -117,20 +129,6 @@ function writeCachedIdMap(cachePath, map) {
   const out = []
   for (const [uuid, sid] of map) out.push(`${uuid}\t${sid}`)
   fs.writeFileSync(cachePath, out.join('\n'))
-}
-
-async function flush(rows) {
-  if (!rows.length) return
-  await upsertWithRetry(
-    rows.map(wireRow),
-    batch => sb.from('card_price_history').upsert(batch, { onConflict: 'scryfall_id' }),
-    {
-      onRetry: ({ reason, size, next, attempt, delay, error }) => {
-        const detail = reason === 'split' ? `splitting into ${next}` : `retry ${attempt} in ${delay}ms`
-        console.warn(`[Price History] write of ${size} rows failed (${error?.message}) — ${detail}.`)
-      },
-    },
-  )
 }
 
 /**
@@ -257,7 +255,7 @@ async function main() {
     ? ` ${stats.outOfRange.toLocaleString()} dates outside the staging window,` : ''
   console.log(`[Price History] ${byScryfallId.size.toLocaleString()} printings; window ${startDate} -> ${latest} (${unmapped.toLocaleString()} unmapped,${outOfRange} ${merged.toLocaleString()} variant merges).`)
 
-  // Narrow every staged card to the shared window before writing any, so the
+  // Narrow every staged card to one shared window before comparing any, so the
   // days MTGJSON simply failed to publish can be told apart from the days a
   // given card had no listing. Only the former are interpolated — see
   // globallyMissingSlots.
@@ -286,26 +284,13 @@ async function main() {
     for (const row of rows) fillSlots(row[column], missing)
   }
 
-  let written = 0
-  let pending = []
-  for (const row of rows) {
-    pending.push(row)
-    if (pending.length >= UPSERT_BATCH) {
-      await flush(pending)
-      written += pending.length
-      pending = []
-      if (written % LOG_EVERY === 0) {
-        console.log(`[Price History] wrote ${written.toLocaleString()} rows…`)
-      }
-    }
-  }
-  if (pending.length) { await flush(pending); written += pending.length }
-
+  // The staged series are never persisted — see the header note. They exist
+  // only so writeMovers can compare the last two days of each one.
   await writeMovers(rows, filled, latest)
 
   const secs = Math.round((Date.now() - started) / 1000)
   const peakMb = Math.round(process.memoryUsage().heapTotal / 1048576)
-  console.log(`[Price History] Done. Wrote ${written.toLocaleString()} rows in ${secs}s (heap ${peakMb} MB).`)
+  console.log(`[Price History] Done. Staged ${rows.length.toLocaleString()} printings in ${secs}s (heap ${peakMb} MB).`)
 }
 
 main().catch(error => {

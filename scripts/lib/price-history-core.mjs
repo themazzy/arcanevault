@@ -237,28 +237,6 @@ export function rowFromAccumulator(scryfallId, acc, baseDate, startDate, days = 
 }
 
 /**
- * The upsert payload: cents back to a currency amount, `NO_PRICE` to null.
- *
- * A gap stays null, NOT a carried-forward or interpolated value: the chart has
- * to draw a gap there. Inventing a point would turn "Cardmarket had no listing"
- * into a flat line that reads as real market data, and a spike alert would then
- * fire off a number nobody ever quoted.
- */
-export function wireRow(row) {
-  const out = { scryfall_id: row.scryfall_id, start_date: row.start_date }
-  for (const column of SERIES_COLUMNS) {
-    const series = row[column]
-    if (!series) { out[column] = null; continue }
-    const list = new Array(series.length)
-    for (let i = 0; i < series.length; i++) {
-      list[i] = series[i] === NO_PRICE ? null : series[i] / 100
-    }
-    out[column] = list
-  }
-  return out
-}
-
-/**
  * Slots no printing in the whole file has a price for.
  *
  * These are MTGJSON publishing outages, not market events: measured 2026-09-13,
@@ -267,9 +245,10 @@ export function wireRow(row) {
  * weekend pattern — Thu, Sat, Mon, Tue, Wed — so they are failed builds.
  *
  * The distinction matters because the two cases deserve opposite treatment. A
- * day THIS card has no price for means nobody listed it, and the chart should
- * show a gap. A day NOBODY has a price for means the feed was down while the
- * market carried on, and a gap there is an artefact of our plumbing.
+ * day THIS card has no price for means nobody listed it, and no alert should
+ * compare against it. A day NOBODY has a price for means the feed was down
+ * while the market carried on, and treating that as a price move would fire an
+ * alert off our own plumbing — see the `filled` guard in priceMovesFor.
  */
 export function globallyMissingSlots(seriesList, days = HISTORY_DAYS) {
   const covered = new Uint8Array(days)
@@ -336,7 +315,7 @@ export const MIN_MOVE_CENTS = 50
  * the entire reason those slots are tracked: an alert must never fire on a
  * price nobody published.
  *
- * Operates on the cents arrays, before wireRow, so it never re-parses anything.
+ * Operates directly on the staged cents arrays, so it never re-parses anything.
  */
 export function priceMovesFor(row, filled, moveDate) {
   const moves = []

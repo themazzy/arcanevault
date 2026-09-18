@@ -15,7 +15,6 @@ import {
   stagingBase,
   toCents,
   windowStart,
-  wireRow,
 } from '../../scripts/lib/price-history-core.mjs'
 
 // The ingest folds MTGJSON's sparse date->price maps into index-aligned arrays
@@ -46,8 +45,25 @@ const SPAN = 8
 /** Fold an entry into a fresh accumulator anchored at BASE. */
 const fold = (e, stats) => foldEntryInto(null, e, BASE, SPAN, stats)
 
-/** A row's column as plain numbers and nulls, the way it reaches Postgres. */
-const wire = (acc, days = 3, start = BASE) => wireRow(rowFromAccumulator('sid', acc, BASE, start, days))
+/**
+ * A row's columns as euros and nulls rather than integer cents.
+ *
+ * This was wireRow() in price-history-core, which existed only to shape the
+ * card_price_history write and was removed with that table (2026-09-18). The
+ * staging logic underneath it is still load-bearing — movers are computed from
+ * these same arrays — so the tests keep asserting in the readable unit and do
+ * the conversion themselves.
+ */
+const toUnits = series => (
+  series == null ? null : Array.from(series, v => (v === NO_PRICE ? null : v / 100))
+)
+const wire = (acc, days = 3, start = BASE) => {
+  const row = rowFromAccumulator('sid', acc, BASE, start, days)
+  if (!row) return row
+  const out = { scryfall_id: row.scryfall_id, start_date: row.start_date }
+  for (const column of SERIES_COLUMNS) out[column] = toUnits(row[column])
+  return out
+}
 
 describe('daysBetween', () => {
   it('counts whole days', () => {
@@ -234,17 +250,21 @@ describe('rowFromAccumulator', () => {
   })
 })
 
-describe('wireRow', () => {
-  it('turns cents back into a currency amount', () => {
+describe('staged series units', () => {
+  it('rounds a price to whole cents without losing magnitude', () => {
     const acc = fold({ paper: { cardmarket: { retail: { normal: { '2026-09-01': 1.23456, '2026-09-02': 1234.5 } } } } })
     expect(wire(acc, 2).prices_eur).toEqual([1.23, 1234.5])
   })
 
-  it('writes a gap as null, not as the sentinel', () => {
+  // priceMovesFor compares the last two slots and skips a move touching
+  // NO_PRICE, so the sentinel is what distinguishes "no listing that day" from
+  // a real price. A 0 here would read as a genuine price and divide by zero.
+  it('marks a day with no price with the sentinel, and an absent series as null', () => {
     const acc = fold({ paper: { cardmarket: { retail: { normal: { '2026-09-02': 5 } } } } })
-    const row = wire(acc, 2)
-    expect(row.prices_eur).toEqual([null, 5])
-    expect(row.prices_usd).toBe(null)
+    const staged = rowFromAccumulator('sid', acc, BASE, BASE, 2)
+    expect(staged.prices_eur[0]).toBe(NO_PRICE)
+    expect(staged.prices_eur[1]).toBe(500)
+    expect(staged.prices_usd).toBe(null)
   })
 })
 
