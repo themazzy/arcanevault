@@ -17,16 +17,21 @@
  * Keep this list short. Every entry is an interruption, so it earns its place
  * only if a user would want to go and look at the thing.
  */
-export const ANNOUNCEMENTS = [
-  {
-    id: 'announce:price-history',
-    icon: '📈',
-    title: 'Price history charts',
-    body: 'Every card now has a 60-day price chart on its Prices tab, in whichever marketplace you price in.',
-    href: '/collection',
-    since: '2026-09-14',
-  },
-]
+/**
+ * Currently empty, and that is a valid state — not a list waiting to be filled.
+ *
+ * The one entry it held announced the 60-day price history chart, removed on
+ * 2026-09-18 along with the feature (card_price_history cost 142 MB of a 500 MB
+ * database). An announcement for something that no longer exists is worse than
+ * no announcement: the bell would send people to a Prices tab with nothing on
+ * it. The five rows already delivered were deleted with it.
+ *
+ * Lesson for the next entry: an announcement outlives the release it describes,
+ * because it is recorded per account. Withdrawing a feature means withdrawing
+ * its announcement here AND deleting the delivered `notifications` rows, or the
+ * bell renders a contentless "What's new" that navigates nowhere.
+ */
+export const ANNOUNCEMENTS = []
 
 export const ANNOUNCEMENT_BY_ID = new Map(ANNOUNCEMENTS.map(a => [a.id, a]))
 
@@ -35,12 +40,16 @@ export const ANNOUNCEMENT_BY_ID = new Map(ANNOUNCEMENTS.map(a => [a.id, a]))
  *
  * `existing` is the set of ids already recorded, so this stays correct when the
  * list grows: a user who has seen one announcement still gets the next.
+ *
+ * `list` exists only so the tests can exercise the release gating against a
+ * fixture. ANNOUNCEMENTS is legitimately empty between features, and the rules
+ * below are subtle enough that they should stay covered while it is.
  */
-export function pendingAnnouncements(existingIds, accountCreatedAt, now = new Date()) {
+export function pendingAnnouncements(existingIds, accountCreatedAt, now = new Date(), list = ANNOUNCEMENTS) {
   const seen = existingIds instanceof Set ? existingIds : new Set(existingIds || [])
   const created = accountCreatedAt ? Date.parse(accountCreatedAt) : null
 
-  return ANNOUNCEMENTS.filter(a => {
+  return list.filter(a => {
     if (seen.has(a.id)) return false
     const releasedAt = Date.parse(`${a.since}T00:00:00Z`)
     // Not yet released — lets an entry be merged ahead of its ship date.

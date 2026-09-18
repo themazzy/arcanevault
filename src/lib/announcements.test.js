@@ -5,8 +5,17 @@ import { MILESTONES } from './milestones'
 // Announcements ride the milestone plumbing: the client writes its own row and
 // the UNIQUE (user_id, milestone_id) index makes it idempotent. That shared key
 // space is why the id prefix and the "already seen" check are worth pinning.
+//
+// ANNOUNCEMENTS is empty between features (see the note there), so the gating
+// rules are exercised against this fixture rather than the shipped list —
+// otherwise every assertion below would pass vacuously and the logic would be
+// uncovered exactly when the next entry is added.
 
 const RELEASE = '2026-09-14'
+const FIXTURE = [
+  { id: 'announce:fixture', icon: '📈', title: 'A feature', body: 'It does things.', href: '/collection', since: RELEASE },
+]
+
 const before = '2026-01-01T00:00:00Z'
 const after = '2026-12-01T00:00:00Z'
 const now = new Date('2026-09-20T00:00:00Z')
@@ -16,7 +25,7 @@ describe('ANNOUNCEMENTS', () => {
     // Both families share notifications.milestone_id and its unique index, so a
     // collision would silently suppress one of them.
     const milestoneIds = new Set(MILESTONES.map(m => m.id))
-    for (const a of ANNOUNCEMENTS) {
+    for (const a of [...ANNOUNCEMENTS, ...FIXTURE]) {
       expect(a.id.startsWith('announce:')).toBe(true)
       expect(milestoneIds.has(a.id)).toBe(false)
     }
@@ -33,56 +42,60 @@ describe('ANNOUNCEMENTS', () => {
 
   it('is indexed by id for the bell lookup', () => {
     expect(ANNOUNCEMENT_BY_ID.size).toBe(ANNOUNCEMENTS.length)
-    expect(ANNOUNCEMENT_BY_ID.get('announce:price-history')?.title).toBe('Price history charts')
+  })
+
+  // The price history chart was removed 2026-09-18 with its 142 MB table. The
+  // bell records a row per account, so a withdrawn feature must not be left
+  // advertised here — it would send people to an empty Prices tab.
+  it('no longer announces the removed price history chart', () => {
+    expect(ANNOUNCEMENT_BY_ID.has('announce:price-history')).toBe(false)
+    expect(JSON.stringify(ANNOUNCEMENTS)).not.toMatch(/price history/i)
   })
 })
 
 describe('pendingAnnouncements', () => {
   it('offers an unseen announcement to an account that predates it', () => {
-    const pending = pendingAnnouncements(new Set(), before, now)
-    expect(pending.map(a => a.id)).toContain('announce:price-history')
+    const pending = pendingAnnouncements(new Set(), before, now, FIXTURE)
+    expect(pending.map(a => a.id)).toEqual(['announce:fixture'])
   })
 
   it('never repeats one already recorded', () => {
-    const pending = pendingAnnouncements(new Set(['announce:price-history']), before, now)
-    expect(pending.map(a => a.id)).not.toContain('announce:price-history')
+    const pending = pendingAnnouncements(new Set(['announce:fixture']), before, now, FIXTURE)
+    expect(pending).toHaveLength(0)
   })
 
   it('accepts a plain array as well as a Set', () => {
-    expect(pendingAnnouncements(['announce:price-history'], before, now)).toHaveLength(0)
+    expect(pendingAnnouncements(['announce:fixture'], before, now, FIXTURE)).toHaveLength(0)
   })
 
   it('skips an account created after the feature already existed', () => {
     // Telling a new user something is "new" when it predates their signup is
     // noise, and their first session is the worst moment to spend on it.
-    expect(pendingAnnouncements(new Set(), after, now)).toHaveLength(0)
+    expect(pendingAnnouncements(new Set(), after, now, FIXTURE)).toHaveLength(0)
   })
 
   it('withholds an entry merged ahead of its release date', () => {
     const early = new Date('2026-09-01T00:00:00Z')
-    expect(pendingAnnouncements(new Set(), before, early)).toHaveLength(0)
+    expect(pendingAnnouncements(new Set(), before, early, FIXTURE)).toHaveLength(0)
   })
 
   it('still announces when created_at is missing or unreadable', () => {
     // A data anomaly should not silently mute every future announcement for
     // that account; one extra notification is the cheaper failure.
-    expect(pendingAnnouncements(new Set(), null, now).length).toBeGreaterThan(0)
-    expect(pendingAnnouncements(new Set(), 'not-a-date', now).length).toBeGreaterThan(0)
+    expect(pendingAnnouncements(new Set(), null, now, FIXTURE)).toHaveLength(1)
+    expect(pendingAnnouncements(new Set(), 'not-a-date', now, FIXTURE)).toHaveLength(1)
   })
 
   it('keeps offering later entries once an earlier one has been seen', () => {
     // Guards the list growing: seeing one announcement must not mark the rest
     // as delivered.
     const seen = new Set(['announce:some-older-thing'])
-    expect(pendingAnnouncements(seen, before, now).map(a => a.id))
-      .toEqual(ANNOUNCEMENTS.filter(a => Date.parse(`${a.since}T00:00:00Z`) <= now.getTime()).map(a => a.id))
+    expect(pendingAnnouncements(seen, before, now, FIXTURE).map(a => a.id)).toEqual(['announce:fixture'])
   })
-})
 
-describe('the price history announcement', () => {
-  it('points at a route where the feature can actually be used', () => {
-    const a = ANNOUNCEMENT_BY_ID.get('announce:price-history')
-    expect(a.href).toBe('/collection')
-    expect(a.since).toBe(RELEASE)
+  it('returns nothing while the shipped list is empty', () => {
+    // The real call site passes no list. An empty ANNOUNCEMENTS must be a quiet
+    // no-op, not an error, or AnnouncementWatcher throws on every session.
+    expect(pendingAnnouncements(new Set(), before, now)).toEqual([])
   })
 })

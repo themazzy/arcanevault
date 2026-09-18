@@ -1184,7 +1184,6 @@ function CardDetailContent({ card, sfCard, onClose, onDelete, deleteQty = null, 
                 {displayQty > 1
                   ? 'Price for one copy, with the total for all your copies underneath.'
                   : 'Price for one copy.'}
-                {' '}The chart above follows whichever marketplace you picked in Settings.
               </p>
 
               {card.purchase_price > 0 && (
