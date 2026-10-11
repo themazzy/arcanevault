@@ -126,7 +126,7 @@ party.
 |---|---|---|
 | Supabase | Processor — database, auth, storage, edge functions | Data in `eu-north-1` (Stockholm, EEA). US-incorporated company. |
 | Cloudflare | Processor — DNS, reverse proxy, Web Analytics, Workers | Global network |
-| GitHub Pages | Processor — static site hosting | Global |
+| GitHub | Processor — static site hosting (Pages); storage of encrypted nightly database backups (Actions artifacts, kept 90 days) | Global |
 | Stripe | Processor — payments (**inactive**) | Global |
 | Google, Discord | Independent controllers — OAuth identity providers, where the user chooses them | Global |
 | Scryfall, Frankfurter, EDHREC, Commander Spellbook, Recommander | Third-party data sources | Global |
@@ -182,7 +182,7 @@ Described generally, as Art 30(1)(g) requires.
   Discord, and PKCE for the native application.
 - **Transport:** TLS for all connections; the origin sits behind the Cloudflare proxy.
 - **Data residency:** primary datastore in the EEA.
-- **Backups and availability:** managed by Supabase under its standard service terms.
+- **Backups and availability:** a nightly database export, encrypted before it leaves the build runner and kept for 90 days, in addition to Supabase's own service terms.
 - **Personnel:** a single operator has administrative access. There are no employees or
   subcontractors with access to personal data.
 

@@ -1,0 +1,83 @@
+name: Database Backup
+
+# The free plan has no backups of its own. This dumps the whole database
+# nightly (roles, schema, data incl. auth.users) and keeps it as an encrypted
+# workflow artifact for 90 days. The repo is public, so the artifact is
+# downloadable by anyone signed in to GitHub — it is useless without
+# BACKUP_PASSPHRASE. Restore steps: docs/database-backup.md.
+
+on:
+  schedule:
+    # Before the 03:20 price sync rewrites card_prices.
+    - cron: '40 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check secrets
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          [ -n "$SUPABASE_DB_URL" ] || { echo "::error::SUPABASE_DB_URL secret is not set"; exit 1; }
+          [ -n "$BACKUP_PASSPHRASE" ] || { echo "::error::BACKUP_PASSPHRASE secret is not set"; exit 1; }
+          [ "${#BACKUP_PASSPHRASE}" -ge 20 ] || { echo "::error::BACKUP_PASSPHRASE must be at least 20 characters"; exit 1; }
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+
+      - name: Dump database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          mkdir -p backup
+          cd backup
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f roles.sql --role-only
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f schema.sql
+          # card_prices, card_price_moves and oracle_cards are rebuilt from
+          # Scryfall by the sync workflows, so their data is left out (~90 MB).
+          # card_prints stays: cards, list_items and deck_cards reference it.
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f data.sql --use-copy --data-only \
+            -x public.card_prices -x public.card_price_moves -x public.oracle_cards \
+            -x storage.buckets_vectors -x storage.vector_indexes
+          # A dump that silently came back empty is worse than a failed run.
+          for t in 'auth.users' 'public.cards' 'public.folders' 'public.card_prints'; do
+            grep -q "^COPY \"\?${t%%.*}\"\?\.\"\?${t#*.}\"\? " data.sql \
+              || { echo "::error::data.sql has no COPY for $t"; exit 1; }
+          done
+          ls -lh
+
+      - name: Encrypt
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          stamp=$(date -u +%Y-%m-%d)
+          echo "STAMP=$stamp" >> "$GITHUB_ENV"
+          tar -czf "deckloom-db-$stamp.tar.gz" -C backup roles.sql schema.sql data.sql
+          printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --symmetric --cipher-algo AES256 \
+            -o "deckloom-db-$stamp.tar.gz.gpg" "deckloom-db-$stamp.tar.gz"
+          rm -rf backup "deckloom-db-$stamp.tar.gz"
+          ls -lh "deckloom-db-$stamp.tar.gz.gpg"
+
+      - name: Upload encrypted backup
+        uses: actions/upload-artifact@v7
+        with:
+          name: deckloom-db-${{ env.STAMP }}
+          path: deckloom-db-${{ env.STAMP }}.tar.gz.gpg
+          retention-days: 90
+          # Already compressed and encrypted.
+          compression-level: 0
+          if-no-files-found: error

@@ -415,6 +415,15 @@ enumerate exploitable specifics there.
 Update the Art 30 record when a processor is added, a new category of data is processed, or
 payments are enabled.
 
+### Database backups
+
+The free plan has none, so `.github/workflows/db-backup.yml` runs `supabase db dump` nightly
+(02:40 UTC) and stores the roles/schema/data files as a **GPG-encrypted** artifact for 90 days.
+The repo is public and so are its artifacts, so they are only safe while encrypted with
+`BACKUP_PASSPHRASE`. Never upload a dump unencrypted. The data dump leaves out tables the sync
+workflows rebuild from Scryfall. A new table goes in the backup automatically; only add it to the
+`-x` list if a workflow can rebuild it. Restore steps are in `docs/database-backup.md`.
+
 ### Traffic Analytics
 
 Three independent sources feed the **Traffic** tab in `/admin`. They measure different

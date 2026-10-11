@@ -53,7 +53,7 @@ export default function PrivacyPage() {
             <Link to="/delete-account" className={styles.inlineLink}>Delete Account</Link> page submits a
             deletion request directly, and the in-app feedback form reaches the same operator.
           </p>
-          <p><em>Last updated: 2026-08-27.</em></p>
+          <p><em>Last updated: 2026-10-11.</em></p>
         </section>
 
         <section className={styles.section}>
@@ -170,7 +170,7 @@ export default function PrivacyPage() {
             <li>Stripe is used as the payment processor for one-time premium theme purchases. Stripe collects and handles payment card details directly under its own privacy policy; DeckLoom only stores a checkout reference, customer id, and payment status.</li>
             <li>Scryfall is used for card metadata and imagery.</li>
             <li>Frankfurter is used for exchange-rate conversion in supported price displays.</li>
-            <li>GitHub Pages hosts the static front-end build at the public site URL.</li>
+            <li>GitHub Pages hosts the static front-end build at the public site URL. GitHub also stores the nightly database backups, which are encrypted before they are uploaded.</li>
             <li>Cloudflare provides DNS and acts as a network proxy in front of deckloom.app, which means site traffic (including IP addresses and request metadata) passes through Cloudflare&apos;s infrastructure. A Cloudflare worker also serves social link previews for publicly shared decks. We use Cloudflare Web Analytics to measure site traffic: it is cookieless, sets nothing on your device, and reports only aggregate figures such as page views, referring site, and country. It does not build a profile of you or track you across other sites.</li>
             <li>
               Deck-building features query third-party MTG data services to generate suggestions:
@@ -323,6 +323,10 @@ export default function PrivacyPage() {
                 <tr>
                   <td>Feedback reports and attachments</td>
                   <td>Retained long enough to review, investigate, respond, and keep a minimal support record where needed.</td>
+                </tr>
+                <tr>
+                  <td>Database backups</td>
+                  <td>An encrypted copy of the database is taken nightly and each copy is deleted after 90 days, so data you delete may remain in a backup for up to 90 days. Backups are used only to recover from data loss.</td>
                 </tr>
                 <tr>
                   <td>Deletion requests</td>
