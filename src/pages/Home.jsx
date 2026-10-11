@@ -27,6 +27,7 @@ import { parseDeckMeta, FORMATS } from '../lib/deckBuilderApi'
 import { enrichDecksWithCommanderArt, useDeckArt } from '../lib/deckArt'
 import { fetchTrendingDeckRows } from '../lib/trendingDecks'
 import MoversPanel from '../components/MoversPanel'
+import { sanitizeHtml } from '../lib/sanitizeHtml'
 import {
   CloseIcon, CheckIcon, WarningIcon, BannedIcon, ChevronDownIcon, ChevronUpIcon,
   ChevronRightIcon, SearchIcon, FilterIcon,
@@ -1368,7 +1369,7 @@ export function ChangelogPanel({ entries }) {
               </div>
               <ul className={styles.changelogList}>
                 {(section.updates || []).map((item, i) => (
-                  <li key={i} className={styles.changelogItem} dangerouslySetInnerHTML={{ __html: item }} />
+                  <li key={i} className={styles.changelogItem} dangerouslySetInnerHTML={{ __html: sanitizeHtml(item) }} />
                 ))}
               </ul>
             </div>

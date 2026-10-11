@@ -5,6 +5,7 @@ import { Button, ConfirmModal, Input, Modal, SectionHeader, Select as UISelect }
 import { useAuth } from '../components/Auth'
 import { sb } from '../lib/supabase'
 import { isCurrentUserAdmin } from '../lib/admin'
+import { sanitizeHtml } from '../lib/sanitizeHtml'
 import styles from './Admin.module.css'
 
 const STATUS_OPTIONS = ['pending', 'in_review', 'completed', 'rejected']
@@ -410,14 +411,14 @@ function BulletEditor({ initialHtml, onChange, onRemove }) {
   const initRef = useRef(initialHtml)
 
   useEffect(() => {
-    if (ref.current) ref.current.innerHTML = initRef.current
+    if (ref.current) ref.current.innerHTML = sanitizeHtml(initRef.current)
   }, [])
 
   const exec = (cmd, val) => {
     ref.current?.focus()
     // execCommand is deprecated but has no viable replacement for inline rich-text editing
     document.execCommand(cmd, false, val ?? null)
-    if (ref.current) onChange(ref.current.innerHTML)
+    if (ref.current) onChange(sanitizeHtml(ref.current.innerHTML))
   }
 
   return (
@@ -465,7 +466,7 @@ function BulletEditor({ initialHtml, onChange, onRemove }) {
         ref={ref}
         contentEditable
         suppressContentEditableWarning
-        onInput={() => ref.current && onChange(ref.current.innerHTML)}
+        onInput={() => ref.current && onChange(sanitizeHtml(ref.current.innerHTML))}
         className={styles.bulletEditable}
       />
       <button
