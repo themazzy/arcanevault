@@ -180,6 +180,17 @@ User action
 
 **Key gotcha:** Never use Supabase's nested `select('folder_cards(cards(*))')` — it requires FK relationships configured in PostgREST and silently returns empty. Always do flat queries and join in memory.
 
+### Public write bounds — the 500 MB cap is a security boundary
+
+The free plan turns the database read-only past 500 MB, and the anon key is public, so anything the API accepts without limit is a way to take the app offline. Since 2026-10-11 (`20261011143421_bound_public_writes*.sql`) every public write path is bounded twice:
+
+- **Size CHECKs** on the free-text/jsonb columns of `feedback`, `account_deletion_requests`, `trade_proposals`, `folders`, `user_settings` and `card_prints`, each set at >= 10x the largest production value. A new user-writable text or jsonb column needs one too.
+- **Daily row quotas** from one statement-level trigger, `private.enforce_daily_insert_quota(bucket, per_user, anon_total)`, counted in `private.write_quota` and pruned by the `daily-write-quota-prune` cron job. The role is read from `request.jwt.claims`, **not** `current_user` — a SECURITY DEFINER RPC such as `propose_trade` runs as its owner, and a `current_user` check would silently exempt it. service_role (the sync scripts) and pg_cron are never counted. Signed-out callers share one global allowance. A quota hit raises errcode `54000`.
+- **`card_prints` image URLs must be on `cards.scryfall.io` and contain the row's own `scryfall_id`** (or be Scryfall's `errors.scryfall.com` placeholder), card_faces included. Clients still insert prints through `ensureCardPrints`; this is what stops an inserted row from showing an arbitrary image in other users' search and art picker.
+- The `assets` bucket takes `image/*` up to 8 MB, at most 20 files per account (enforced in the upload policy).
+
+`admin-delete-account` takes the email to match feedback by from `auth.admin.getUserById`, never from the request row — the requester types that field, and RLS does not pin it.
+
 ### Group Folders
 
 Folders whose description JSON contains `"isGroup": true` are organisational group containers, not placement folders. `isGroupFolder(folder)` (exported from `src/lib/collectionFetchers.js`) identifies them. Group folders must be excluded from `folder_cards` queries, placement writes, and allocation logic.
@@ -916,7 +927,7 @@ Host creates a session → others visit `/join/:code` on their own device → ho
 - `card_prints` — normalized print metadata shared across ownership, deck builder, prices, scanner, and name-based search (~119k English paper prints, near-complete Scryfall coverage). The daily price-sync workflow inserts newly-released prints from the same bulk stream and backfills search metadata (`released_at`, `edhrec_rank`, `illustration_id`, `finishes`), capped by `PRINT_BACKFILL_LIMIT`/run to avoid dead-tuple bloat. Trigram GIN index on `name`
 - `oracle_cards` — one row per `oracle_id` with legalities, representative image/printing metadata, and double-faced `face_names`; read-only to clients and refreshed from Scryfall bulk data. `get_recommendation_card_metadata(text[])` prefers `card_prints`, then falls back to this table and resolves EDHREC front-face aliases
 - `user_settings` — single row per user; includes `nickname`, `anonymize_email`, `reduce_motion`, `higher_contrast`, `card_name_size`, `default_grouping`, `keep_screen_awake`, `show_sync_errors`, `premium`, `profile_config`
-- `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday
+- `card_prices` — shared daily market prices keyed by `scryfall_id + snapshot_date`; app keeps only today and yesterday. The daily rewrite bloats its btrees (back to ~2x packed size within three weeks of a manual reindex), so the `weekly-card-prices-reindex` pg_cron job runs `reindex table concurrently public.card_prices` Sundays 05:20 UTC — the first run took 41 MB of indexes to 21 MB in 6 s
 - `collection_value_snapshots` — per-user daily collection value: `user_id, snapshot_date, total_eur, total_usd, card_count`; RLS owner-only. Written two ways: a pg_cron job (`daily-collection-value-snapshots`, 04:30 UTC, after the 03:20 price sync) runs `record_daily_value_snapshots()` with `ON CONFLICT DO NOTHING`, and Stats upserts on visit with manual price overrides applied (client value wins). The cron function is SECURITY DEFINER with EXECUTE revoked from anon/authenticated
 - `game_sessions` — multiplayer life tracker sessions; `status`: `'waiting' | 'playing'`
 - `game_players` — player slots per session; `user_id` is null until a player claims the slot
