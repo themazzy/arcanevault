@@ -60,20 +60,10 @@ export async function fetchRecommenderRecs(commanderName, deckNames = [], partne
   }
 }
 
-// ── Formats ───────────────────────────────────────────────────────────────────
+// ── Formats + deck metadata ─────────────────────────────────────────────────
 
-export const FORMATS = [
-  { id: 'commander',     label: 'Commander / EDH', isEDH: true,  deckSize: 100 },
-  { id: 'oathbreaker',   label: 'Oathbreaker',     isEDH: true,  deckSize: 60,  isOathbreaker: true },
-  { id: 'brawl',         label: 'Brawl',           isEDH: true,  deckSize: 100 },
-  { id: 'standardbrawl', label: 'Standard Brawl',  isEDH: true,  deckSize: 60  },
-  { id: 'standard',      label: 'Standard',        isEDH: false, deckSize: 60  },
-  { id: 'modern',        label: 'Modern',          isEDH: false, deckSize: 60  },
-  { id: 'pioneer',       label: 'Pioneer',         isEDH: false, deckSize: 60  },
-  { id: 'legacy',        label: 'Legacy',          isEDH: false, deckSize: 60  },
-  { id: 'vintage',       label: 'Vintage',         isEDH: false, deckSize: 60  },
-  { id: 'pauper',        label: 'Pauper',          isEDH: false, deckSize: 60  },
-]
+// Live in deckMeta.js so first-load modules can use them without this module.
+export { FORMATS, parseDeckMeta, serializeDeckMeta } from './deckMeta'
 
 // ── Card type grouping ────────────────────────────────────────────────────────
 
@@ -93,17 +83,6 @@ export function groupDeckCards(deckCards) {
     if (key !== 'Commander' && arr.length === 0) groups.delete(key)
   }
   return groups
-}
-
-// ── Deck metadata (stored in folders.description as JSON) ─────────────────────
-
-export function parseDeckMeta(description) {
-  try { return JSON.parse(description || '{}') }
-  catch { return {} }
-}
-
-export function serializeDeckMeta(meta) {
-  return JSON.stringify(meta)
 }
 
 // ── Card image URI helper ─────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { sb } from './supabase'
-import { parseDeckMeta } from './deckBuilderApi'
+import { parseDeckMeta } from './deckMeta'
 
 // Loads everything the public deck view needs to render.
 //

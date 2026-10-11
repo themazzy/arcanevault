@@ -648,6 +648,8 @@ A linked collection deck navigates to `/builder/<linked_builder_id>` rather than
 | `src/lib/valueSnapshots.js` | Daily collection-value snapshots (`collection_value_snapshots`, 1 row/user/day): `recordCollectionValueSnapshot()`, `fetchValueHistory()`, `computeValueDelta()` — powers Stats "Value Over Time" |
 | `src/lib/setCompletion.js` | Set-completion missing-cards view: `fetchSetCards()` (Scryfall, session cache), `computeMissingCards()`, `missingCostTotal()`, `addMissingToWishlist()` |
 | `src/lib/deckBuilderApi.js` | Deck builder helpers + external API calls |
+| `src/lib/deckMeta.js` | `FORMATS`, `parseDeckMeta()`, `serializeDeckMeta()` — split out of deckBuilderApi (which re-exports them) so first-load modules don't pull the builder API into the entry bundle. Import from here in anything on the app-shell path; `Auth.jsx` lazy-imports deckBuilderApi for the same reason |
+| `src/lib/sanitizeHtml.js` | Allow-list sanitiser for the admin changelog HTML (`app_config.changelog`), applied on Home render and in the Admin bullet editor. Never render admin- or user-authored HTML without it |
 | `src/lib/deckSync.js` | Linked deck sync: `getLinkedDeckIds()`, `getSyncState()`, `withLinkedPair()`, `clearLinkedPair()`, `writeSyncState()`, `normalizeBuilderCards()` |
 | `src/lib/deckLegality.js` | `getCardLegalityWarnings()` — format legality + commander color identity checks |
 | `src/lib/deckCommanderRules.js` | Commander text that changes deckbuilding — Rulebreaker (MBC) exemptions + chosen-color commanders: `getCommanderRuleContext()`, `offColorIdentity()` — the one place an off-color decision is made |

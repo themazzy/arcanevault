@@ -13,7 +13,6 @@ import {
   stripOtpParamsFromUrl,
 } from '../lib/authRecovery'
 import { applyTheme } from './SettingsContext'
-import { fetchCardsByNames } from '../lib/deckBuilderApi'
 import {
   CheckIcon,
   ChevronRightIcon,
@@ -177,7 +176,10 @@ function useCardArt(names) {
   useEffect(() => {
     let cancelled = false
     const cancelIdle = runWhenIdle(() => {
-      fetchCardsByNames(names)
+      // Lazy: the login backdrop is the only eager user of deckBuilderApi, and
+      // importing it statically put the whole builder API in the entry bundle.
+      import('../lib/deckBuilderApi')
+        .then(({ fetchCardsByNames }) => fetchCardsByNames(names))
         .then((results) => {
           if (cancelled) return
           setCards(results.map((card) => ({
