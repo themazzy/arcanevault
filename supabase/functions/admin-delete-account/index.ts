@@ -21,6 +21,19 @@ function errorResponse(message: string, status = 400, details?: unknown) {
   return json({ error: message, details: details ?? null }, status)
 }
 
+// Two .eq() queries rather than one interpolated .or() filter: a value spliced
+// into a PostgREST filter string can add clauses of its own (a comma starts a
+// new condition), and these ids feed a delete.
+async function selectIdsForUser(adminClient: any, table: string, userId: string, email: string) {
+  const ids = new Set<string>()
+  for (const [column, value] of [['user_id', userId], ['user_email', email]]) {
+    const { data, error } = await adminClient.from(table).select('id').eq(column, value)
+    if (error) throw error
+    for (const row of data || []) ids.add(row.id)
+  }
+  return [...ids]
+}
+
 async function insertEvent(
   adminClient: any,
   requestId: string,
@@ -105,7 +118,15 @@ Deno.serve(async (req) => {
     }
 
     const targetUserId = requestRow.user_id as string
-    const targetEmail = requestRow.user_email as string
+    // The email on the request row is whatever the requester typed: RLS pins
+    // user_id to the caller but not user_email. Matching feedback by it would
+    // let one account file a request that deletes another person's feedback,
+    // so the email always comes from the auth user being deleted.
+    const { data: targetUserData, error: targetUserError } = await adminClient.auth.admin.getUserById(targetUserId)
+    if (targetUserError || !targetUserData?.user) {
+      return errorResponse('The auth user for this request no longer exists.', 409, targetUserError?.message)
+    }
+    const targetEmail = (targetUserData.user.email || '').trim().toLowerCase()
     const startedAt = new Date().toISOString()
 
     await adminClient
@@ -137,13 +158,7 @@ Deno.serve(async (req) => {
     }
 
     if (targetEmail) {
-      const { data: attachmentRows, error: attachmentSelectError } = await adminClient
-        .from('feedback_attachments')
-        .select('id')
-        .or(`user_id.eq.${targetUserId},user_email.eq.${targetEmail}`)
-
-      if (attachmentSelectError) throw attachmentSelectError
-      const attachmentIds = (attachmentRows || []).map((row: { id: string }) => row.id)
+      const attachmentIds = await selectIdsForUser(adminClient, 'feedback_attachments', targetUserId, targetEmail)
       if (attachmentIds.length) {
         const { error: attachmentDeleteError } = await adminClient
           .from('feedback_attachments')
@@ -153,13 +168,7 @@ Deno.serve(async (req) => {
         summary.deleted_feedback_attachments = attachmentIds.length
       }
 
-      const { data: feedbackRows, error: feedbackSelectError } = await adminClient
-        .from('feedback')
-        .select('id')
-        .or(`user_id.eq.${targetUserId},user_email.eq.${targetEmail}`)
-
-      if (feedbackSelectError) throw feedbackSelectError
-      const feedbackIds = (feedbackRows || []).map((row: { id: string }) => row.id)
+      const feedbackIds = await selectIdsForUser(adminClient, 'feedback', targetUserId, targetEmail)
       if (feedbackIds.length) {
         const { error: feedbackDeleteError } = await adminClient
           .from('feedback')
