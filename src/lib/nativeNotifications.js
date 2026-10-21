@@ -18,15 +18,21 @@ import { isNativeApp } from './nativeAuth'
 
 const CHANNEL_ID = 'price_alerts'
 
-let pluginPromise = null
+let modulePromise = null
 
-function loadPlugin() {
-  if (!pluginPromise) {
-    pluginPromise = import('@capacitor/local-notifications')
-      .then(m => m.LocalNotifications)
-      .catch(() => null)
+/**
+ * Resolves to the MODULE, never to the plugin itself. A Capacitor plugin is a
+ * Proxy that answers every property — `then` included — so resolving a promise
+ * with it makes the promise treat it as a thenable and call `plugin.then()`.
+ * That is not a native method, the call rejects where nobody is listening, and
+ * the outer promise never settles. Every await on it hung: the permission check
+ * never finished and tapping "Show on Phone" did nothing at all.
+ */
+function loadModule() {
+  if (!modulePromise) {
+    modulePromise = import('@capacitor/local-notifications').catch(() => null)
   }
-  return pluginPromise
+  return modulePromise
 }
 
 /** True when system notifications are possible at all on this device. */
@@ -68,7 +74,7 @@ function normalizePermission(display, fallback) {
 export async function notificationPermission() {
   if (!nativeNotificationsSupported()) return 'unsupported'
   if (!pluginInstalled()) return 'unavailable'
-  const plugin = await loadPlugin()
+  const plugin = (await loadModule())?.LocalNotifications
   if (!plugin) return 'unavailable'
   try {
     const { display } = await plugin.checkPermissions()
@@ -86,7 +92,7 @@ export async function notificationPermission() {
 export async function requestNotificationPermission() {
   if (!nativeNotificationsSupported()) return 'unsupported'
   if (!pluginInstalled()) return 'unavailable'
-  const plugin = await loadPlugin()
+  const plugin = (await loadModule())?.LocalNotifications
   if (!plugin) return 'unavailable'
   try {
     const { display } = await plugin.requestPermissions()
@@ -148,7 +154,7 @@ async function ensureChannel(plugin) {
  */
 export async function notifyPriceAlerts(alerts, { symbol = '€' } = {}) {
   if (!alerts?.length || !nativeNotificationsSupported()) return false
-  const plugin = await loadPlugin()
+  const plugin = (await loadModule())?.LocalNotifications
   if (!plugin) return false
 
   const perm = await notificationPermission()

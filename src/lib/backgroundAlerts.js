@@ -23,15 +23,16 @@ const KV_KEYS = [
   'bgMinPct', 'bgMinValue', 'bgDays', 'bgWatch', 'bgNotifyKey',
 ]
 
-let pluginPromise = null
+let modulePromise = null
 
-function loadRunner() {
-  if (!pluginPromise) {
-    pluginPromise = import('@capacitor/background-runner')
-      .then(m => m.BackgroundRunner)
-      .catch(() => null)
+// Resolves to the module, not the plugin: a Capacitor plugin Proxy answers
+// `then`, so a promise resolved with one never settles (see loadModule in
+// nativeNotifications.js).
+function loadModule() {
+  if (!modulePromise) {
+    modulePromise = import('@capacitor/background-runner').catch(() => null)
   }
-  return pluginPromise
+  return modulePromise
 }
 
 /**
@@ -82,7 +83,7 @@ export function buildWatchlist(cards, minValue, priceOf) {
  */
 export async function syncBackgroundAlerts({ cards, settings, supabaseUrl, anonKey, priceOf, seenKeys }) {
   if (!isNativeApp()) return false
-  const runner = await loadRunner()
+  const runner = (await loadModule())?.BackgroundRunner
   if (!runner || !supabaseUrl || !anonKey) return false
 
   const source = historySource(settings?.price_source)
@@ -129,7 +130,7 @@ export async function syncBackgroundAlerts({ cards, settings, supabaseUrl, anonK
  */
 export async function clearBackgroundAlerts() {
   if (!isNativeApp()) return
-  const runner = await loadRunner()
+  const runner = (await loadModule())?.BackgroundRunner
   if (!runner) return
   try {
     for (const key of [...KV_KEYS, 'bgSeen']) {

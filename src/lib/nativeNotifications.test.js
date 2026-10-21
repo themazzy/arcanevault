@@ -14,14 +14,22 @@ vi.mock('@capacitor/core', () => ({
 
 const scheduled = []
 const perm = { display: 'granted' }
-vi.mock('@capacitor/local-notifications', () => ({
-  LocalNotifications: {
+// Shaped like Capacitor's real plugin: a Proxy that answers EVERY property,
+// `then` included, with a method that is not native. Resolving a promise with
+// it therefore never settles — the bug that made the toggle ignore taps.
+vi.mock('@capacitor/local-notifications', () => {
+  const methods = {
     checkPermissions: async () => ({ display: perm.display }),
     requestPermissions: async () => ({ display: perm.display }),
     createChannel: async () => {},
     schedule: async payload => { scheduled.push(payload) },
-  },
-}))
+  }
+  return {
+    LocalNotifications: new Proxy({}, {
+      get: (_, prop) => methods[prop] || (() => new Promise(() => {})),
+    }),
+  }
+})
 
 const {
   notifyPriceAlerts,
