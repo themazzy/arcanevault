@@ -15,6 +15,7 @@ import { ALERT_WINDOWS } from '../lib/priceAlerts'
 import {
   nativeNotificationsSupported,
   notificationPermission,
+  phoneNotificationRow,
   requestNotificationPermission,
 } from '../lib/nativeNotifications'
 import { deleteLocalFoldersAndPlacements, getDbStats } from '../lib/db'
@@ -1071,23 +1072,37 @@ export default function SettingsPage() {
   // Android 13+ prompts at runtime for POST_NOTIFICATIONS, so the toggle has to
   // reflect the OS state rather than only our own setting — otherwise it reads
   // "on" while the phone silently drops everything.
-  const [notifyPermission, setNotifyPermission] = useState('unsupported')
+  const [notifyPermission, setNotifyPermission] = useState('checking')
   useEffect(() => {
+    if (!nativeNotificationsSupported()) return undefined
     let cancelled = false
-    notificationPermission().then(p => { if (!cancelled) setNotifyPermission(p) })
-    return () => { cancelled = true }
+    const refresh = () => {
+      notificationPermission().then(p => { if (!cancelled) setNotifyPermission(p) })
+    }
+    refresh()
+    // Re-read on return to the app: a refusal can only be undone in Android's
+    // own settings, and the row should reflect that without a reload.
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
+  const phoneRow = phoneNotificationRow(settings.phone_notifications_enabled, notifyPermission)
 
   const togglePhoneNotifications = async () => {
-    const next = !settings.phone_notifications_enabled
-    if (next) {
-      // Ask on the way on, not at app start: a permission prompt makes sense
-      // when someone has just said they want the thing.
-      const granted = await requestNotificationPermission()
-      setNotifyPermission(granted)
-      if (granted !== 'granted') return
+    if (phoneRow.on) {
+      set('phone_notifications_enabled', false)
+      return
     }
-    set('phone_notifications_enabled', next)
+    // Ask on the way on, not at app start: a permission prompt makes sense
+    // when someone has just said they want the thing.
+    const result = await requestNotificationPermission()
+    setNotifyPermission(result)
+    if (result === 'granted' && !settings.phone_notifications_enabled) {
+      set('phone_notifications_enabled', true)
+    }
   }
 
   const handleManualSync = () => settings.syncNow()
@@ -1448,15 +1463,11 @@ export default function SettingsPage() {
             {nativeNotificationsSupported() && (
               <SettingRow
                 label="Show on Phone"
-                description={
-                  notifyPermission === 'denied'
-                    ? 'Blocked in Android settings. Enable notifications for DeckLoom there to turn this back on.'
-                    : 'Also raise price alerts as notifications on this device.'
-                }
+                description={phoneRow.description}
                 onRowClick={togglePhoneNotifications}
               >
                 <Toggle
-                  value={!!settings.phone_notifications_enabled && notifyPermission !== 'denied'}
+                  value={phoneRow.on}
                   onChange={togglePhoneNotifications}
                 />
               </SettingRow>

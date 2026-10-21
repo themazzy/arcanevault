@@ -6,6 +6,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const native = { value: true }
 vi.mock('./nativeAuth', () => ({ isNativeApp: () => native.value }))
 
+// An APK built before the plugin existed still runs the current web bundle.
+const installed = { value: true }
+vi.mock('@capacitor/core', () => ({
+  Capacitor: { isPluginAvailable: name => name === 'LocalNotifications' && installed.value },
+}))
+
 const scheduled = []
 const perm = { display: 'granted' }
 vi.mock('@capacitor/local-notifications', () => ({
@@ -17,7 +23,13 @@ vi.mock('@capacitor/local-notifications', () => ({
   },
 }))
 
-const { notifyPriceAlerts, nativeNotificationsSupported } = await import('./nativeNotifications')
+const {
+  notifyPriceAlerts,
+  nativeNotificationsSupported,
+  notificationPermission,
+  requestNotificationPermission,
+  phoneNotificationRow,
+} = await import('./nativeNotifications')
 
 const alert = (over = {}) => ({
   key: 'price:sid-1:2026-09-14:normal',
@@ -34,7 +46,7 @@ const alert = (over = {}) => ({
 const lastSent = () => scheduled[scheduled.length - 1].notifications[0]
 
 describe('notifyPriceAlerts', () => {
-  beforeEach(() => { scheduled.length = 0; native.value = true; perm.display = 'granted' })
+  beforeEach(() => { scheduled.length = 0; native.value = true; installed.value = true; perm.display = 'granted' })
 
   it('names the card when a single one moved', async () => {
     expect(await notifyPriceAlerts([alert()])).toBe(true)
@@ -95,5 +107,48 @@ describe('notifyPriceAlerts', () => {
 
   it('does nothing for an empty batch', async () => {
     expect(await notifyPriceAlerts([])).toBe(false)
+  })
+})
+
+describe('notification permission', () => {
+  beforeEach(() => { native.value = true; installed.value = true; perm.display = 'prompt' })
+
+  it('reports an APK without the plugin as unavailable, not denied', async () => {
+    // Reading this as "denied" is what made the toggle impossible to turn on.
+    installed.value = false
+    expect(await notificationPermission()).toBe('unavailable')
+    expect(await requestNotificationPermission()).toBe('unavailable')
+  })
+
+  it('treats Android\'s after-one-refusal state as still askable', async () => {
+    perm.display = 'prompt-with-rationale'
+    expect(await notificationPermission()).toBe('prompt')
+  })
+
+  it('is unsupported on the web', async () => {
+    native.value = false
+    expect(await notificationPermission()).toBe('unsupported')
+  })
+})
+
+describe('phoneNotificationRow', () => {
+  it('shows off for an install that was never asked, even though the setting defaults on', () => {
+    // The original bug: on by default with no prompt, so nothing could arrive.
+    expect(phoneNotificationRow(true, 'prompt').on).toBe(false)
+    expect(phoneNotificationRow(true, 'prompt').description).toContain('Android will ask')
+  })
+
+  it('shows on only when the setting and the permission agree', () => {
+    expect(phoneNotificationRow(true, 'granted').on).toBe(true)
+    expect(phoneNotificationRow(false, 'granted').on).toBe(false)
+    expect(phoneNotificationRow(true, 'denied').on).toBe(false)
+  })
+
+  it('says where to go when Android has blocked it', () => {
+    expect(phoneNotificationRow(true, 'denied').description).toContain('Android settings')
+  })
+
+  it('says a new APK is needed when the plugin is missing', () => {
+    expect(phoneNotificationRow(true, 'unavailable').description).toContain('latest APK')
   })
 })

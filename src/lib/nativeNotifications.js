@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import { isNativeApp } from './nativeAuth'
 
 /**
@@ -34,8 +35,31 @@ export function nativeNotificationsSupported() {
 }
 
 /**
+ * True when the installed APK actually contains the native plugin.
+ *
+ * The WebView loads the deployed web bundle (server.url), so new JS reaches a
+ * phone long before a new APK does. An APK built before the plugin was added
+ * runs this code with no native side: every call rejects as "not implemented",
+ * and without this check that rejection read as "denied" — the toggle showed
+ * on, and once turned off could never be turned back on.
+ */
+function pluginInstalled() {
+  try { return Capacitor.isPluginAvailable('LocalNotifications') } catch { return false }
+}
+
+/**
+ * Collapses the plugin's PermissionState to the four cases the UI acts on.
+ * 'prompt-with-rationale' (Android after one refusal) can still be asked.
+ */
+function normalizePermission(display, fallback) {
+  if (display === 'granted' || display === 'denied') return display
+  if (display === 'prompt' || display === 'prompt-with-rationale') return 'prompt'
+  return fallback
+}
+
+/**
  * Current permission, without prompting: 'granted' | 'denied' | 'prompt' |
- * 'unsupported'.
+ * 'unavailable' (native app, but this APK has no plugin) | 'unsupported'.
  *
  * Checked rather than assumed because Android 13 introduced a runtime prompt
  * for POST_NOTIFICATIONS, so an install that predates a grant is silently
@@ -43,27 +67,55 @@ export function nativeNotificationsSupported() {
  */
 export async function notificationPermission() {
   if (!nativeNotificationsSupported()) return 'unsupported'
+  if (!pluginInstalled()) return 'unavailable'
   const plugin = await loadPlugin()
-  if (!plugin) return 'unsupported'
+  if (!plugin) return 'unavailable'
   try {
     const { display } = await plugin.checkPermissions()
-    return display || 'prompt'
+    return normalizePermission(display, 'prompt')
   } catch {
-    return 'unsupported'
+    return 'unavailable'
   }
 }
 
-/** Prompts if it has not been asked yet. Returns the resulting state. */
+/**
+ * Shows the Android prompt if it can still be shown. Returns the resulting
+ * state; once Android has a permanent refusal it answers 'denied' without any
+ * dialog, and only the system settings can undo that.
+ */
 export async function requestNotificationPermission() {
   if (!nativeNotificationsSupported()) return 'unsupported'
+  if (!pluginInstalled()) return 'unavailable'
   const plugin = await loadPlugin()
-  if (!plugin) return 'unsupported'
+  if (!plugin) return 'unavailable'
   try {
     const { display } = await plugin.requestPermissions()
-    return display || 'denied'
+    return normalizePermission(display, 'denied')
   } catch {
     return 'denied'
   }
+}
+
+/**
+ * What the "Show on Phone" row shows, from our setting and the OS permission.
+ *
+ * On only when both agree. The setting defaults to true, so reading it alone
+ * showed the row on for a fresh install that had never been asked and could
+ * not notify — and tapping that "on" row turned the setting off instead of
+ * asking. With the permission folded in, an un-asked install shows off, and the
+ * tap that turns it on is the one that raises the prompt.
+ */
+export function phoneNotificationRow(enabled, permission) {
+  const on = !!enabled && permission === 'granted'
+  let description = 'Also raise price alerts as notifications on this device.'
+  if (permission === 'denied') {
+    description = 'Blocked in Android settings. Allow notifications for DeckLoom there, then come back here.'
+  } else if (permission === 'unavailable') {
+    description = 'This version of the app cannot post notifications. Install the latest APK to turn this on.'
+  } else if (!on) {
+    description = 'Also raise price alerts as notifications on this device. Android will ask for permission.'
+  }
+  return { on, description }
 }
 
 /**
